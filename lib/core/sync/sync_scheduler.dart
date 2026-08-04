@@ -9,8 +9,13 @@ import 'library_sync.dart';
 ///
 /// The cheap tier of the sync design. `/library/sections` returns `updatedAt`
 /// and `scannedAt` per section in one small response, so asking "has anything
-/// changed?" costs almost nothing and can be asked often. Only when the answer
-/// is yes does a delta sync follow.
+/// changed?" costs almost nothing and can be asked often. When the answer is
+/// yes, a delta sync follows.
+///
+/// Those clocks are not the whole story though — they describe the library's
+/// shape, and a metadata-only edit such as rating an album need not move
+/// either. So a slower [deltaInterval] sweep runs a delta regardless, which is
+/// what catches stars set from Plex's own client.
 ///
 /// This is the safety net beneath the notification socket rather than a
 /// replacement for it: the socket is faster, but it cannot deliver what
@@ -21,8 +26,11 @@ class SyncScheduler {
     required PlexClient client,
     required AppDatabase db,
     this.pollInterval = const Duration(seconds: 30),
+    this.deltaInterval = const Duration(minutes: 5),
+    DateTime Function()? now,
   }) : _client = client,
-       _db = db;
+       _db = db,
+       _now = now ?? DateTime.now;
 
   final PlexClient _client;
   final AppDatabase _db;
@@ -30,6 +38,23 @@ class SyncScheduler {
   /// How often to ask whether anything changed. Cheap enough to be frequent —
   /// one small response, no metadata.
   final Duration pollInterval;
+
+  /// How often to run a delta sync regardless of what the section clocks say.
+  ///
+  /// The section's `updatedAt` and `scannedAt` track the library's *shape* —
+  /// files appearing, a scan running. A metadata-only edit such as rating an
+  /// album from Plex's own client does not reliably move either, so a scheduler
+  /// that trusts them alone will never notice the stars you just set. This
+  /// sweep asks Plex directly for anything newer than our cursor, which catches
+  /// edits the section clocks never advertised.
+  ///
+  /// Slower than [pollInterval] because it costs one request per metadata type
+  /// rather than one in total — still small, since the cursor means the server
+  /// usually has nothing to return.
+  final Duration deltaInterval;
+
+  final DateTime Function() _now;
+  DateTime? _lastDelta;
 
   final _progress = StreamController<SyncProgress>.broadcast();
 
@@ -115,7 +140,8 @@ class SyncScheduler {
         stored.initialSyncComplete &&
         stored.serverClientIdentifier == _client.server.clientIdentifier;
 
-    if (!force && resumable && !_sectionChanged(section, stored)) return;
+    final changed = !resumable || _sectionChanged(section, stored);
+    if (!force && !changed && !_deltaSweepDue()) return;
 
     await for (final update in LibrarySync(client: _client, db: _db).run(
       section,
@@ -124,7 +150,14 @@ class SyncScheduler {
     )) {
       _emit(update);
     }
+    _lastDelta = _now();
     _passes++;
+  }
+
+  /// Whether it is time to sweep for edits the section clocks never announced.
+  bool _deltaSweepDue() {
+    final last = _lastDelta;
+    return last == null || _now().difference(last) >= deltaInterval;
   }
 
   /// Both clocks matter.

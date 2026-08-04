@@ -71,6 +71,12 @@ empty, and a delta sync cannot fill them — Plex's `updatedAt` for a track rate
 has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
 a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
 
+**Is `updatedAt>=` actually honoured by Plex?** The delta sweep now runs every five minutes
+regardless of the section clocks, so if that filter is silently ignored the app would refetch
+the whole library on that cadence rather than a handful of rows. Worth confirming against the
+real server — compare the response size of a listing with and without the parameter. If it is
+ignored, lengthen `SyncScheduler.deltaInterval` and find another filter.
+
 **Verify push sync (#17) against the real server.** Code-complete and covered by tests, but
 the frame shapes came from Plex's documented behaviour, not from a capture. Add a track in
 Plex with the app open and watch it appear without a refresh; delete one and watch it go.

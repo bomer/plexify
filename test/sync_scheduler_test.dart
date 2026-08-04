@@ -29,6 +29,9 @@ void main() {
   /// Albums the server returns from a listing. Empty unless a test cares.
   late List<Map<String, dynamic>> albumsFromServer;
 
+  /// Injected clock, so the slow delta sweep can be reached without waiting.
+  late DateTime clock;
+
   const serverId = 'server-1';
 
   setUp(() {
@@ -38,6 +41,7 @@ void main() {
     albumsFromServer = [];
     sectionUpdatedAt = 100;
     sectionScannedAt = 100;
+    clock = DateTime(2026, 8, 4, 12);
 
     final client = PlexClient(
       server: const PlexServer(
@@ -108,6 +112,7 @@ void main() {
       client: client,
       db: db,
       pollInterval: const Duration(milliseconds: 20),
+      now: () => clock,
     );
   });
 
@@ -156,6 +161,7 @@ void main() {
     await scheduler.start();
     clearRequests();
 
+    // Clock deliberately still, so the slow delta sweep is not yet due.
     await scheduler.wake();
 
     expect(requests, ['/library/sections']);
@@ -202,12 +208,16 @@ void main() {
     },
   );
 
-  test('a rating set in Plex arrives in Favourites', () async {
+  test('a rating set in Plex arrives even with the section clocks still', () async {
     await seedSyncedState();
+    await scheduler.start();
+    clearRequests();
 
-    // Plex bumps the section's updatedAt when an item is rated, which is what
-    // makes the poll notice at all.
-    sectionUpdatedAt = 200;
+    // Deliberately no change to updatedAt or scannedAt. Rating an album in
+    // Plex is a metadata edit: the library's shape is identical, so the section
+    // clocks need not move, and a scheduler that trusted them alone would never
+    // fetch the stars that were just set.
+    clock = clock.add(const Duration(minutes: 6));
     albumsFromServer = [
       {
         'ratingKey': 'b1',
