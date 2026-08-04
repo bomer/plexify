@@ -2,6 +2,9 @@
 
 A fast, clean music client for a Plex library. Windows desktop and Android, one codebase.
 
+The full build plan — decisions, phases, API details and known risks — is in
+[docs/PLAN.md](docs/PLAN.md). This README covers architecture and how to run things.
+
 Built because Plexamp's UI is slow to navigate — this optimises for reaching recent
 playlists, searching, and moving between "now playing" and "finding something else" without
 losing your place. Plex remains the source of truth; plays scrobble back to it.
