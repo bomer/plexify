@@ -1,0 +1,13 @@
+# Normalise line endings to LF in the repository regardless of platform.
+# This project is edited from both Windows and WSL, so without this every file
+# churns between CRLF and LF depending on which side last touched it.
+* text=auto eol=lf
+
+# Binary assets must never be normalised.
+*.png binary
+*.jpg binary
+*.ico binary
+*.ttf binary
+*.otf binary
+*.keystore binary
+*.jks binary
