@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../core/platform/app_window.dart';
 import '../features/library/album_list_screen.dart';
 import '../features/player/mini_player.dart';
 
@@ -30,11 +31,24 @@ class _AppShellState extends State<AppShell> {
 
   @override
   Widget build(BuildContext context) {
-    // A nested Navigator does not receive system back gestures on its own —
-    // without this, Android's back button would exit the app instead of popping
-    // the album screen.
-    return NavigatorPopHandler(
-      onPopWithResult: (_) => _navigatorKey.currentState?.maybePop(),
+    // Back handling has two jobs, and the default gets both wrong for a music
+    // player: a nested Navigator receives no system back gestures at all, and
+    // back at the root route finishes the activity — tearing down the engine
+    // and stopping playback mid-track.
+    //
+    // So: intercept everything. Pop the nested route if there is one, otherwise
+    // minimise to the background and leave the music playing.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        final navigator = _navigatorKey.currentState;
+        if (navigator != null && navigator.canPop()) {
+          navigator.pop();
+        } else {
+          await AppWindow.moveToBackground();
+        }
+      },
       child: Scaffold(
         body: Navigator(
           key: _navigatorKey,

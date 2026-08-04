@@ -31,12 +31,20 @@ Future<PlexifyAudioHandler> initAudio() async {
       androidNotificationChannelId: 'com.jamesotoole.plexify.audio',
       androidNotificationChannelName: 'Playback',
       androidNotificationChannelDescription: 'Music playback controls',
-      // Keep the notification up while playing so Android treats us as a
-      // foreground service and doesn't reclaim us mid-track.
-      androidNotificationOngoing: true,
-      // ...but drop out of the foreground on pause, otherwise the notification
-      // becomes undismissable and users rightly find that obnoxious.
-      androidStopForegroundOnPause: true,
+
+      // Both of these were previously true, which is wrong for a music player.
+      //
+      // androidStopForegroundOnPause: true tears the notification down the
+      // instant you pause — so the lock-screen and quick-settings controls
+      // vanish at exactly the moment you reach for them to resume. Setting it
+      // false keeps the media session visible while paused, which is what every
+      // other music app does.
+      //
+      // androidNotificationOngoing must then be false: audio_service asserts
+      // that ongoing requires stopForegroundOnPause, and an ongoing
+      // notification that survives pausing would be undismissable.
+      androidNotificationOngoing: false,
+      androidStopForegroundOnPause: false,
     ),
   );
 }
