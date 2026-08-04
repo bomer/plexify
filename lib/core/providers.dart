@@ -126,8 +126,19 @@ final albumSortProvider = StateProvider<AlbumSort>(
 final albumsProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
   final db = ref.watch(databaseProvider);
   final sort = ref.watch(albumSortProvider);
+  final favouritesOnly = ref.watch(albumFavouritesOnlyProvider);
 
-  await for (final rows in db.watchAlbums(sort: sort)) {
+  await for (final rows in db.watchAlbums(
+    sort: sort,
+    favouritesOnly: favouritesOnly,
+  )) {
+    // The live fallback is unfiltered, so it must not stand in for an empty
+    // favourites result — "no favourites yet" is a real answer, not a cold
+    // cache.
+    if (favouritesOnly) {
+      yield rows.map((r) => r.toDomain()).toList();
+      continue;
+    }
     if (rows.isEmpty) {
       final fallback = await ref.read(albumsFallbackProvider.future);
       if (fallback.isNotEmpty) {
@@ -135,6 +146,25 @@ final albumsProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
         continue;
       }
     }
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// Whether the album grid is filtered to favourites.
+final albumFavouritesOnlyProvider = StateProvider<bool>((ref) => false);
+
+/// Favourite albums — four stars or better.
+final favouriteAlbumsProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchFavouriteAlbums()) {
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// Favourite tracks — four stars or better.
+final favouriteTracksProvider = StreamProvider<List<PlexTrack>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchFavouriteTracks()) {
     yield rows.map((r) => r.toDomain()).toList();
   }
 });
@@ -279,6 +309,22 @@ final playlistTracksProvider = StreamProvider.family<List<PlexTrack>, String>((
     unawaited(_revalidatePlaylist(db, client, playlistRatingKey));
   }
 
+  // Smart playlist contents are generated server-side from rules and change
+  // without an updatedAt bump, so a cached copy goes stale silently. Wait for
+  // the refresh rather than showing what we had last time.
+  final row = await (db.select(
+    db.playlists,
+  )..where((p) => p.ratingKey.equals(playlistRatingKey))).getSingleOrNull();
+
+  if ((row?.smart ?? false) && client != null) {
+    try {
+      final live = await client.playlistItems(playlistRatingKey);
+      if (live.isNotEmpty) yield live;
+    } on Object {
+      // Fall through to whatever is cached.
+    }
+  }
+
   await for (final rows in db.watchPlaylistTracks(playlistRatingKey)) {
     if (rows.isEmpty && client != null) {
       final live = await client.playlistItems(playlistRatingKey);
@@ -325,6 +371,7 @@ Future<void> _revalidatePlaylist(
             updatedAt: Value(t.updatedAt),
             addedAt: Value(t.addedAt),
             lastViewedAt: Value(t.lastViewedAt),
+            userRating: Value(t.userRating),
           ),
         ),
       );
@@ -410,6 +457,7 @@ Future<void> _revalidateAlbumTracks(
             updatedAt: Value(t.updatedAt),
             addedAt: Value(t.addedAt),
             lastViewedAt: Value(t.lastViewedAt),
+            userRating: Value(t.userRating),
           ),
         ),
       );

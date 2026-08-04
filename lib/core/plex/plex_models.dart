@@ -130,7 +130,12 @@ class PlexPlaylist {
     this.durationMs,
     this.updatedAt,
     this.lastViewedAt,
+    this.smart = false,
   });
+
+  /// True for Plex smart playlists, whose contents are generated from rules
+  /// rather than fixed.
+  final bool smart;
 
   final String ratingKey;
   final String title;
@@ -155,6 +160,7 @@ class PlexPlaylist {
       durationMs: _int(json['duration']),
       updatedAt: _int(json['updatedAt']),
       lastViewedAt: _int(json['lastViewedAt']),
+      smart: _bool(json['smart']),
     );
   }
 }
@@ -198,10 +204,14 @@ class PlexAlbum {
     this.addedAt,
     this.updatedAt,
     this.lastViewedAt,
+    this.userRating,
   });
 
   final String ratingKey;
   final String title;
+
+  /// 0–10, or null when unrated. See [PlexRating].
+  final int? userRating;
 
   /// Plex exposes the album artist as `parentTitle`.
   final String artist;
@@ -235,6 +245,7 @@ class PlexAlbum {
       addedAt: _int(json['addedAt']),
       updatedAt: _int(json['updatedAt']),
       lastViewedAt: _int(json['lastViewedAt']),
+      userRating: _int(json['userRating']),
     );
   }
 }
@@ -256,6 +267,7 @@ class PlexTrack {
     this.updatedAt,
     this.addedAt,
     this.lastViewedAt,
+    this.userRating,
   });
 
   /// `parentRatingKey` — links the track to its album row.
@@ -267,6 +279,9 @@ class PlexTrack {
   final int? updatedAt;
   final int? addedAt;
   final int? lastViewedAt;
+
+  /// 0–10, or null when unrated. See [PlexRating].
+  final int? userRating;
 
   final String ratingKey;
   final String title;
@@ -333,8 +348,40 @@ class PlexTrack {
       updatedAt: _int(json['updatedAt']),
       addedAt: _int(json['addedAt']),
       lastViewedAt: _int(json['lastViewedAt']),
+      userRating: _int(json['userRating']),
     );
   }
+}
+
+/// Star ratings.
+///
+/// Plex stores `userRating` on a 0–10 scale where 10 is five stars, and omits
+/// the field entirely when nothing has been set. There is no separate
+/// "favourite" concept for music — a favourite is simply a highly rated item.
+abstract final class PlexRating {
+  /// Plex's raw value for one star.
+  static const perStar = 2;
+
+  static const maxStars = 5;
+
+  /// At or above this, an item counts as a favourite. Four stars.
+  static const favouriteThreshold = 8;
+
+  /// Sent to Plex to remove a rating.
+  ///
+  /// Not 0 — that stores an explicit zero-star rating, which is a distinct
+  /// state and would still match rating filters.
+  static const clear = -1;
+
+  static int fromStars(int stars) => stars.clamp(0, maxStars) * perStar;
+
+  /// Rounds to the nearest whole star. Plex permits half-star values, and
+  /// ratings set by other clients may use them, so they must not be discarded.
+  static int toStars(int? rating) =>
+      rating == null ? 0 : (rating / perStar).round().clamp(0, maxStars);
+
+  static bool isFavourite(int? rating) =>
+      rating != null && rating >= favouriteThreshold;
 }
 
 // ---------------------------------------------------------------------------

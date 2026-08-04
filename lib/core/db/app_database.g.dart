@@ -553,6 +553,17 @@ class $AlbumsTable extends Albums with TableInfo<$AlbumsTable, Album> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _userRatingMeta = const VerificationMeta(
+    'userRating',
+  );
+  @override
+  late final GeneratedColumn<int> userRating = GeneratedColumn<int>(
+    'user_rating',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     ratingKey,
@@ -567,6 +578,7 @@ class $AlbumsTable extends Albums with TableInfo<$AlbumsTable, Album> {
     addedAt,
     lastViewedAt,
     mbid,
+    userRating,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -677,6 +689,12 @@ class $AlbumsTable extends Albums with TableInfo<$AlbumsTable, Album> {
         mbid.isAcceptableOrUnknown(data['mbid']!, _mbidMeta),
       );
     }
+    if (data.containsKey('user_rating')) {
+      context.handle(
+        _userRatingMeta,
+        userRating.isAcceptableOrUnknown(data['user_rating']!, _userRatingMeta),
+      );
+    }
     return context;
   }
 
@@ -734,6 +752,10 @@ class $AlbumsTable extends Albums with TableInfo<$AlbumsTable, Album> {
         DriftSqlType.string,
         data['${effectivePrefix}mbid'],
       ),
+      userRating: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}user_rating'],
+      ),
     );
   }
 
@@ -768,6 +790,10 @@ class Album extends DataClass implements Insertable<Album> {
   /// search tier. Where it is null, matching falls back to
   /// [normalisedArtist] + [normalisedTitle].
   final String? mbid;
+
+  /// Plex `userRating`, 0–10, null when unrated. Indexed because the Favourites
+  /// view and filters query on it.
+  final int? userRating;
   const Album({
     required this.ratingKey,
     required this.title,
@@ -781,6 +807,7 @@ class Album extends DataClass implements Insertable<Album> {
     this.addedAt,
     this.lastViewedAt,
     this.mbid,
+    this.userRating,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -811,6 +838,9 @@ class Album extends DataClass implements Insertable<Album> {
     if (!nullToAbsent || mbid != null) {
       map['mbid'] = Variable<String>(mbid);
     }
+    if (!nullToAbsent || userRating != null) {
+      map['user_rating'] = Variable<int>(userRating);
+    }
     return map;
   }
 
@@ -838,6 +868,9 @@ class Album extends DataClass implements Insertable<Album> {
           ? const Value.absent()
           : Value(lastViewedAt),
       mbid: mbid == null && nullToAbsent ? const Value.absent() : Value(mbid),
+      userRating: userRating == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userRating),
     );
   }
 
@@ -859,6 +892,7 @@ class Album extends DataClass implements Insertable<Album> {
       addedAt: serializer.fromJson<int?>(json['addedAt']),
       lastViewedAt: serializer.fromJson<int?>(json['lastViewedAt']),
       mbid: serializer.fromJson<String?>(json['mbid']),
+      userRating: serializer.fromJson<int?>(json['userRating']),
     );
   }
   @override
@@ -877,6 +911,7 @@ class Album extends DataClass implements Insertable<Album> {
       'addedAt': serializer.toJson<int?>(addedAt),
       'lastViewedAt': serializer.toJson<int?>(lastViewedAt),
       'mbid': serializer.toJson<String?>(mbid),
+      'userRating': serializer.toJson<int?>(userRating),
     };
   }
 
@@ -893,6 +928,7 @@ class Album extends DataClass implements Insertable<Album> {
     Value<int?> addedAt = const Value.absent(),
     Value<int?> lastViewedAt = const Value.absent(),
     Value<String?> mbid = const Value.absent(),
+    Value<int?> userRating = const Value.absent(),
   }) => Album(
     ratingKey: ratingKey ?? this.ratingKey,
     title: title ?? this.title,
@@ -908,6 +944,7 @@ class Album extends DataClass implements Insertable<Album> {
     addedAt: addedAt.present ? addedAt.value : this.addedAt,
     lastViewedAt: lastViewedAt.present ? lastViewedAt.value : this.lastViewedAt,
     mbid: mbid.present ? mbid.value : this.mbid,
+    userRating: userRating.present ? userRating.value : this.userRating,
   );
   Album copyWithCompanion(AlbumsCompanion data) {
     return Album(
@@ -933,6 +970,9 @@ class Album extends DataClass implements Insertable<Album> {
           ? data.lastViewedAt.value
           : this.lastViewedAt,
       mbid: data.mbid.present ? data.mbid.value : this.mbid,
+      userRating: data.userRating.present
+          ? data.userRating.value
+          : this.userRating,
     );
   }
 
@@ -950,7 +990,8 @@ class Album extends DataClass implements Insertable<Album> {
           ..write('updatedAt: $updatedAt, ')
           ..write('addedAt: $addedAt, ')
           ..write('lastViewedAt: $lastViewedAt, ')
-          ..write('mbid: $mbid')
+          ..write('mbid: $mbid, ')
+          ..write('userRating: $userRating')
           ..write(')'))
         .toString();
   }
@@ -969,6 +1010,7 @@ class Album extends DataClass implements Insertable<Album> {
     addedAt,
     lastViewedAt,
     mbid,
+    userRating,
   );
   @override
   bool operator ==(Object other) =>
@@ -985,7 +1027,8 @@ class Album extends DataClass implements Insertable<Album> {
           other.updatedAt == this.updatedAt &&
           other.addedAt == this.addedAt &&
           other.lastViewedAt == this.lastViewedAt &&
-          other.mbid == this.mbid);
+          other.mbid == this.mbid &&
+          other.userRating == this.userRating);
 }
 
 class AlbumsCompanion extends UpdateCompanion<Album> {
@@ -1001,6 +1044,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
   final Value<int?> addedAt;
   final Value<int?> lastViewedAt;
   final Value<String?> mbid;
+  final Value<int?> userRating;
   final Value<int> rowid;
   const AlbumsCompanion({
     this.ratingKey = const Value.absent(),
@@ -1015,6 +1059,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
     this.addedAt = const Value.absent(),
     this.lastViewedAt = const Value.absent(),
     this.mbid = const Value.absent(),
+    this.userRating = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   AlbumsCompanion.insert({
@@ -1030,6 +1075,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
     this.addedAt = const Value.absent(),
     this.lastViewedAt = const Value.absent(),
     this.mbid = const Value.absent(),
+    this.userRating = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : ratingKey = Value(ratingKey),
        title = Value(title),
@@ -1049,6 +1095,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
     Expression<int>? addedAt,
     Expression<int>? lastViewedAt,
     Expression<String>? mbid,
+    Expression<int>? userRating,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1064,6 +1111,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
       if (addedAt != null) 'added_at': addedAt,
       if (lastViewedAt != null) 'last_viewed_at': lastViewedAt,
       if (mbid != null) 'mbid': mbid,
+      if (userRating != null) 'user_rating': userRating,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1081,6 +1129,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
     Value<int?>? addedAt,
     Value<int?>? lastViewedAt,
     Value<String?>? mbid,
+    Value<int?>? userRating,
     Value<int>? rowid,
   }) {
     return AlbumsCompanion(
@@ -1096,6 +1145,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
       addedAt: addedAt ?? this.addedAt,
       lastViewedAt: lastViewedAt ?? this.lastViewedAt,
       mbid: mbid ?? this.mbid,
+      userRating: userRating ?? this.userRating,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -1139,6 +1189,9 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
     if (mbid.present) {
       map['mbid'] = Variable<String>(mbid.value);
     }
+    if (userRating.present) {
+      map['user_rating'] = Variable<int>(userRating.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -1160,6 +1213,7 @@ class AlbumsCompanion extends UpdateCompanion<Album> {
           ..write('addedAt: $addedAt, ')
           ..write('lastViewedAt: $lastViewedAt, ')
           ..write('mbid: $mbid, ')
+          ..write('userRating: $userRating, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -1336,6 +1390,17 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _userRatingMeta = const VerificationMeta(
+    'userRating',
+  );
+  @override
+  late final GeneratedColumn<int> userRating = GeneratedColumn<int>(
+    'user_rating',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     ratingKey,
@@ -1353,6 +1418,7 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
     updatedAt,
     addedAt,
     lastViewedAt,
+    userRating,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -1474,6 +1540,12 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
         ),
       );
     }
+    if (data.containsKey('user_rating')) {
+      context.handle(
+        _userRatingMeta,
+        userRating.isAcceptableOrUnknown(data['user_rating']!, _userRatingMeta),
+      );
+    }
     return context;
   }
 
@@ -1543,6 +1615,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
         DriftSqlType.int,
         data['${effectivePrefix}last_viewed_at'],
       ),
+      userRating: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}user_rating'],
+      ),
     );
   }
 
@@ -1576,6 +1652,9 @@ class Track extends DataClass implements Insertable<Track> {
   final int? updatedAt;
   final int? addedAt;
   final int? lastViewedAt;
+
+  /// Plex `userRating`, 0–10, null when unrated.
+  final int? userRating;
   const Track({
     required this.ratingKey,
     required this.title,
@@ -1592,6 +1671,7 @@ class Track extends DataClass implements Insertable<Track> {
     this.updatedAt,
     this.addedAt,
     this.lastViewedAt,
+    this.userRating,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -1626,6 +1706,9 @@ class Track extends DataClass implements Insertable<Track> {
     }
     if (!nullToAbsent || lastViewedAt != null) {
       map['last_viewed_at'] = Variable<int>(lastViewedAt);
+    }
+    if (!nullToAbsent || userRating != null) {
+      map['user_rating'] = Variable<int>(userRating);
     }
     return map;
   }
@@ -1663,6 +1746,9 @@ class Track extends DataClass implements Insertable<Track> {
       lastViewedAt: lastViewedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(lastViewedAt),
+      userRating: userRating == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userRating),
     );
   }
 
@@ -1687,6 +1773,7 @@ class Track extends DataClass implements Insertable<Track> {
       updatedAt: serializer.fromJson<int?>(json['updatedAt']),
       addedAt: serializer.fromJson<int?>(json['addedAt']),
       lastViewedAt: serializer.fromJson<int?>(json['lastViewedAt']),
+      userRating: serializer.fromJson<int?>(json['userRating']),
     );
   }
   @override
@@ -1708,6 +1795,7 @@ class Track extends DataClass implements Insertable<Track> {
       'updatedAt': serializer.toJson<int?>(updatedAt),
       'addedAt': serializer.toJson<int?>(addedAt),
       'lastViewedAt': serializer.toJson<int?>(lastViewedAt),
+      'userRating': serializer.toJson<int?>(userRating),
     };
   }
 
@@ -1727,6 +1815,7 @@ class Track extends DataClass implements Insertable<Track> {
     Value<int?> updatedAt = const Value.absent(),
     Value<int?> addedAt = const Value.absent(),
     Value<int?> lastViewedAt = const Value.absent(),
+    Value<int?> userRating = const Value.absent(),
   }) => Track(
     ratingKey: ratingKey ?? this.ratingKey,
     title: title ?? this.title,
@@ -1745,6 +1834,7 @@ class Track extends DataClass implements Insertable<Track> {
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     addedAt: addedAt.present ? addedAt.value : this.addedAt,
     lastViewedAt: lastViewedAt.present ? lastViewedAt.value : this.lastViewedAt,
+    userRating: userRating.present ? userRating.value : this.userRating,
   );
   Track copyWithCompanion(TracksCompanion data) {
     return Track(
@@ -1777,6 +1867,9 @@ class Track extends DataClass implements Insertable<Track> {
       lastViewedAt: data.lastViewedAt.present
           ? data.lastViewedAt.value
           : this.lastViewedAt,
+      userRating: data.userRating.present
+          ? data.userRating.value
+          : this.userRating,
     );
   }
 
@@ -1797,7 +1890,8 @@ class Track extends DataClass implements Insertable<Track> {
           ..write('thumb: $thumb, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('addedAt: $addedAt, ')
-          ..write('lastViewedAt: $lastViewedAt')
+          ..write('lastViewedAt: $lastViewedAt, ')
+          ..write('userRating: $userRating')
           ..write(')'))
         .toString();
   }
@@ -1819,6 +1913,7 @@ class Track extends DataClass implements Insertable<Track> {
     updatedAt,
     addedAt,
     lastViewedAt,
+    userRating,
   );
   @override
   bool operator ==(Object other) =>
@@ -1838,7 +1933,8 @@ class Track extends DataClass implements Insertable<Track> {
           other.thumb == this.thumb &&
           other.updatedAt == this.updatedAt &&
           other.addedAt == this.addedAt &&
-          other.lastViewedAt == this.lastViewedAt);
+          other.lastViewedAt == this.lastViewedAt &&
+          other.userRating == this.userRating);
 }
 
 class TracksCompanion extends UpdateCompanion<Track> {
@@ -1857,6 +1953,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
   final Value<int?> updatedAt;
   final Value<int?> addedAt;
   final Value<int?> lastViewedAt;
+  final Value<int?> userRating;
   final Value<int> rowid;
   const TracksCompanion({
     this.ratingKey = const Value.absent(),
@@ -1874,6 +1971,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     this.updatedAt = const Value.absent(),
     this.addedAt = const Value.absent(),
     this.lastViewedAt = const Value.absent(),
+    this.userRating = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   TracksCompanion.insert({
@@ -1892,6 +1990,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     this.updatedAt = const Value.absent(),
     this.addedAt = const Value.absent(),
     this.lastViewedAt = const Value.absent(),
+    this.userRating = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : ratingKey = Value(ratingKey),
        title = Value(title),
@@ -1912,6 +2011,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     Expression<int>? updatedAt,
     Expression<int>? addedAt,
     Expression<int>? lastViewedAt,
+    Expression<int>? userRating,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -1930,6 +2030,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
       if (updatedAt != null) 'updated_at': updatedAt,
       if (addedAt != null) 'added_at': addedAt,
       if (lastViewedAt != null) 'last_viewed_at': lastViewedAt,
+      if (userRating != null) 'user_rating': userRating,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -1950,6 +2051,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     Value<int?>? updatedAt,
     Value<int?>? addedAt,
     Value<int?>? lastViewedAt,
+    Value<int?>? userRating,
     Value<int>? rowid,
   }) {
     return TracksCompanion(
@@ -1968,6 +2070,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
       updatedAt: updatedAt ?? this.updatedAt,
       addedAt: addedAt ?? this.addedAt,
       lastViewedAt: lastViewedAt ?? this.lastViewedAt,
+      userRating: userRating ?? this.userRating,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2020,6 +2123,9 @@ class TracksCompanion extends UpdateCompanion<Track> {
     if (lastViewedAt.present) {
       map['last_viewed_at'] = Variable<int>(lastViewedAt.value);
     }
+    if (userRating.present) {
+      map['user_rating'] = Variable<int>(userRating.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2044,6 +2150,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
           ..write('updatedAt: $updatedAt, ')
           ..write('addedAt: $addedAt, ')
           ..write('lastViewedAt: $lastViewedAt, ')
+          ..write('userRating: $userRating, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -2141,6 +2248,19 @@ class $PlaylistsTable extends Playlists
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _smartMeta = const VerificationMeta('smart');
+  @override
+  late final GeneratedColumn<bool> smart = GeneratedColumn<bool>(
+    'smart',
+    aliasedName,
+    false,
+    type: DriftSqlType.bool,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'CHECK ("smart" IN (0, 1))',
+    ),
+    defaultValue: const Constant(false),
+  );
   @override
   List<GeneratedColumn> get $columns => [
     ratingKey,
@@ -2151,6 +2271,7 @@ class $PlaylistsTable extends Playlists
     durationMs,
     updatedAt,
     lastViewedAt,
+    smart,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -2224,6 +2345,12 @@ class $PlaylistsTable extends Playlists
         ),
       );
     }
+    if (data.containsKey('smart')) {
+      context.handle(
+        _smartMeta,
+        smart.isAcceptableOrUnknown(data['smart']!, _smartMeta),
+      );
+    }
     return context;
   }
 
@@ -2265,6 +2392,10 @@ class $PlaylistsTable extends Playlists
         DriftSqlType.int,
         data['${effectivePrefix}last_viewed_at'],
       ),
+      smart: attachedDatabase.typeMapping.read(
+        DriftSqlType.bool,
+        data['${effectivePrefix}smart'],
+      )!,
     );
   }
 
@@ -2286,6 +2417,13 @@ class Playlist extends DataClass implements Insertable<Playlist> {
   /// Indexed because the sidebar lists playlists by most recently played,
   /// which was a headline requirement.
   final int? lastViewedAt;
+
+  /// True for Plex smart playlists.
+  ///
+  /// Their contents are computed server-side and change without an `updatedAt`
+  /// bump, so a cached copy goes stale silently — these must be revalidated on
+  /// open rather than served cache-first.
+  final bool smart;
   const Playlist({
     required this.ratingKey,
     required this.title,
@@ -2295,6 +2433,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     this.durationMs,
     this.updatedAt,
     this.lastViewedAt,
+    required this.smart,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -2315,6 +2454,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     if (!nullToAbsent || lastViewedAt != null) {
       map['last_viewed_at'] = Variable<int>(lastViewedAt);
     }
+    map['smart'] = Variable<bool>(smart);
     return map;
   }
 
@@ -2336,6 +2476,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       lastViewedAt: lastViewedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(lastViewedAt),
+      smart: Value(smart),
     );
   }
 
@@ -2353,6 +2494,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       durationMs: serializer.fromJson<int?>(json['durationMs']),
       updatedAt: serializer.fromJson<int?>(json['updatedAt']),
       lastViewedAt: serializer.fromJson<int?>(json['lastViewedAt']),
+      smart: serializer.fromJson<bool>(json['smart']),
     );
   }
   @override
@@ -2367,6 +2509,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       'durationMs': serializer.toJson<int?>(durationMs),
       'updatedAt': serializer.toJson<int?>(updatedAt),
       'lastViewedAt': serializer.toJson<int?>(lastViewedAt),
+      'smart': serializer.toJson<bool>(smart),
     };
   }
 
@@ -2379,6 +2522,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     Value<int?> durationMs = const Value.absent(),
     Value<int?> updatedAt = const Value.absent(),
     Value<int?> lastViewedAt = const Value.absent(),
+    bool? smart,
   }) => Playlist(
     ratingKey: ratingKey ?? this.ratingKey,
     title: title ?? this.title,
@@ -2388,6 +2532,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     durationMs: durationMs.present ? durationMs.value : this.durationMs,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     lastViewedAt: lastViewedAt.present ? lastViewedAt.value : this.lastViewedAt,
+    smart: smart ?? this.smart,
   );
   Playlist copyWithCompanion(PlaylistsCompanion data) {
     return Playlist(
@@ -2405,6 +2550,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
       lastViewedAt: data.lastViewedAt.present
           ? data.lastViewedAt.value
           : this.lastViewedAt,
+      smart: data.smart.present ? data.smart.value : this.smart,
     );
   }
 
@@ -2418,7 +2564,8 @@ class Playlist extends DataClass implements Insertable<Playlist> {
           ..write('itemCount: $itemCount, ')
           ..write('durationMs: $durationMs, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('lastViewedAt: $lastViewedAt')
+          ..write('lastViewedAt: $lastViewedAt, ')
+          ..write('smart: $smart')
           ..write(')'))
         .toString();
   }
@@ -2433,6 +2580,7 @@ class Playlist extends DataClass implements Insertable<Playlist> {
     durationMs,
     updatedAt,
     lastViewedAt,
+    smart,
   );
   @override
   bool operator ==(Object other) =>
@@ -2445,7 +2593,8 @@ class Playlist extends DataClass implements Insertable<Playlist> {
           other.itemCount == this.itemCount &&
           other.durationMs == this.durationMs &&
           other.updatedAt == this.updatedAt &&
-          other.lastViewedAt == this.lastViewedAt);
+          other.lastViewedAt == this.lastViewedAt &&
+          other.smart == this.smart);
 }
 
 class PlaylistsCompanion extends UpdateCompanion<Playlist> {
@@ -2457,6 +2606,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
   final Value<int?> durationMs;
   final Value<int?> updatedAt;
   final Value<int?> lastViewedAt;
+  final Value<bool> smart;
   final Value<int> rowid;
   const PlaylistsCompanion({
     this.ratingKey = const Value.absent(),
@@ -2467,6 +2617,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     this.durationMs = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.lastViewedAt = const Value.absent(),
+    this.smart = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   PlaylistsCompanion.insert({
@@ -2478,6 +2629,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     this.durationMs = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.lastViewedAt = const Value.absent(),
+    this.smart = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : ratingKey = Value(ratingKey),
        title = Value(title),
@@ -2491,6 +2643,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     Expression<int>? durationMs,
     Expression<int>? updatedAt,
     Expression<int>? lastViewedAt,
+    Expression<bool>? smart,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -2502,6 +2655,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
       if (durationMs != null) 'duration_ms': durationMs,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (lastViewedAt != null) 'last_viewed_at': lastViewedAt,
+      if (smart != null) 'smart': smart,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -2515,6 +2669,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     Value<int?>? durationMs,
     Value<int?>? updatedAt,
     Value<int?>? lastViewedAt,
+    Value<bool>? smart,
     Value<int>? rowid,
   }) {
     return PlaylistsCompanion(
@@ -2526,6 +2681,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
       durationMs: durationMs ?? this.durationMs,
       updatedAt: updatedAt ?? this.updatedAt,
       lastViewedAt: lastViewedAt ?? this.lastViewedAt,
+      smart: smart ?? this.smart,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -2557,6 +2713,9 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
     if (lastViewedAt.present) {
       map['last_viewed_at'] = Variable<int>(lastViewedAt.value);
     }
+    if (smart.present) {
+      map['smart'] = Variable<bool>(smart.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -2574,6 +2733,7 @@ class PlaylistsCompanion extends UpdateCompanion<Playlist> {
           ..write('durationMs: $durationMs, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('lastViewedAt: $lastViewedAt, ')
+          ..write('smart: $smart, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3430,6 +3590,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'idx_albums_added',
     'CREATE INDEX idx_albums_added ON albums (added_at)',
   );
+  late final Index idxAlbumsRating = Index(
+    'idx_albums_rating',
+    'CREATE INDEX idx_albums_rating ON albums (user_rating)',
+  );
   late final Index idxTracksNorm = Index(
     'idx_tracks_norm',
     'CREATE INDEX idx_tracks_norm ON tracks (normalised_title)',
@@ -3462,6 +3626,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     idxAlbumsNormArtist,
     idxAlbumsArtistKey,
     idxAlbumsAdded,
+    idxAlbumsRating,
     idxTracksNorm,
     idxTracksAlbum,
     idxPlaylistsViewed,
@@ -3698,6 +3863,7 @@ typedef $$AlbumsTableCreateCompanionBuilder =
       Value<int?> addedAt,
       Value<int?> lastViewedAt,
       Value<String?> mbid,
+      Value<int?> userRating,
       Value<int> rowid,
     });
 typedef $$AlbumsTableUpdateCompanionBuilder =
@@ -3714,6 +3880,7 @@ typedef $$AlbumsTableUpdateCompanionBuilder =
       Value<int?> addedAt,
       Value<int?> lastViewedAt,
       Value<String?> mbid,
+      Value<int?> userRating,
       Value<int> rowid,
     });
 
@@ -3783,6 +3950,11 @@ class $$AlbumsTableFilterComposer
 
   ColumnFilters<String> get mbid => $composableBuilder(
     column: $table.mbid,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get userRating => $composableBuilder(
+    column: $table.userRating,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -3855,6 +4027,11 @@ class $$AlbumsTableOrderingComposer
     column: $table.mbid,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get userRating => $composableBuilder(
+    column: $table.userRating,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$AlbumsTableAnnotationComposer
@@ -3911,6 +4088,11 @@ class $$AlbumsTableAnnotationComposer
 
   GeneratedColumn<String> get mbid =>
       $composableBuilder(column: $table.mbid, builder: (column) => column);
+
+  GeneratedColumn<int> get userRating => $composableBuilder(
+    column: $table.userRating,
+    builder: (column) => column,
+  );
 }
 
 class $$AlbumsTableTableManager
@@ -3953,6 +4135,7 @@ class $$AlbumsTableTableManager
                 Value<int?> addedAt = const Value.absent(),
                 Value<int?> lastViewedAt = const Value.absent(),
                 Value<String?> mbid = const Value.absent(),
+                Value<int?> userRating = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => AlbumsCompanion(
                 ratingKey: ratingKey,
@@ -3967,6 +4150,7 @@ class $$AlbumsTableTableManager
                 addedAt: addedAt,
                 lastViewedAt: lastViewedAt,
                 mbid: mbid,
+                userRating: userRating,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -3983,6 +4167,7 @@ class $$AlbumsTableTableManager
                 Value<int?> addedAt = const Value.absent(),
                 Value<int?> lastViewedAt = const Value.absent(),
                 Value<String?> mbid = const Value.absent(),
+                Value<int?> userRating = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => AlbumsCompanion.insert(
                 ratingKey: ratingKey,
@@ -3997,6 +4182,7 @@ class $$AlbumsTableTableManager
                 addedAt: addedAt,
                 lastViewedAt: lastViewedAt,
                 mbid: mbid,
+                userRating: userRating,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -4038,6 +4224,7 @@ typedef $$TracksTableCreateCompanionBuilder =
       Value<int?> updatedAt,
       Value<int?> addedAt,
       Value<int?> lastViewedAt,
+      Value<int?> userRating,
       Value<int> rowid,
     });
 typedef $$TracksTableUpdateCompanionBuilder =
@@ -4057,6 +4244,7 @@ typedef $$TracksTableUpdateCompanionBuilder =
       Value<int?> updatedAt,
       Value<int?> addedAt,
       Value<int?> lastViewedAt,
+      Value<int?> userRating,
       Value<int> rowid,
     });
 
@@ -4141,6 +4329,11 @@ class $$TracksTableFilterComposer
 
   ColumnFilters<int> get lastViewedAt => $composableBuilder(
     column: $table.lastViewedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get userRating => $composableBuilder(
+    column: $table.userRating,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -4228,6 +4421,11 @@ class $$TracksTableOrderingComposer
     column: $table.lastViewedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get userRating => $composableBuilder(
+    column: $table.userRating,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$TracksTableAnnotationComposer
@@ -4297,6 +4495,11 @@ class $$TracksTableAnnotationComposer
     column: $table.lastViewedAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get userRating => $composableBuilder(
+    column: $table.userRating,
+    builder: (column) => column,
+  );
 }
 
 class $$TracksTableTableManager
@@ -4342,6 +4545,7 @@ class $$TracksTableTableManager
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> addedAt = const Value.absent(),
                 Value<int?> lastViewedAt = const Value.absent(),
+                Value<int?> userRating = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TracksCompanion(
                 ratingKey: ratingKey,
@@ -4359,6 +4563,7 @@ class $$TracksTableTableManager
                 updatedAt: updatedAt,
                 addedAt: addedAt,
                 lastViewedAt: lastViewedAt,
+                userRating: userRating,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4378,6 +4583,7 @@ class $$TracksTableTableManager
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> addedAt = const Value.absent(),
                 Value<int?> lastViewedAt = const Value.absent(),
+                Value<int?> userRating = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => TracksCompanion.insert(
                 ratingKey: ratingKey,
@@ -4395,6 +4601,7 @@ class $$TracksTableTableManager
                 updatedAt: updatedAt,
                 addedAt: addedAt,
                 lastViewedAt: lastViewedAt,
+                userRating: userRating,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0
@@ -4429,6 +4636,7 @@ typedef $$PlaylistsTableCreateCompanionBuilder =
       Value<int?> durationMs,
       Value<int?> updatedAt,
       Value<int?> lastViewedAt,
+      Value<bool> smart,
       Value<int> rowid,
     });
 typedef $$PlaylistsTableUpdateCompanionBuilder =
@@ -4441,6 +4649,7 @@ typedef $$PlaylistsTableUpdateCompanionBuilder =
       Value<int?> durationMs,
       Value<int?> updatedAt,
       Value<int?> lastViewedAt,
+      Value<bool> smart,
       Value<int> rowid,
     });
 
@@ -4490,6 +4699,11 @@ class $$PlaylistsTableFilterComposer
 
   ColumnFilters<int> get lastViewedAt => $composableBuilder(
     column: $table.lastViewedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<bool> get smart => $composableBuilder(
+    column: $table.smart,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -4542,6 +4756,11 @@ class $$PlaylistsTableOrderingComposer
     column: $table.lastViewedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<bool> get smart => $composableBuilder(
+    column: $table.smart,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$PlaylistsTableAnnotationComposer
@@ -4582,6 +4801,9 @@ class $$PlaylistsTableAnnotationComposer
     column: $table.lastViewedAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<bool> get smart =>
+      $composableBuilder(column: $table.smart, builder: (column) => column);
 }
 
 class $$PlaylistsTableTableManager
@@ -4620,6 +4842,7 @@ class $$PlaylistsTableTableManager
                 Value<int?> durationMs = const Value.absent(),
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> lastViewedAt = const Value.absent(),
+                Value<bool> smart = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PlaylistsCompanion(
                 ratingKey: ratingKey,
@@ -4630,6 +4853,7 @@ class $$PlaylistsTableTableManager
                 durationMs: durationMs,
                 updatedAt: updatedAt,
                 lastViewedAt: lastViewedAt,
+                smart: smart,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4642,6 +4866,7 @@ class $$PlaylistsTableTableManager
                 Value<int?> durationMs = const Value.absent(),
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> lastViewedAt = const Value.absent(),
+                Value<bool> smart = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => PlaylistsCompanion.insert(
                 ratingKey: ratingKey,
@@ -4652,6 +4877,7 @@ class $$PlaylistsTableTableManager
                 durationMs: durationMs,
                 updatedAt: updatedAt,
                 lastViewedAt: lastViewedAt,
+                smart: smart,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

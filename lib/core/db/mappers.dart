@@ -18,6 +18,7 @@ extension AlbumRowMapper on Album {
     addedAt: addedAt,
     updatedAt: updatedAt,
     lastViewedAt: lastViewedAt,
+    userRating: userRating,
   );
 }
 
@@ -37,6 +38,7 @@ extension TrackRowMapper on Track {
     updatedAt: updatedAt,
     addedAt: addedAt,
     lastViewedAt: lastViewedAt,
+    userRating: userRating,
   );
 }
 
@@ -49,6 +51,7 @@ extension PlaylistRowMapper on Playlist {
     durationMs: durationMs,
     updatedAt: updatedAt,
     lastViewedAt: lastViewedAt,
+    smart: smart,
   );
 }
 

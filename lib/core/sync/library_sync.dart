@@ -199,6 +199,7 @@ class LibrarySync {
               durationMs: Value(p.durationMs),
               updatedAt: Value(p.updatedAt),
               lastViewedAt: Value(p.lastViewedAt),
+              smart: Value(p.smart),
             ),
           ),
         );
@@ -243,6 +244,7 @@ class LibrarySync {
             updatedAt: Value(a.updatedAt),
             addedAt: Value(a.addedAt),
             lastViewedAt: Value(a.lastViewedAt),
+            userRating: Value(a.userRating),
           ),
         ),
       );
@@ -270,6 +272,7 @@ class LibrarySync {
             updatedAt: Value(t.updatedAt),
             addedAt: Value(t.addedAt),
             lastViewedAt: Value(t.lastViewedAt),
+            userRating: Value(t.userRating),
           ),
         ),
       );

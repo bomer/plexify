@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../player/playback_controller.dart';
+import 'rating_controller.dart';
+import 'star_rating.dart';
 
 /// Track list for one album. Tapping a track replaces the queue and plays from
 /// that point — the flat replace semantics agreed for v1.
@@ -60,9 +62,31 @@ class AlbumDetailScreen extends ConsumerWidget {
                       'Unavailable',
                       style: TextStyle(color: theme.colorScheme.error),
                     ),
-              trailing: Text(
-                _formatDuration(track.duration),
-                style: theme.textTheme.bodySmall,
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  StarRating(
+                    rating: track.userRating,
+                    size: 15,
+                    onRate: (stars) async {
+                      final ok = await ref
+                          .read(ratingControllerProvider)
+                          ?.rateTrack(track, stars);
+                      if (ok == false && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text('Could not save rating to Plex'),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatDuration(track.duration),
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ],
               ),
               enabled: track.isPlayable,
               onTap: () {
@@ -131,7 +155,39 @@ class _Header extends ConsumerWidget {
                   const SizedBox(height: 2),
                   Text('${album.year}', style: theme.textTheme.bodySmall),
                 ],
-                const SizedBox(height: 12),
+                const SizedBox(height: 6),
+
+                // Reads the album back out of the cache so the stars reflect
+                // the optimistic write immediately, rather than the snapshot
+                // this screen was pushed with.
+                Consumer(
+                  builder: (context, ref, _) {
+                    final live =
+                        ref
+                            .watch(albumsProvider)
+                            .valueOrNull
+                            ?.where((a) => a.ratingKey == album.ratingKey)
+                            .firstOrNull ??
+                        album;
+
+                    return StarRating(
+                      rating: live.userRating,
+                      onRate: (stars) async {
+                        final controller = ref.read(ratingControllerProvider);
+                        final ok = await controller?.rateAlbum(live, stars);
+                        if (ok == false && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Could not save rating to Plex'),
+                            ),
+                          );
+                        }
+                      },
+                    );
+                  },
+                ),
+
+                const SizedBox(height: 10),
                 FilledButton.icon(
                   icon: const Icon(Icons.play_arrow),
                   label: const Text('Play'),

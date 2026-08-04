@@ -126,6 +126,34 @@ class PlexClient {
     );
   }
 
+  /// Sets or clears an item's star rating.
+  ///
+  /// [rating] is Plex's 0–10 scale. Pass [PlexRating.clear] to unrate — Plex
+  /// treats -1 as "remove", whereas 0 would store an explicit zero-star rating,
+  /// which is a different thing and would then match rating filters.
+  ///
+  /// Works for tracks, albums and artists; they all share the endpoint.
+  Future<void> rate(String ratingKey, int rating) async {
+    final uri = Uri.parse('${_server.baseUrl}/:/rate').replace(
+      queryParameters: {
+        'identifier': 'com.plexapp.plugins.library',
+        'key': ratingKey,
+        'rating': '$rating',
+      },
+    );
+
+    final response = await _http.put(
+      uri,
+      headers: _identity.headers(token: _server.token),
+    );
+
+    if (response.statusCode >= 400) {
+      throw PlexClientException(
+        'Could not save your rating (HTTP ${response.statusCode})',
+      );
+    }
+  }
+
   /// One artist's albums, via the metadata children endpoint.
   Future<List<PlexAlbum>> albumsForArtist(String artistRatingKey) async {
     final container = await _getContainer(

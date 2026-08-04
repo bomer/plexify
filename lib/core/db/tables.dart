@@ -31,6 +31,7 @@ class Artists extends Table {
 @TableIndex(name: 'idx_albums_norm_artist', columns: {#normalisedArtist})
 @TableIndex(name: 'idx_albums_artist_key', columns: {#artistRatingKey})
 @TableIndex(name: 'idx_albums_added', columns: {#addedAt})
+@TableIndex(name: 'idx_albums_rating', columns: {#userRating})
 class Albums extends Table {
   TextColumn get ratingKey => text()();
   TextColumn get title => text()();
@@ -57,6 +58,10 @@ class Albums extends Table {
   /// search tier. Where it is null, matching falls back to
   /// [normalisedArtist] + [normalisedTitle].
   TextColumn get mbid => text().nullable()();
+
+  /// Plex `userRating`, 0–10, null when unrated. Indexed because the Favourites
+  /// view and filters query on it.
+  IntColumn get userRating => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {ratingKey};
@@ -92,6 +97,9 @@ class Tracks extends Table {
   IntColumn get addedAt => integer().nullable()();
   IntColumn get lastViewedAt => integer().nullable()();
 
+  /// Plex `userRating`, 0–10, null when unrated.
+  IntColumn get userRating => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {ratingKey};
 }
@@ -109,6 +117,13 @@ class Playlists extends Table {
   /// Indexed because the sidebar lists playlists by most recently played,
   /// which was a headline requirement.
   IntColumn get lastViewedAt => integer().nullable()();
+
+  /// True for Plex smart playlists.
+  ///
+  /// Their contents are computed server-side and change without an `updatedAt`
+  /// bump, so a cached copy goes stale silently — these must be revalidated on
+  /// open rather than served cache-first.
+  BoolColumn get smart => boolean().withDefault(const Constant(false))();
 
   @override
   Set<Column> get primaryKey => {ratingKey};

@@ -1,6 +1,7 @@
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
+import '../plex/plex_models.dart' show PlexRating;
 import 'tables.dart';
 
 part 'app_database.g.dart';
@@ -23,12 +24,26 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
     onCreate: (m) async {
       await m.createAll();
+    },
+    onUpgrade: (m, from, to) async {
+      // v2 adds ratings and the smart-playlist flag.
+      //
+      // Migrated rather than recreated deliberately: an existing install has a
+      // fully synced library, and dropping it would mean sitting through
+      // another full sync for the sake of three nullable columns. The new
+      // columns simply start empty and fill on the next delta sync.
+      if (from < 2) {
+        await m.addColumn(albums, albums.userRating);
+        await m.addColumn(tracks, tracks.userRating);
+        await m.addColumn(playlists, playlists.smart);
+        await m.createIndex(idxAlbumsRating);
+      }
     },
     beforeOpen: (details) async {
       // Off by default in SQLite; without it the playlist and album foreign
@@ -42,20 +57,28 @@ class AppDatabase extends _$AppDatabase {
   /// Returns a stream rather than a future so the grid repopulates on its own
   /// as sync writes pages in — no manual invalidation, and the library visibly
   /// fills on first run instead of appearing all at once at the end.
-  Stream<List<Album>> watchAlbums({AlbumSort sort = AlbumSort.recentlyAdded}) {
-    final query = select(albums)
-      ..orderBy(switch (sort) {
-        AlbumSort.recentlyAdded => [
-          (a) => OrderingTerm.desc(a.addedAt),
-          (a) => OrderingTerm.asc(a.normalisedTitle),
-        ],
-        AlbumSort.title => [(a) => OrderingTerm.asc(a.normalisedTitle)],
-        AlbumSort.artist => [
-          (a) => OrderingTerm.asc(a.normalisedArtist),
-          (a) => OrderingTerm.asc(a.year),
-          (a) => OrderingTerm.asc(a.normalisedTitle),
-        ],
-      });
+  Stream<List<Album>> watchAlbums({
+    AlbumSort sort = AlbumSort.recentlyAdded,
+    bool favouritesOnly = false,
+  }) {
+    final query = select(albums);
+    if (favouritesOnly) {
+      query.where(
+        (a) => a.userRating.isBiggerOrEqualValue(PlexRating.favouriteThreshold),
+      );
+    }
+    query.orderBy(switch (sort) {
+      AlbumSort.recentlyAdded => [
+        (a) => OrderingTerm.desc(a.addedAt),
+        (a) => OrderingTerm.asc(a.normalisedTitle),
+      ],
+      AlbumSort.title => [(a) => OrderingTerm.asc(a.normalisedTitle)],
+      AlbumSort.artist => [
+        (a) => OrderingTerm.asc(a.normalisedArtist),
+        (a) => OrderingTerm.asc(a.year),
+        (a) => OrderingTerm.asc(a.normalisedTitle),
+      ],
+    });
     return query.watch();
   }
 
@@ -68,6 +91,52 @@ class AppDatabase extends _$AppDatabase {
         (t) => OrderingTerm.asc(t.trackIndex),
       ]);
     return query.watch();
+  }
+
+  /// Favourite albums — four stars or better — best rated first.
+  Stream<List<Album>> watchFavouriteAlbums({int? limit}) {
+    final query = select(albums)
+      ..where(
+        (a) => a.userRating.isBiggerOrEqualValue(PlexRating.favouriteThreshold),
+      )
+      ..orderBy([
+        (a) => OrderingTerm.desc(a.userRating),
+        (a) => OrderingTerm.asc(a.normalisedArtist),
+        (a) => OrderingTerm.asc(a.year),
+      ]);
+    if (limit != null) query.limit(limit);
+    return query.watch();
+  }
+
+  /// Favourite tracks — four stars or better.
+  Stream<List<Track>> watchFavouriteTracks({int? limit}) {
+    final query = select(tracks)
+      ..where(
+        (t) => t.userRating.isBiggerOrEqualValue(PlexRating.favouriteThreshold),
+      )
+      ..orderBy([
+        (t) => OrderingTerm.desc(t.userRating),
+        (t) => OrderingTerm.asc(t.artistTitle),
+      ]);
+    if (limit != null) query.limit(limit);
+    return query.watch();
+  }
+
+  /// Applies a rating locally.
+  ///
+  /// Called before the server request so the star fills instantly; the caller
+  /// reverts on failure. A rating that only appears after a network round trip
+  /// feels broken, and this is a gesture people repeat quickly.
+  Future<void> setAlbumRating(String ratingKey, int? rating) async {
+    await (update(albums)..where((a) => a.ratingKey.equals(ratingKey))).write(
+      AlbumsCompanion(userRating: Value(rating)),
+    );
+  }
+
+  Future<void> setTrackRating(String ratingKey, int? rating) async {
+    await (update(tracks)..where((t) => t.ratingKey.equals(ratingKey))).write(
+      TracksCompanion(userRating: Value(rating)),
+    );
   }
 
   /// Artists, alphabetically by normalised name.

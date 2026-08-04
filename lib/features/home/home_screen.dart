@@ -36,6 +36,13 @@ class HomeScreen extends ConsumerWidget {
                   hideWhenEmpty: true,
                 ),
                 _Shelf(title: 'Recently added', albums: recentlyAdded),
+                _Shelf(
+                  title: 'Favourites',
+                  albums: ref.watch(favouriteAlbumsProvider),
+                  // Nothing rated yet is the normal state on day one, and an
+                  // empty row would read as broken rather than unused.
+                  hideWhenEmpty: true,
+                ),
               ],
             ),
           ),
