@@ -248,6 +248,17 @@ final artistAlbumsProvider = StreamProvider.family<List<PlexAlbum>, String>((
   }
 });
 
+/// Every track by an artist, in discography order.
+final artistTracksProvider = StreamProvider.family<List<PlexTrack>, String>((
+  ref,
+  artistRatingKey,
+) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchTracksForArtist(artistRatingKey)) {
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
 /// Playlists, most recently played first.
 ///
 /// Falls through to a live Plex read while the cache is empty, for the same

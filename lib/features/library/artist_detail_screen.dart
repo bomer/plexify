@@ -6,6 +6,8 @@ import '../../core/providers.dart';
 import '../player/playback_controller.dart';
 import 'album_detail_screen.dart';
 import 'artwork.dart';
+import 'rating_controller.dart';
+import 'star_rating.dart';
 
 /// An artist's discography, oldest first.
 class ArtistDetailScreen extends ConsumerWidget {
@@ -99,6 +101,11 @@ class ArtistDetailScreen extends ConsumerWidget {
                   itemBuilder: (context, i) => _AlbumCard(album: items[i]),
                 ),
               ),
+
+            // Every track, flat, underneath the albums. For an artist you only
+            // have a handful of songs by, scrolling to the track you want beats
+            // guessing which album it was on.
+            _TrackList(artistRatingKey: artist.ratingKey),
           ],
         ),
       ),
@@ -119,6 +126,89 @@ class ArtistDetailScreen extends ConsumerWidget {
       tracks.addAll(await ref.read(tracksProvider(album.ratingKey).future));
     }
     if (tracks.isNotEmpty) await controller.playTracks(tracks);
+  }
+}
+
+/// All of an artist's tracks, in discography order.
+class _TrackList extends ConsumerWidget {
+  const _TrackList({required this.artistRatingKey});
+
+  final String artistRatingKey;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final tracks =
+        ref.watch(artistTracksProvider(artistRatingKey)).valueOrNull ??
+        const <PlexTrack>[];
+
+    if (tracks.isEmpty) return const SliverToBoxAdapter();
+
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                Text('Tracks', style: theme.textTheme.titleSmall),
+                const SizedBox(width: 8),
+                Text(
+                  '${tracks.length}',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        SliverList.builder(
+          itemCount: tracks.length,
+          itemBuilder: (context, i) {
+            final track = tracks[i];
+            return ListTile(
+              dense: true,
+              title: Text(
+                track.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              subtitle: Text(
+                track.album,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+              trailing: StarRating(
+                rating: track.userRating,
+                size: 15,
+                onRate: (stars) async {
+                  final ok = await ref
+                      .read(ratingControllerProvider)
+                      ?.rateTrack(track, stars);
+                  if (ok == false && context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Could not save rating to Plex'),
+                      ),
+                    );
+                  }
+                },
+              ),
+              enabled: track.isPlayable,
+              // Queues the whole discography from here, so playing one track
+              // keeps going through the rest rather than stopping dead.
+              onTap: () => ref
+                  .read(playbackControllerProvider)
+                  ?.playTracks(tracks, startIndex: i),
+            );
+          },
+        ),
+
+        const SliverToBoxAdapter(child: SizedBox(height: 16)),
+      ],
+    );
   }
 }
 

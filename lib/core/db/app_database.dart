@@ -164,6 +164,39 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
+  /// Every track by an artist, in discography order.
+  ///
+  /// Joined through albums rather than read off a column on the track: Plex's
+  /// `grandparentRatingKey` would be more direct, but adding it would mean a
+  /// migration plus a full resync before existing caches had any values. The
+  /// join gives the same answer from data already stored.
+  ///
+  /// Ordered album-chronologically then by disc and track, so it reads as a
+  /// discography rather than an arbitrary pile.
+  Stream<List<Track>> watchTracksForArtist(String artistRatingKey) {
+    final query =
+        select(tracks).join([
+            innerJoin(
+              albums,
+              albums.ratingKey.equalsExp(tracks.albumRatingKey),
+            ),
+          ])
+          ..where(albums.artistRatingKey.equals(artistRatingKey))
+          ..orderBy([
+            OrderingTerm(
+              expression: albums.year,
+              mode: OrderingMode.asc,
+              nulls: NullsOrder.last,
+            ),
+            OrderingTerm.asc(tracks.discIndex),
+            OrderingTerm.asc(tracks.trackIndex),
+          ]);
+
+    return query.watch().map(
+      (rows) => rows.map((r) => r.readTable(tracks)).toList(),
+    );
+  }
+
   /// Playlists, most recently played first.
   ///
   /// Plex leaves `lastViewedAt` null on playlists that have never been played,

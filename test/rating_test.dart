@@ -140,7 +140,12 @@ void main() {
     });
 
     test('favourites query returns only four stars and above', () async {
-      for (final (key, rating) in [('1', 10), ('2', 8), ('3', 6), ('4', null)]) {
+      for (final (key, rating) in [
+        ('1', 10),
+        ('2', 8),
+        ('3', 6),
+        ('4', null),
+      ]) {
         await db
             .into(db.albums)
             .insert(
@@ -164,7 +169,9 @@ void main() {
   group('smart playlists', () {
     test('parses the smart flag Plex sends as a string', () {
       final smart = PlexPlaylist.fromJson(
-        jsonDecode('{"ratingKey": "1", "title": "Recently Added", "smart": "1"}')
+        jsonDecode(
+              '{"ratingKey": "1", "title": "Recently Added", "smart": "1"}',
+            )
             as Map<String, dynamic>,
       );
       final manual = PlexPlaylist.fromJson(
