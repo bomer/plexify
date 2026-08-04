@@ -53,10 +53,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
         );
       }
 
-      final token = await auth.waitForToken(
-        pin,
-        isCancelled: () => _cancelled,
-      );
+      final token = await auth.waitForToken(pin, isCancelled: () => _cancelled);
       if (!mounted) return;
 
       // Publishing the token cascades through the provider graph: discovery

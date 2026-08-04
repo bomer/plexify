@@ -7,6 +7,7 @@ import 'plex/plex_client.dart';
 import 'plex/plex_identity.dart';
 import 'plex/plex_models.dart';
 import 'plex/plex_server.dart';
+import 'sync/library_sync.dart';
 
 /// The application's provider graph.
 ///
@@ -20,11 +21,13 @@ import 'plex/plex_server.dart';
 /// half-initialised audio engine.
 
 final plexIdentityProvider = Provider<PlexIdentity>(
-  (ref) => throw StateError('plexIdentityProvider must be overridden in main()'),
+  (ref) =>
+      throw StateError('plexIdentityProvider must be overridden in main()'),
 );
 
 final audioHandlerProvider = Provider<PlexifyAudioHandler>(
-  (ref) => throw StateError('audioHandlerProvider must be overridden in main()'),
+  (ref) =>
+      throw StateError('audioHandlerProvider must be overridden in main()'),
 );
 
 /// The local library cache.
@@ -111,6 +114,41 @@ final albumsProvider = FutureProvider<List<PlexAlbum>>((ref) async {
   final section = await ref.watch(musicSectionProvider.future);
   if (client == null || section == null) return const [];
   return client.albums(section.key);
+});
+
+/// Runs the library sync and reports progress.
+///
+/// Starts as soon as a server and music section are available, and resumes
+/// rather than restarts: if a previous run finished, only rows changed since
+/// its cursor are fetched; if it was interrupted, `initialSyncComplete` is
+/// still false and the full pass runs again.
+///
+/// Deliberately not awaited by anything — browsing must never block on sync.
+final librarySyncProvider = StreamProvider<SyncProgress>((ref) async* {
+  final client = ref.watch(plexClientProvider);
+  if (client == null) return;
+
+  final section = await ref.watch(musicSectionProvider.future);
+  if (section == null) return;
+
+  final db = ref.watch(databaseProvider);
+
+  final existing = await (db.select(
+    db.syncState,
+  )..where((s) => s.sectionKey.equals(section.key))).getSingleOrNull();
+
+  // Only trust the delta cursor if a full pass previously completed against
+  // this same server. Otherwise start from scratch.
+  final resumable =
+      existing != null &&
+      existing.initialSyncComplete &&
+      existing.serverClientIdentifier == client.server.clientIdentifier;
+
+  yield* LibrarySync(client: client, db: db).run(
+    section,
+    serverClientIdentifier: client.server.clientIdentifier,
+    minUpdatedAt: resumable ? existing.lastSyncedUpdatedAt : 0,
+  );
 });
 
 /// Tracks for one album, keyed by its ratingKey.

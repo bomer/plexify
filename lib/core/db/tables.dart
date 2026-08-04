@@ -137,7 +137,8 @@ class SyncState extends Table {
 
   /// Our clock: the newest `updatedAt` we have successfully stored. Delta sync
   /// asks Plex only for rows at or after this.
-  IntColumn get lastSyncedUpdatedAt => integer().withDefault(const Constant(0))();
+  IntColumn get lastSyncedUpdatedAt =>
+      integer().withDefault(const Constant(0))();
 
   /// Plex's clock, from `/library/sections`. Comparing these two is the cheap
   /// change-detection tier — one small response tells us whether a delta sync

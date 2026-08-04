@@ -84,7 +84,11 @@ class AlbumDetailScreen extends ConsumerWidget {
 }
 
 class _Header extends ConsumerWidget {
-  const _Header({required this.album, required this.artUrl, required this.theme});
+  const _Header({
+    required this.album,
+    required this.artUrl,
+    required this.theme,
+  });
 
   final PlexAlbum album;
   final String? artUrl;

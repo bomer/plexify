@@ -117,15 +117,45 @@ class PlexSection {
   }
 }
 
+/// An artist. Plex calls these type=8 metadata items.
+class PlexArtist {
+  const PlexArtist({
+    required this.ratingKey,
+    required this.title,
+    this.thumb,
+    this.updatedAt,
+    this.addedAt,
+  });
+
+  final String ratingKey;
+  final String title;
+  final String? thumb;
+  final int? updatedAt;
+  final int? addedAt;
+
+  factory PlexArtist.fromJson(Map<String, dynamic> json) {
+    return PlexArtist(
+      ratingKey: _str(json['ratingKey']) ?? '',
+      title: _str(json['title']) ?? 'Unknown artist',
+      thumb: _str(json['thumb']),
+      updatedAt: _int(json['updatedAt']),
+      addedAt: _int(json['addedAt']),
+    );
+  }
+}
+
 /// An album. Plex calls these type=9 metadata items.
 class PlexAlbum {
   const PlexAlbum({
     required this.ratingKey,
     required this.title,
     required this.artist,
+    this.artistRatingKey,
     this.thumb,
     this.year,
     this.addedAt,
+    this.updatedAt,
+    this.lastViewedAt,
   });
 
   final String ratingKey;
@@ -133,6 +163,16 @@ class PlexAlbum {
 
   /// Plex exposes the album artist as `parentTitle`.
   final String artist;
+
+  /// `parentRatingKey` — links the album to its artist row.
+  final String? artistRatingKey;
+
+  /// Bumped whenever Plex changes the item. Delta sync asks only for rows at
+  /// or after the last value we stored.
+  final int? updatedAt;
+
+  /// Drives "recently played".
+  final int? lastViewedAt;
 
   /// Relative path, e.g. `/library/metadata/1234/thumb/1699999999`. Must be run
   /// through the photo transcoder with a token before it can be displayed —
@@ -147,9 +187,12 @@ class PlexAlbum {
       ratingKey: _str(json['ratingKey']) ?? '',
       title: _str(json['title']) ?? 'Unknown album',
       artist: _str(json['parentTitle']) ?? 'Unknown artist',
+      artistRatingKey: _str(json['parentRatingKey']),
       thumb: _str(json['thumb']),
       year: _int(json['year']),
       addedAt: _int(json['addedAt']),
+      updatedAt: _int(json['updatedAt']),
+      lastViewedAt: _int(json['lastViewedAt']),
     );
   }
 }
@@ -163,10 +206,25 @@ class PlexTrack {
     required this.durationMs,
     required this.album,
     required this.artist,
+    this.albumRatingKey,
+    this.discIndex,
     this.partKey,
     this.container,
     this.thumb,
+    this.updatedAt,
+    this.addedAt,
+    this.lastViewedAt,
   });
+
+  /// `parentRatingKey` — links the track to its album row.
+  final String? albumRatingKey;
+
+  /// `parentIndex` — disc number on multi-disc releases.
+  final int? discIndex;
+
+  final int? updatedAt;
+  final int? addedAt;
+  final int? lastViewedAt;
 
   final String ratingKey;
   final String title;
@@ -223,10 +281,16 @@ class PlexTrack {
       index: _int(json['index']) ?? 0,
       durationMs: _int(json['duration']) ?? 0,
       album: _str(json['parentTitle']) ?? '',
-      artist: _str(json['grandparentTitle']) ?? _str(json['originalTitle']) ?? '',
+      artist:
+          _str(json['grandparentTitle']) ?? _str(json['originalTitle']) ?? '',
+      albumRatingKey: _str(json['parentRatingKey']),
+      discIndex: _int(json['parentIndex']),
       partKey: partKey,
       container: container,
       thumb: _str(json['thumb']) ?? _str(json['parentThumb']),
+      updatedAt: _int(json['updatedAt']),
+      addedAt: _int(json['addedAt']),
+      lastViewedAt: _int(json['lastViewedAt']),
     );
   }
 }

@@ -6,6 +6,17 @@ import 'plex_identity.dart';
 import 'plex_models.dart';
 import 'plex_server.dart';
 
+/// One page of results, with the total the server reports.
+///
+/// [totalSize] is what makes a real progress indicator possible — without it a
+/// first sync of tens of thousands of tracks can only show a spinner.
+class PlexPage<T> {
+  const PlexPage({required this.items, required this.totalSize});
+
+  final List<T> items;
+  final int totalSize;
+}
+
 /// Plex Media Server API client.
 ///
 /// Everything here talks to a specific server via [PlexServer.baseUrl]. Account
@@ -74,6 +85,47 @@ class PlexClient {
     return _listOf(container, 'Metadata').map(PlexAlbum.fromJson).toList();
   }
 
+  /// One page of a section's contents, for bulk sync.
+  ///
+  /// Sorted by `addedAt` ascending and paginated by container headers. Ordering
+  /// matters: a stable sort means an interrupted sync can resume from an offset
+  /// without skipping or repeating rows, which a default (unspecified) order
+  /// would not guarantee.
+  ///
+  /// [minUpdatedAt] restricts the page to rows Plex changed at or after that
+  /// timestamp, which is what turns this into a delta sync rather than a full
+  /// one.
+  Future<PlexPage<T>> sectionPage<T>(
+    String sectionKey, {
+    required int type,
+    required T Function(Map<String, dynamic>) parse,
+    int start = 0,
+    int size = 200,
+    int? minUpdatedAt,
+  }) async {
+    final container = await _getContainer(
+      '/library/sections/$sectionKey/all',
+      query: {
+        'type': '$type',
+        'sort': 'addedAt:asc',
+        if (minUpdatedAt != null && minUpdatedAt > 0)
+          'updatedAt>=': '$minUpdatedAt',
+      },
+      extraHeaders: {
+        'X-Plex-Container-Start': '$start',
+        'X-Plex-Container-Size': '$size',
+      },
+    );
+
+    return PlexPage<T>(
+      items: _listOf(container, 'Metadata').map(parse).toList(),
+      // totalSize appears when container headers are used; fall back to size
+      // so a server that omits it still terminates the loop correctly.
+      totalSize:
+          _asInt(container['totalSize']) ?? _asInt(container['size']) ?? 0,
+    );
+  }
+
   /// Tracks on an album, in disc/track order as Plex returns them.
   Future<List<PlexTrack>> tracks(String albumRatingKey) async {
     final container = await _getContainer(
@@ -113,9 +165,9 @@ class PlexClient {
   String? directPlayUrl(PlexTrack track) {
     final partKey = track.partKey;
     if (partKey == null || partKey.isEmpty) return null;
-    final uri = Uri.parse('${_server.baseUrl}$partKey').replace(
-      queryParameters: {'X-Plex-Token': _server.token},
-    );
+    final uri = Uri.parse(
+      '${_server.baseUrl}$partKey',
+    ).replace(queryParameters: {'X-Plex-Token': _server.token});
     return uri.toString();
   }
 
@@ -158,6 +210,12 @@ class PlexClient {
       throw PlexClientException('No MediaContainer in response from $path');
     }
     return container;
+  }
+
+  static int? _asInt(dynamic v) {
+    if (v is int) return v;
+    if (v is String) return int.tryParse(v);
+    return null;
   }
 
   /// Plex omits list keys entirely when empty rather than returning `[]`, so an

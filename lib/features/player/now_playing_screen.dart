@@ -168,7 +168,10 @@ class _TrackInfo extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          [item.artist, item.album].where((s) => s != null && s.isNotEmpty).join(' — '),
+          [
+            item.artist,
+            item.album,
+          ].where((s) => s != null && s.isNotEmpty).join(' — '),
           textAlign: TextAlign.center,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
@@ -209,7 +212,10 @@ class _SeekBarState extends State<_SeekBar> {
       stream: widget.handler.player.positionStream,
       builder: (context, snapshot) {
         final position = snapshot.data ?? Duration.zero;
-        final positionMs = position.inMilliseconds.toDouble().clamp(0.0, totalMs);
+        final positionMs = position.inMilliseconds.toDouble().clamp(
+          0.0,
+          totalMs,
+        );
         final value = _dragValue ?? positionMs;
 
         return Column(

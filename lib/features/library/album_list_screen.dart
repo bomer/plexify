@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import 'album_detail_screen.dart';
+import 'sync_banner.dart';
 
 /// Album grid. Phase 1 fetches straight from Plex on every visit; Phase 2 puts
 /// the drift cache behind [albumsProvider] so this stops being network-bound.
@@ -25,35 +26,47 @@ class AlbumListScreen extends ConsumerWidget {
           ),
         ],
       ),
-      body: albums.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => _ErrorView(
-          message: '$error',
-          onRetry: () => ref.invalidate(albumsProvider),
-        ),
-        data: (items) {
-          if (items.isEmpty) {
-            return const _ErrorView(message: 'No albums found in this library.');
-          }
-          return RefreshIndicator(
-            onRefresh: () async => ref.invalidate(albumsProvider),
-            child: GridView.builder(
-              padding: const EdgeInsets.all(16),
-              gridDelegate:
-                  const SliverGridDelegateWithMaxCrossAxisExtent(
-                    // Sizing by extent rather than a fixed column count means
-                    // the same grid works on a phone and a wide desktop window.
-                    maxCrossAxisExtent: 200,
-                    childAspectRatio: 0.75,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
-                  ),
-              itemCount: items.length,
-              itemBuilder: (context, i) => _AlbumTile(album: items[i]),
-            ),
-          );
-        },
+      body: Column(
+        children: [
+          const SyncBanner(),
+          Expanded(child: _body(context, ref, albums)),
+        ],
       ),
+    );
+  }
+
+  Widget _body(
+    BuildContext context,
+    WidgetRef ref,
+    AsyncValue<List<PlexAlbum>> albums,
+  ) {
+    return albums.when(
+      loading: () => const Center(child: CircularProgressIndicator()),
+      error: (error, _) => _ErrorView(
+        message: '$error',
+        onRetry: () => ref.invalidate(albumsProvider),
+      ),
+      data: (items) {
+        if (items.isEmpty) {
+          return const _ErrorView(message: 'No albums found in this library.');
+        }
+        return RefreshIndicator(
+          onRefresh: () async => ref.invalidate(albumsProvider),
+          child: GridView.builder(
+            padding: const EdgeInsets.all(16),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              // Sizing by extent rather than a fixed column count means
+              // the same grid works on a phone and a wide desktop window.
+              maxCrossAxisExtent: 200,
+              childAspectRatio: 0.75,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+            ),
+            itemCount: items.length,
+            itemBuilder: (context, i) => _AlbumTile(album: items[i]),
+          ),
+        );
+      },
     );
   }
 }

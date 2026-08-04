@@ -28,7 +28,8 @@ void main() {
             }
           ]
         }
-        ''') as Map<String, dynamic>,
+        ''')
+            as Map<String, dynamic>,
       );
 
       expect(track.partKey, '/library/parts/9931/1699887/file.flac');
@@ -43,7 +44,8 @@ void main() {
       final track = PlexTrack.fromJson(
         jsonDecode('''
         {"ratingKey": "1", "title": "Orphaned", "Media": [{"container": "mp3"}]}
-        ''') as Map<String, dynamic>,
+        ''')
+            as Map<String, dynamic>,
       );
 
       expect(track.isPlayable, isFalse);
@@ -66,7 +68,8 @@ void main() {
       final track = PlexTrack.fromJson(
         jsonDecode('''
         {"ratingKey": 99, "title": "Coerced", "index": "7", "duration": "1000"}
-        ''') as Map<String, dynamic>,
+        ''')
+            as Map<String, dynamic>,
       );
 
       expect(track.ratingKey, '99');
@@ -86,7 +89,8 @@ void main() {
           "year": 2000,
           "thumb": "/library/metadata/45820/thumb/1699887"
         }
-        ''') as Map<String, dynamic>,
+        ''')
+            as Map<String, dynamic>,
       );
 
       expect(album.title, 'Kid A');
@@ -140,7 +144,8 @@ void main() {
             {"uri": "https://relay.plex.direct:443",              "local": false, "relay": true}
           ]
         }
-        ''') as Map<String, dynamic>,
+        ''')
+            as Map<String, dynamic>,
       );
 
       expect(resource.isServer, isTrue);
@@ -167,7 +172,8 @@ void main() {
           "name": "Tower", "clientIdentifier": "abc", "provides": "server", "owned": 1,
           "connections": [{"uri": "https://x:32400", "local": 1, "relay": 0}]
         }
-        ''') as Map<String, dynamic>,
+        ''')
+            as Map<String, dynamic>,
       );
 
       expect(resource.owned, isTrue);

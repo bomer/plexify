@@ -35,28 +35,30 @@ void main() {
     expect(stored.mbid, isNull);
   });
 
-  test('ratingKey is the primary key, so re-syncing an item replaces it',
-      () async {
-    Future<void> upsert(String title) => db
-        .into(db.albums)
-        .insertOnConflictUpdate(
-          AlbumsCompanion.insert(
-            ratingKey: '1',
-            title: title,
-            normalisedTitle: normalise(title),
-            artistTitle: 'Radiohead',
-            normalisedArtist: normalise('Radiohead'),
-          ),
-        );
+  test(
+    'ratingKey is the primary key, so re-syncing an item replaces it',
+    () async {
+      Future<void> upsert(String title) => db
+          .into(db.albums)
+          .insertOnConflictUpdate(
+            AlbumsCompanion.insert(
+              ratingKey: '1',
+              title: title,
+              normalisedTitle: normalise(title),
+              artistTitle: 'Radiohead',
+              normalisedArtist: normalise('Radiohead'),
+            ),
+          );
 
-    await upsert('Kid A');
-    await upsert('Kid A (Remastered)');
+      await upsert('Kid A');
+      await upsert('Kid A (Remastered)');
 
-    // A delta sync re-delivering a changed row must update it, not duplicate.
-    final all = await db.select(db.albums).get();
-    expect(all, hasLength(1));
-    expect(all.single.title, 'Kid A (Remastered)');
-  });
+      // A delta sync re-delivering a changed row must update it, not duplicate.
+      final all = await db.select(db.albums).get();
+      expect(all, hasLength(1));
+      expect(all.single.title, 'Kid A (Remastered)');
+    },
+  );
 
   test('normalised columns support prefix search', () async {
     for (final (key, title) in [
@@ -91,7 +93,9 @@ void main() {
   });
 
   test('playlist items keep explicit ordering', () async {
-    await db.into(db.playlists).insert(
+    await db
+        .into(db.playlists)
+        .insert(
           PlaylistsCompanion.insert(
             ratingKey: 'p1',
             title: 'Focus',
@@ -100,7 +104,9 @@ void main() {
         );
 
     for (final (position, track) in [(2, 'c'), (0, 'a'), (1, 'b')]) {
-      await db.into(db.playlistItems).insert(
+      await db
+          .into(db.playlistItems)
+          .insert(
             PlaylistItemsCompanion.insert(
               playlistRatingKey: 'p1',
               trackRatingKey: track,
@@ -118,14 +124,18 @@ void main() {
   });
 
   test('clearLibrary empties every table', () async {
-    await db.into(db.artists).insert(
+    await db
+        .into(db.artists)
+        .insert(
           ArtistsCompanion.insert(
             ratingKey: 'a1',
             title: 'Radiohead',
             normalisedTitle: normalise('Radiohead'),
           ),
         );
-    await db.into(db.syncState).insert(
+    await db
+        .into(db.syncState)
+        .insert(
           SyncStateCompanion.insert(
             sectionKey: '3',
             serverClientIdentifier: 'server-abc',
@@ -141,7 +151,9 @@ void main() {
   });
 
   test('sync state defaults mark the initial sync incomplete', () async {
-    await db.into(db.syncState).insert(
+    await db
+        .into(db.syncState)
+        .insert(
           SyncStateCompanion.insert(
             sectionKey: '3',
             serverClientIdentifier: 'server-abc',

@@ -14,9 +14,17 @@ class PlexServer {
     required this.token,
     required this.isLocal,
     required this.isRelay,
+    this.clientIdentifier = '',
   });
 
   final String name;
+
+  /// Stable per-server id from plex.tv.
+  ///
+  /// The local cache is keyed on this: Plex ratingKeys are unique only within a
+  /// server, so connecting to a different one must invalidate the cache rather
+  /// than blend two libraries.
+  final String clientIdentifier;
 
   /// Origin only, no trailing slash — e.g. `https://192-168-1-10.abc.plex.direct:32400`.
   final String baseUrl;
@@ -109,6 +117,7 @@ class PlexDiscovery {
           token: token,
           isLocal: winner.local,
           isRelay: winner.relay,
+          clientIdentifier: resource.clientIdentifier,
         );
       }
     }
