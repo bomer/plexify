@@ -27,6 +27,10 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
+  // Bound to this window, because that is what the OS hands media keys to.
+  media_controls_ = std::make_unique<MediaControls>(
+      GetHandle(), flutter_controller_->engine()->messenger());
+
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
   });
@@ -40,6 +44,9 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  // Released before the engine: it holds a channel onto the messenger.
+  media_controls_ = nullptr;
+
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -65,6 +72,13 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;
+    case MediaControls::kButtonMessage:
+      // Posted from the SMTC callback thread; this is the platform thread,
+      // which is the only one allowed to touch a Flutter channel.
+      if (media_controls_) {
+        media_controls_->OnButtonMessage(wparam);
+      }
+      return 0;
   }
 
   return Win32Window::MessageHandler(hwnd, message, wparam, lparam);

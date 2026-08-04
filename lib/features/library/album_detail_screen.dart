@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
+import 'track_rating_sheet.dart';
 
 /// Track list for one album. Tapping a track replaces the queue and plays from
 /// that point — the flat replace semantics agreed for v1.
@@ -20,6 +22,7 @@ class AlbumDetailScreen extends ConsumerWidget {
     final tracks = ref.watch(tracksProvider(album.ratingKey));
     final client = ref.watch(plexClientProvider);
     final art = client?.artworkUrl(album.thumb, width: 600, height: 600);
+    final compact = isCompactLayout(context);
 
     return Scaffold(
       appBar: AppBar(title: Text(album.title)),
@@ -65,23 +68,27 @@ class AlbumDetailScreen extends ConsumerWidget {
               trailing: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  StarRating(
-                    rating: track.userRating,
-                    size: 15,
-                    onRate: (stars) async {
-                      final ok = await ref
-                          .read(ratingControllerProvider)
-                          ?.rateTrack(track, stars);
-                      if (ok == false && context.mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content: Text('Could not save rating to Plex'),
-                          ),
-                        );
-                      }
-                    },
-                  ),
-                  const SizedBox(width: 8),
+                  // Five stars per row eats most of a phone's width and pushes
+                  // the title — the thing being scanned for — into an ellipsis.
+                  // Long press opens the same rating instead.
+                  if (!compact)
+                    StarRating(
+                      rating: track.userRating,
+                      size: 15,
+                      onRate: (stars) async {
+                        final ok = await ref
+                            .read(ratingControllerProvider)
+                            ?.rateTrack(track, stars);
+                        if (ok == false && context.mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text('Could not save rating to Plex'),
+                            ),
+                          );
+                        }
+                      },
+                    ),
+                  if (!compact) const SizedBox(width: 8),
                   Text(
                     _formatDuration(track.duration),
                     style: theme.textTheme.bodySmall,
@@ -93,6 +100,9 @@ class AlbumDetailScreen extends ConsumerWidget {
                 final controller = ref.read(playbackControllerProvider);
                 controller?.playTracks(items, startIndex: index);
               },
+              onLongPress: compact
+                  ? () => showTrackRatingSheet(context, ref, track)
+                  : null,
             );
           },
         ),

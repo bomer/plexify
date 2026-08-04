@@ -133,6 +133,15 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// One track's rating, live.
+  ///
+  /// Narrower than watching the whole track so a rating sheet does not rebuild
+  /// on unrelated writes to the row.
+  Stream<int?> watchTrackRating(String ratingKey) {
+    final query = select(tracks)..where((t) => t.ratingKey.equals(ratingKey));
+    return query.watchSingleOrNull().map((row) => row?.userRating).distinct();
+  }
+
   Future<void> setTrackRating(String ratingKey, int? rating) async {
     await (update(tracks)..where((t) => t.ratingKey.equals(ratingKey))).write(
       TracksCompanion(userRating: Value(rating)),

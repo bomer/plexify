@@ -6,7 +6,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 
 **Last updated:** 4 August 2026
 
-**Status:** 20 complete · 15 open · 105 tests passing
+**Status:** 21 complete · 15 open · 108 tests passing
 
 ---
 
@@ -34,6 +34,8 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 | 27 | Home screen and browsing | Jump back in / recently added / favourites. Artist pages with albums *and* tracks, library toggle |
 | 35 | Star ratings and favourites | Write-through to `/:/rate`, optimistic with revert. Favourite = 4★+ |
 | 36 | Smart playlist support | `smart` flag stored and badged; contents always revalidated, never served from cache |
+| 37 | Windows media keys | SMTC in the C++ runner. Verified end to end with synthetic key presses |
+| 38 | Compact track rows | Per-track stars are desktop-only; long press opens a rating sheet on phones |
 
 ### Bugs found by device testing (#14)
 
@@ -163,5 +165,8 @@ a ~20MB expectation.
   Mutually exclusive on Flutter 3.44. Revisit when upstream resolves.
 - **Git author is `unknown`.** `user.name` is unset globally. Set it and the existing commits
   can be amended.
+- **The Windows runner builds as C++20.** C++/WinRT falls back to
+  `<experimental/coroutine>` under C++17, which current MSVC rejects outright — the same
+  header that made `permission_handler` unbuildable. Raised for the runner target only.
 - **ColorOS battery killer.** `OplusHansManager` tracks the process. If playback dies over a
   long session, the fix is exempting Plexify from battery optimisation, not code.

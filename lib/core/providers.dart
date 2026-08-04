@@ -162,6 +162,14 @@ final favouriteAlbumsProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
   }
 });
 
+/// One track's rating, live from the cache.
+final trackRatingProvider = StreamProvider.family<int?, String>((
+  ref,
+  ratingKey,
+) {
+  return ref.watch(databaseProvider).watchTrackRating(ratingKey);
+});
+
 /// Favourite tracks — four stars or better.
 final favouriteTracksProvider = StreamProvider<List<PlexTrack>>((ref) async* {
   final db = ref.watch(databaseProvider);

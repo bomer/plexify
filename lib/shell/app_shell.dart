@@ -9,6 +9,7 @@ import '../features/player/mini_player.dart';
 import '../features/player/now_playing_screen.dart';
 import '../features/player/player_providers.dart';
 import '../features/search/search_screen.dart';
+import 'layout.dart';
 import 'shell_destination.dart';
 import 'sidebar.dart';
 
@@ -33,8 +34,6 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  static const _wideLayoutBreakpoint = 800.0;
-
   final _navigatorKeys = {
     for (final destination in ShellDestination.values)
       destination: GlobalKey<NavigatorState>(),
@@ -127,7 +126,7 @@ class _AppShellState extends ConsumerState<AppShell> {
         children: [
           LayoutBuilder(
             builder: (context, constraints) {
-              final wide = constraints.maxWidth >= _wideLayoutBreakpoint;
+              final wide = constraints.maxWidth >= compactLayoutBreakpoint;
 
               return Scaffold(
                 body: wide

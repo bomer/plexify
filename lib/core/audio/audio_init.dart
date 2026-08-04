@@ -4,6 +4,7 @@ import 'package:audio_service/audio_service.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
 
 import 'playback_handler.dart';
+import 'windows_media_controls.dart';
 
 /// One-time audio setup. Must run before any player is constructed.
 ///
@@ -25,7 +26,7 @@ Future<PlexifyAudioHandler> initAudio() async {
     JustAudioMediaKit.title = 'Plexify';
   }
 
-  return AudioService.init(
+  final handler = await AudioService.init(
     builder: PlexifyAudioHandler.new,
     config: const AudioServiceConfig(
       androidNotificationChannelId: 'com.jamesotoole.plexify.audio',
@@ -47,4 +48,10 @@ Future<PlexifyAudioHandler> initAudio() async {
       androidStopForegroundOnPause: false,
     ),
   );
+
+  // `audio_service` has no Windows implementation, so the media keys have
+  // nothing to reach there until this registers a session of our own.
+  attachWindowsMediaControls(handler);
+
+  return handler;
 }
