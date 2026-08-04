@@ -4,9 +4,9 @@ Working state for the build. Mirrors the in-session task list so progress surviv
 across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rationale, and
 [PROJECT.md](PROJECT.md) for environment, conventions and known traps.
 
-**Last updated:** 4 August 2026
+**Last updated:** 5 August 2026
 
-**Status:** 22 complete · 14 open · 119 tests passing
+**Status:** 24 complete · 14 open · 133 tests passing
 
 ---
 
@@ -28,7 +28,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 | 14 | Android background playback | Verified on OPPO CPH2791 / Android 16. Three bugs found |
 | 15 | drift schema and codegen | Six tables, normalised search columns, sync state |
 | 16 | Paginated initial sync | Three passes plus playlists. Live-verified |
-| 17 | Websocket push sync | `dart:io` socket, backoff reconnect, reconnect on resume. **Needs live verification** |
+| 17 | Websocket push sync | `dart:io` socket, backoff reconnect, reconnect on resume. Live-verified — a new album appears instantly |
 | 18 | Change-detection poll and delta sync | 30s poll on `/library/sections`, wake on resume, pull-to-refresh. Schema v3 rewinds the cursor once |
 | 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
 | 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
@@ -37,6 +37,8 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 | 36 | Smart playlist support | `smart` flag stored and badged; contents always revalidated, never served from cache |
 | 37 | Windows media keys | SMTC in the C++ runner. Verified end to end with synthetic key presses |
 | 38 | Compact track rows | Per-track stars are desktop-only; long press opens a rating sheet on phones |
+| 39 | Sync status screen | Socket/poll/clock state, row counts, sync now and full resync. Poll pauses off screen |
+| 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
 
 ### Bugs found by device testing (#14)
 

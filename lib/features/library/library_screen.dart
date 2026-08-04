@@ -7,6 +7,7 @@ import '../../core/providers.dart';
 import 'album_detail_screen.dart';
 import 'album_list_screen.dart';
 import 'artist_detail_screen.dart';
+import 'artist_list.dart';
 import '../player/playback_controller.dart';
 import 'artwork.dart';
 import '../settings/sync_actions.dart';
@@ -241,7 +242,6 @@ class _ArtistsView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final artists = ref.watch(artistsProvider);
-    final theme = Theme.of(context);
 
     return artists.when(
       loading: () => const Center(child: CircularProgressIndicator()),
@@ -250,35 +250,13 @@ class _ArtistsView extends ConsumerWidget {
         if (items.isEmpty) {
           return const _Empty(message: 'No artists cached yet.');
         }
-        return ListView.builder(
-          itemCount: items.length,
-          itemBuilder: (context, i) {
-            final artist = items[i];
-            return ListTile(
-              leading: ClipOval(
-                child: SizedBox(
-                  width: 44,
-                  height: 44,
-                  child: Artwork(
-                    thumb: artist.thumb,
-                    size: 100,
-                    icon: Icons.person,
-                  ),
-                ),
-              ),
-              title: Text(
-                artist.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyLarge,
-              ),
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute<void>(
-                  builder: (_) => ArtistDetailScreen(artist: artist),
-                ),
-              ),
-            );
-          },
+        return ArtistList(
+          artists: items,
+          onOpen: (artist) => Navigator.of(context).push(
+            MaterialPageRoute<void>(
+              builder: (_) => ArtistDetailScreen(artist: artist),
+            ),
+          ),
         );
       },
     );
