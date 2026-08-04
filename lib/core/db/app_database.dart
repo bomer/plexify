@@ -70,6 +70,75 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
+  /// Playlists, most recently played first.
+  ///
+  /// Plex leaves `lastViewedAt` null on playlists that have never been played,
+  /// and those must sort last rather than first — a null sorting high would put
+  /// every unplayed playlist above the ones actually being used.
+  Stream<List<Playlist>> watchPlaylists({int? limit}) {
+    final query = select(playlists)
+      ..orderBy([
+        (p) => OrderingTerm(
+          expression: p.lastViewedAt,
+          mode: OrderingMode.desc,
+          nulls: NullsOrder.last,
+        ),
+        (p) => OrderingTerm.asc(p.normalisedTitle),
+      ]);
+    if (limit != null) query.limit(limit);
+    return query.watch();
+  }
+
+  /// Albums most recently played, for the Home screen.
+  Stream<List<Album>> watchRecentlyPlayedAlbums({int limit = 20}) {
+    final query = select(albums)
+      ..where((a) => a.lastViewedAt.isNotNull())
+      ..orderBy([(a) => OrderingTerm.desc(a.lastViewedAt)])
+      ..limit(limit);
+    return query.watch();
+  }
+
+  /// Albums most recently added, for the Home screen.
+  Stream<List<Album>> watchRecentlyAddedAlbums({int limit = 20}) {
+    final query = select(albums)
+      ..orderBy([(a) => OrderingTerm.desc(a.addedAt)])
+      ..limit(limit);
+    return query.watch();
+  }
+
+  /// Tracks in a playlist, in stored playlist order.
+  Stream<List<Track>> watchPlaylistTracks(String playlistRatingKey) {
+    final query =
+        select(playlistItems).join([
+            innerJoin(
+              tracks,
+              tracks.ratingKey.equalsExp(playlistItems.trackRatingKey),
+            ),
+          ])
+          ..where(playlistItems.playlistRatingKey.equals(playlistRatingKey))
+          ..orderBy([OrderingTerm.asc(playlistItems.position)]);
+
+    return query.watch().map(
+      (rows) => rows.map((r) => r.readTable(tracks)).toList(),
+    );
+  }
+
+  /// Replaces a playlist's contents.
+  ///
+  /// Delete-then-insert rather than upsert: playlists are reordered and have
+  /// items removed, so a merge would leave stale positions behind.
+  Future<void> replacePlaylistItems(
+    String playlistRatingKey,
+    List<PlaylistItemsCompanion> items,
+  ) async {
+    await transaction(() async {
+      await (delete(
+        playlistItems,
+      )..where((i) => i.playlistRatingKey.equals(playlistRatingKey))).go();
+      await batch((batch) => batch.insertAll(playlistItems, items));
+    });
+  }
+
   Future<int> countAlbums() async {
     final count = albums.ratingKey.count();
     final row = await (selectOnly(albums)..addColumns([count])).getSingle();

@@ -182,6 +182,131 @@ final librarySyncProvider = StreamProvider<SyncProgress>((ref) async* {
   );
 });
 
+/// Playlists, most recently played first.
+///
+/// Falls through to a live Plex read while the cache is empty, for the same
+/// reason albums do: the sidebar must be usable during the first sync.
+final playlistsProvider = StreamProvider<List<PlexPlaylist>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  final client = ref.watch(plexClientProvider);
+
+  await for (final rows in db.watchPlaylists()) {
+    if (rows.isEmpty && client != null) {
+      try {
+        final live = await client.playlists();
+        if (live.isNotEmpty) {
+          yield live;
+          continue;
+        }
+      } on Object {
+        // Fall through to the empty cached list.
+      }
+    }
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// The handful of playlists shown directly in the sidebar.
+final recentPlaylistsProvider = Provider<AsyncValue<List<PlexPlaylist>>>((ref) {
+  return ref.watch(playlistsProvider).whenData((all) => all.take(8).toList());
+});
+
+/// Albums played most recently, for Home.
+final recentlyPlayedProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchRecentlyPlayedAlbums()) {
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// Albums added most recently, for Home.
+final recentlyAddedProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchRecentlyAddedAlbums()) {
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// Tracks in a playlist, cached with write-through on open.
+///
+/// Playlist items are not synced up front — one request per playlist for data
+/// mostly never looked at — so the first open fetches from Plex and stores the
+/// result. Subsequent opens are instant, and still revalidate.
+final playlistTracksProvider = StreamProvider.family<List<PlexTrack>, String>((
+  ref,
+  playlistRatingKey,
+) async* {
+  final db = ref.watch(databaseProvider);
+  final client = ref.watch(plexClientProvider);
+
+  if (client != null) {
+    unawaited(_revalidatePlaylist(db, client, playlistRatingKey));
+  }
+
+  await for (final rows in db.watchPlaylistTracks(playlistRatingKey)) {
+    if (rows.isEmpty && client != null) {
+      final live = await client.playlistItems(playlistRatingKey);
+      if (live.isNotEmpty) {
+        yield live;
+        continue;
+      }
+    }
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// Fetches a playlist's items and writes them through to the cache.
+///
+/// Tracks are upserted too, because a playlist can reference a track the
+/// section walk has not reached yet — without this the join would drop it and
+/// the playlist would silently render short.
+Future<void> _revalidatePlaylist(
+  AppDatabase db,
+  PlexClient client,
+  String playlistRatingKey,
+) async {
+  try {
+    final live = await client.playlistItems(playlistRatingKey);
+    if (live.isEmpty) return;
+
+    await db.batch((batch) {
+      batch.insertAllOnConflictUpdate(
+        db.tracks,
+        live.map(
+          (t) => TracksCompanion.insert(
+            ratingKey: t.ratingKey,
+            title: t.title,
+            normalisedTitle: normalise(t.title),
+            albumRatingKey: Value(t.albumRatingKey),
+            albumTitle: Value(t.album),
+            artistTitle: Value(t.artist),
+            trackIndex: Value(t.index),
+            discIndex: Value(t.discIndex),
+            durationMs: Value(t.durationMs),
+            partKey: Value(t.partKey),
+            container: Value(t.container),
+            thumb: Value(t.thumb),
+            updatedAt: Value(t.updatedAt),
+            addedAt: Value(t.addedAt),
+            lastViewedAt: Value(t.lastViewedAt),
+          ),
+        ),
+      );
+    });
+
+    await db.replacePlaylistItems(playlistRatingKey, [
+      for (final (index, track) in live.indexed)
+        PlaylistItemsCompanion.insert(
+          playlistRatingKey: playlistRatingKey,
+          trackRatingKey: track.ratingKey,
+          position: index,
+        ),
+    ]);
+  } on Object {
+    // Cached content stays on screen.
+  }
+}
+
 /// Tracks for one album, keyed by its ratingKey.
 ///
 /// Stale-while-revalidate: cached tracks render immediately, then Plex is asked

@@ -126,6 +126,29 @@ class PlexClient {
     );
   }
 
+  /// Audio playlists on the server.
+  ///
+  /// Not scoped to a library section — playlists live at the account level, so
+  /// this is a separate sync pass from the section walk.
+  Future<List<PlexPlaylist>> playlists() async {
+    final container = await _getContainer(
+      '/playlists',
+      query: {'playlistType': 'audio'},
+    );
+    return _listOf(container, 'Metadata').map(PlexPlaylist.fromJson).toList();
+  }
+
+  /// Tracks in a playlist, in playlist order.
+  ///
+  /// Order is significant and must be preserved as given: playlists are
+  /// arranged, not sorted.
+  Future<List<PlexTrack>> playlistItems(String playlistRatingKey) async {
+    final container = await _getContainer(
+      '/playlists/$playlistRatingKey/items',
+    );
+    return _listOf(container, 'Metadata').map(PlexTrack.fromJson).toList();
+  }
+
   /// Tracks on an album, in disc/track order as Plex returns them.
   Future<List<PlexTrack>> tracks(String albumRatingKey) async {
     final container = await _getContainer(

@@ -117,6 +117,48 @@ class PlexSection {
   }
 }
 
+/// An audio playlist.
+///
+/// Playlists sit outside the library section hierarchy — they come from
+/// `/playlists`, not `/library/sections/{id}/all`, and so are synced separately.
+class PlexPlaylist {
+  const PlexPlaylist({
+    required this.ratingKey,
+    required this.title,
+    this.thumb,
+    this.itemCount = 0,
+    this.durationMs,
+    this.updatedAt,
+    this.lastViewedAt,
+  });
+
+  final String ratingKey;
+  final String title;
+
+  /// Plex exposes playlist art as `composite` — a generated mosaic — rather
+  /// than `thumb`. Using `thumb` here silently yields no artwork.
+  final String? thumb;
+
+  final int itemCount;
+  final int? durationMs;
+  final int? updatedAt;
+
+  /// Drives the "recent playlists" list in the sidebar.
+  final int? lastViewedAt;
+
+  factory PlexPlaylist.fromJson(Map<String, dynamic> json) {
+    return PlexPlaylist(
+      ratingKey: _str(json['ratingKey']) ?? '',
+      title: _str(json['title']) ?? 'Untitled playlist',
+      thumb: _str(json['composite']) ?? _str(json['thumb']),
+      itemCount: _int(json['leafCount']) ?? 0,
+      durationMs: _int(json['duration']),
+      updatedAt: _int(json['updatedAt']),
+      lastViewedAt: _int(json['lastViewedAt']),
+    );
+  }
+}
+
 /// An artist. Plex calls these type=8 metadata items.
 class PlexArtist {
   const PlexArtist({

@@ -2,26 +2,28 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/app_window.dart';
+import '../features/home/home_screen.dart';
 import '../features/library/album_list_screen.dart';
 import '../features/player/mini_player.dart';
 import '../features/player/now_playing_screen.dart';
 import '../features/player/player_providers.dart';
+import '../features/search/search_screen.dart';
+import 'shell_destination.dart';
+import 'sidebar.dart';
 
 /// The persistent frame around all browsing.
 ///
-/// The important structural detail: page content is pushed into a **nested**
-/// [Navigator] that lives *inside* this scaffold, while the mini player sits in
-/// the scaffold's bottom slot, outside it.
+/// Two structural rules, both learned the hard way:
 ///
-/// Previously screens were pushed onto the root navigator, which stacks routes
-/// above the entire widget tree — so opening an album covered the mini player
-/// and left no way to pause without navigating back. Anything that should
-/// persist across navigation has to live outside the Navigator that navigation
-/// happens in.
+/// * Page content lives in **nested** [Navigator]s inside this scaffold, while
+///   the mini player sits in the bottom slot outside them. Pushing routes onto
+///   the root navigator covered the mini player and left no way to pause.
+/// * Now Playing is a sibling [Stack] layer, not a route, so the browsing
+///   screen underneath is never unmounted.
 ///
-/// This is also what the Now Playing overlay will build on: it needs to slide
-/// over the current screen *without unmounting it*, so dismissing returns you
-/// exactly where you were mid-browse.
+/// Each destination gets its own navigator, kept alive in an [IndexedStack], so
+/// switching tabs preserves both the navigation stack and the scroll position
+/// of the one you left.
 class AppShell extends ConsumerStatefulWidget {
   const AppShell({super.key});
 
@@ -30,52 +32,123 @@ class AppShell extends ConsumerStatefulWidget {
 }
 
 class _AppShellState extends ConsumerState<AppShell> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
+  static const _wideLayoutBreakpoint = 800.0;
+
+  final _navigatorKeys = {
+    for (final destination in ShellDestination.values)
+      destination: GlobalKey<NavigatorState>(),
+  };
+
+  NavigatorState? get _activeNavigator =>
+      _navigatorKeys[ref.read(shellDestinationProvider)]?.currentState;
+
+  Future<void> _handleBack() async {
+    // Collapse the player before anything else — it is the topmost thing on
+    // screen, so it is what "back" should dismiss first.
+    if (ref.read(nowPlayingExpandedProvider)) {
+      ref.read(nowPlayingExpandedProvider.notifier).state = false;
+      return;
+    }
+
+    final navigator = _activeNavigator;
+    if (navigator != null && navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+
+    // At the root of a secondary tab, back returns to Home rather than leaving
+    // the app — the same expectation every tabbed app sets.
+    if (ref.read(shellDestinationProvider) != ShellDestination.home) {
+      ref.read(shellDestinationProvider.notifier).state = ShellDestination.home;
+      return;
+    }
+
+    // Finishing the activity would tear down the engine and stop playback, so
+    // minimise instead and leave the music running.
+    await AppWindow.moveToBackground();
+  }
+
+  Widget _rootFor(ShellDestination destination) => switch (destination) {
+    ShellDestination.home => const HomeScreen(),
+    ShellDestination.search => const SearchScreen(),
+    ShellDestination.library => const AlbumListScreen(),
+  };
 
   @override
   Widget build(BuildContext context) {
+    final destination = ref.watch(shellDestinationProvider);
     final expanded = ref.watch(nowPlayingExpandedProvider);
 
-    // Back handling has three jobs, and the default gets them all wrong for a
-    // music player: a nested Navigator receives no system back gestures at all;
-    // back at the root route finishes the activity, tearing down the engine and
-    // stopping playback mid-track; and the Now Playing layer is not a route at
-    // all, so nothing would dismiss it.
-    //
-    // So: intercept everything. Collapse the player if it is open, else pop the
-    // nested route, else minimise and leave the music playing.
+    final content = IndexedStack(
+      index: destination.index,
+      children: [
+        for (final d in ShellDestination.values)
+          Navigator(
+            key: _navigatorKeys[d],
+            onGenerateRoute: (settings) => MaterialPageRoute<void>(
+              settings: settings,
+              builder: (_) => _rootFor(d),
+            ),
+          ),
+      ],
+    );
+
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (didPop) return;
-        if (ref.read(nowPlayingExpandedProvider)) {
-          ref.read(nowPlayingExpandedProvider.notifier).state = false;
-          return;
-        }
-        final navigator = _navigatorKey.currentState;
-        if (navigator != null && navigator.canPop()) {
-          navigator.pop();
-        } else {
-          await AppWindow.moveToBackground();
-        }
+        await _handleBack();
       },
       child: Stack(
         children: [
-          Scaffold(
-            body: Navigator(
-              key: _navigatorKey,
-              onGenerateRoute: (settings) => MaterialPageRoute<void>(
-                settings: settings,
-                builder: (_) => const AlbumListScreen(),
-              ),
-            ),
-            bottomNavigationBar: const MiniPlayer(),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final wide = constraints.maxWidth >= _wideLayoutBreakpoint;
+
+              return Scaffold(
+                body: wide
+                    ? Row(
+                        children: [
+                          Sidebar(
+                            onOpenPlaylist: (playlist) {
+                              final navigator = _activeNavigator;
+                              if (navigator != null) {
+                                openPlaylist(navigator, playlist);
+                              }
+                            },
+                          ),
+                          const VerticalDivider(width: 1, thickness: 1),
+                          Expanded(child: content),
+                        ],
+                      )
+                    : content,
+                bottomNavigationBar: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const MiniPlayer(),
+                    // The sidebar carries navigation on wide layouts, so the
+                    // bottom bar would be redundant there.
+                    if (!wide)
+                      NavigationBar(
+                        selectedIndex: destination.index,
+                        onDestinationSelected: (index) =>
+                            ref.read(shellDestinationProvider.notifier).state =
+                                ShellDestination.values[index],
+                        destinations: [
+                          for (final d in ShellDestination.values)
+                            NavigationDestination(
+                              icon: Icon(d.icon),
+                              selectedIcon: Icon(d.selectedIcon),
+                              label: d.label,
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              );
+            },
           ),
 
-          // Now Playing is a sibling layer, not a pushed route. That is the
-          // whole point: the browsing screen underneath is never unmounted, so
-          // collapsing returns you to the same scroll position and state rather
-          // than a rebuilt page.
           AnimatedSlide(
             offset: expanded ? Offset.zero : const Offset(0, 1),
             duration: const Duration(milliseconds: 280),

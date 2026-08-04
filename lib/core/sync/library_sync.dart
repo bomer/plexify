@@ -113,6 +113,12 @@ class LibrarySync {
         yield p;
       }
 
+      // Playlists come from /playlists, not the section walk, so they are a
+      // separate pass. Only the list is synced here — items are fetched lazily
+      // when a playlist is opened, since syncing every item up front would mean
+      // one request per playlist for data most of which is never looked at.
+      await _syncPlaylists();
+
       await _markComplete(
         section: section,
         serverClientIdentifier: serverClientIdentifier,
@@ -168,6 +174,37 @@ class LibrarySync {
       // mid-sync if someone adds music while we run.
       if (page.items.length < pageSize) break;
       if (start >= total && page.totalSize > 0) break;
+    }
+  }
+
+  /// Refreshes the playlist list.
+  ///
+  /// Failures are swallowed: playlists are a sidebar convenience, and losing
+  /// them should not fail a library sync that otherwise succeeded.
+  Future<void> _syncPlaylists() async {
+    try {
+      final items = await _client.playlists();
+      if (items.isEmpty) return;
+
+      await _db.batch((batch) {
+        batch.insertAllOnConflictUpdate(
+          _db.playlists,
+          items.map(
+            (p) => PlaylistsCompanion.insert(
+              ratingKey: p.ratingKey,
+              title: p.title,
+              normalisedTitle: normalise(p.title),
+              thumb: Value(p.thumb),
+              itemCount: Value(p.itemCount),
+              durationMs: Value(p.durationMs),
+              updatedAt: Value(p.updatedAt),
+              lastViewedAt: Value(p.lastViewedAt),
+            ),
+          ),
+        );
+      });
+    } on Object {
+      // Non-fatal; the rest of the sync stands.
     }
   }
 

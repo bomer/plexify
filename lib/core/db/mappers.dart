@@ -40,6 +40,18 @@ extension TrackRowMapper on Track {
   );
 }
 
+extension PlaylistRowMapper on Playlist {
+  PlexPlaylist toDomain() => PlexPlaylist(
+    ratingKey: ratingKey,
+    title: title,
+    thumb: thumb,
+    itemCount: itemCount,
+    durationMs: durationMs,
+    updatedAt: updatedAt,
+    lastViewedAt: lastViewedAt,
+  );
+}
+
 extension ArtistRowMapper on Artist {
   PlexArtist toDomain() => PlexArtist(
     ratingKey: ratingKey,

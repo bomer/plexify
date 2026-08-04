@@ -56,17 +56,19 @@ void main() {
     expect(rows.map((a) => a.title), ['\'Allo', 'the beatles', 'Zebra']);
   });
 
-  test('artist sort groups an artist and orders their albums by year',
-      () async {
-    await add('1', 'Amnesiac', 'Radiohead', year: 2001);
-    await add('2', 'Kid A', 'Radiohead', year: 2000);
-    await add('3', 'Debut', 'Björk', year: 1993);
+  test(
+    'artist sort groups an artist and orders their albums by year',
+    () async {
+      await add('1', 'Amnesiac', 'Radiohead', year: 2001);
+      await add('2', 'Kid A', 'Radiohead', year: 2000);
+      await add('3', 'Debut', 'Björk', year: 1993);
 
-    final rows = await db.watchAlbums(sort: AlbumSort.artist).first;
+      final rows = await db.watchAlbums(sort: AlbumSort.artist).first;
 
-    // Björk normalises to "bjork", so it sorts before Radiohead.
-    expect(rows.map((a) => a.title), ['Debut', 'Kid A', 'Amnesiac']);
-  });
+      // Björk normalises to "bjork", so it sorts before Radiohead.
+      expect(rows.map((a) => a.title), ['Debut', 'Kid A', 'Amnesiac']);
+    },
+  );
 
   test('the stream re-emits as sync writes rows', () async {
     final emissions = <int>[];
