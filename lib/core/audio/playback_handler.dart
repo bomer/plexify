@@ -102,11 +102,19 @@ class PlexifyAudioHandler extends BaseAudioHandler
 
     return PlaybackState(
       // Which buttons the lock screen and notification offer.
+      //
+      // MediaControl.stop is deliberately absent. On Android 13+ audio_service
+      // converts it into a PlaybackStateCompat.CustomAction, which requires a
+      // non-zero icon resource; the icon is resolved by name against *our*
+      // package and comes back 0, so the builder throws
+      // IllegalArgumentException and the entire notification fails to post —
+      // taking the lock-screen and quick-settings controls with it. Verified on
+      // Android 16. Play/pause and skip are the conventional set for a music
+      // player regardless; stop adds nothing here.
       controls: [
         MediaControl.skipToPrevious,
         if (playing) MediaControl.pause else MediaControl.play,
         MediaControl.skipToNext,
-        MediaControl.stop,
       ],
       systemActions: const {
         MediaAction.seek,
