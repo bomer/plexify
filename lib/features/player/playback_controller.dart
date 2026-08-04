@@ -1,6 +1,7 @@
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/audio/notification_permission.dart';
 import '../../core/audio/playback_handler.dart';
 import '../../core/plex/plex_client.dart';
 import '../../core/plex/plex_models.dart';
@@ -26,6 +27,10 @@ class PlaybackController {
   /// Unplayable tracks are dropped rather than left as gaps that would stall
   /// the queue, so [startIndex] is remapped onto the filtered list.
   Future<void> playTracks(List<PlexTrack> tracks, {int startIndex = 0}) async {
+    // Ask for notification permission at the moment its purpose is obvious.
+    // Never gates playback — see NotificationPermission.
+    await NotificationPermission.ensure();
+
     final playable = <PlexTrack>[];
     var adjustedStart = 0;
 

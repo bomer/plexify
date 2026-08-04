@@ -6,7 +6,13 @@ plugins {
 
 android {
     namespace = "com.jamesotoole.plexify"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android requires compileSdk 37, which is ahead of the
+    // Flutter SDK's current default. Pinned explicitly rather than tracking
+    // flutter.compileSdkVersion so the build does not break when that default
+    // moves. Compiling against 37 only makes newer APIs available; it does not
+    // change runtime behaviour (targetSdk) or device support (minSdk), both of
+    // which still follow Flutter's defaults below.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
