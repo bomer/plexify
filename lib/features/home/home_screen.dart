@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../settings/sync_actions.dart';
 import '../library/album_detail_screen.dart';
 import '../library/artwork.dart';
 import '../library/sync_banner.dart';
@@ -20,7 +21,7 @@ class HomeScreen extends ConsumerWidget {
     final recentlyAdded = ref.watch(recentlyAddedProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Home')),
+      appBar: AppBar(title: const Text('Home'), actions: const [SyncActions()]),
       body: Column(
         children: [
           const SyncBanner(),

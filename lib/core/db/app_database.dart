@@ -291,6 +291,40 @@ class AppDatabase extends _$AppDatabase {
     });
   }
 
+  /// Rewinds the delta cursor so the next sync walks the whole library.
+  ///
+  /// The escape hatch for when the cache and Plex have diverged in a way the
+  /// incremental path cannot reconcile — every write on the sync path is an
+  /// upsert, so this refreshes rows rather than duplicating them, and nothing
+  /// is dropped in the meantime.
+  Future<void> rewindSyncCursor() async {
+    await update(
+      syncState,
+    ).write(const SyncStateCompanion(lastSyncedUpdatedAt: Value(0)));
+  }
+
+  Future<int> countArtists() async {
+    final count = artists.ratingKey.count();
+    final row = await (selectOnly(artists)..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  Future<int> countPlaylists() async {
+    final count = playlists.ratingKey.count();
+    final row = await (selectOnly(playlists)..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  Future<int> countRatedAlbums() async {
+    final count = albums.ratingKey.count();
+    final row =
+        await (selectOnly(albums)
+              ..addColumns([count])
+              ..where(albums.userRating.isNotNull()))
+            .getSingle();
+    return row.read(count) ?? 0;
+  }
+
   Future<int> countAlbums() async {
     final count = albums.ratingKey.count();
     final row = await (selectOnly(albums)..addColumns([count])).getSingle();

@@ -249,6 +249,126 @@ final liveSyncProvider = Provider<LiveSync?>((ref) {
   return sync;
 });
 
+/// Everything the sync layer knows about itself, gathered for the status
+/// screen.
+///
+/// Read on demand rather than streamed: this is a diagnostic snapshot, and a
+/// live-updating one would be harder to read, not easier.
+class SyncDiagnostics {
+  const SyncDiagnostics({
+    required this.serverName,
+    required this.serverUrl,
+    required this.route,
+    required this.socketConnected,
+    required this.framesReceived,
+    required this.changesSeen,
+    required this.changesApplied,
+    required this.lastFrameAt,
+    required this.socketError,
+    required this.lastPollAt,
+    required this.lastSyncAt,
+    required this.passes,
+    required this.isSyncing,
+    required this.syncError,
+    required this.storedUpdatedAt,
+    required this.serverUpdatedAt,
+    required this.storedScannedAt,
+    required this.serverScannedAt,
+    required this.cursor,
+    required this.initialSyncComplete,
+    required this.artists,
+    required this.albums,
+    required this.tracks,
+    required this.playlists,
+    required this.ratedAlbums,
+  });
+
+  final String? serverName;
+  final String? serverUrl;
+  final String route;
+
+  final bool socketConnected;
+  final int framesReceived;
+  final int changesSeen;
+  final int changesApplied;
+  final DateTime? lastFrameAt;
+  final String? socketError;
+
+  final DateTime? lastPollAt;
+  final DateTime? lastSyncAt;
+  final int passes;
+  final bool isSyncing;
+  final String? syncError;
+
+  final int? storedUpdatedAt;
+  final int? serverUpdatedAt;
+  final int? storedScannedAt;
+  final int? serverScannedAt;
+  final int? cursor;
+  final bool initialSyncComplete;
+
+  final int artists;
+  final int albums;
+  final int tracks;
+  final int playlists;
+  final int ratedAlbums;
+}
+
+final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
+  final db = ref.watch(databaseProvider);
+  final client = ref.watch(plexClientProvider);
+  final server = ref.watch(plexServerProvider);
+  final socket = ref.watch(plexNotificationSocketProvider);
+  final scheduler = ref.watch(syncSchedulerProvider);
+  final live = ref.watch(liveSyncProvider);
+
+  // Asked live, so the stored clocks can be compared against what Plex says
+  // right now — the comparison that decides whether a sync happens at all.
+  PlexSection? section;
+  try {
+    section = await client?.musicSection();
+  } on Object {
+    section = null;
+  }
+
+  final state = await db.select(db.syncState).get();
+  final row = state.isEmpty ? null : state.first;
+
+  return SyncDiagnostics(
+    serverName: server?.name,
+    serverUrl: server?.baseUrl,
+    route: server == null
+        ? '—'
+        : server.isRelay
+        ? 'Relay (slow, transcoded)'
+        : server.isLocal
+        ? 'Local network'
+        : 'Remote',
+    socketConnected: socket?.isConnected ?? false,
+    framesReceived: socket?.framesReceived ?? 0,
+    changesSeen: socket?.changesSeen ?? 0,
+    changesApplied: live?.applied ?? 0,
+    lastFrameAt: socket?.lastFrameAt,
+    socketError: socket?.lastError,
+    lastPollAt: scheduler?.lastPollAt,
+    lastSyncAt: scheduler?.lastSyncAt,
+    passes: scheduler?.passes ?? 0,
+    isSyncing: scheduler?.isSyncing ?? false,
+    syncError: scheduler?.lastError,
+    storedUpdatedAt: row?.serverUpdatedAt,
+    serverUpdatedAt: section?.updatedAt,
+    storedScannedAt: row?.serverScannedAt,
+    serverScannedAt: section?.scannedAt,
+    cursor: row?.lastSyncedUpdatedAt,
+    initialSyncComplete: row?.initialSyncComplete ?? false,
+    artists: await db.countArtists(),
+    albums: await db.countAlbums(),
+    tracks: await db.countTracks(),
+    playlists: await db.countPlaylists(),
+    ratedAlbums: await db.countRatedAlbums(),
+  );
+});
+
 /// Artists, alphabetically.
 final artistsProvider = StreamProvider<List<PlexArtist>>((ref) async* {
   final db = ref.watch(databaseProvider);

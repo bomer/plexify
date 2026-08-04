@@ -69,6 +69,22 @@ class SyncScheduler {
   int get passes => _passes;
   int _passes = 0;
 
+  /// When the cheap "has anything changed?" question was last asked and
+  /// answered. Null means it has never completed — which usually means the
+  /// server is unreachable rather than that the scheduler is idle.
+  DateTime? get lastPollAt => _lastPoll;
+  DateTime? _lastPoll;
+
+  /// When a sync pass last finished.
+  DateTime? get lastSyncAt => _lastDelta;
+
+  /// Whatever went wrong most recently, kept so it can be read rather than
+  /// inferred from an empty screen.
+  String? get lastError => _lastError;
+  String? _lastError;
+
+  bool get isSyncing => _busy;
+
   /// Runs a first sync, then polls.
   ///
   /// The first pass is unconditional: an interrupted initial sync has to resume,
@@ -99,6 +115,16 @@ class SyncScheduler {
   /// Forced because the point of the gesture is to override our own judgement.
   /// Someone who pulls to refresh has already decided the screen is wrong, and
   /// answering "nothing changed" would be the app arguing with them.
+  /// Rewinds the delta cursor and resyncs everything.
+  ///
+  /// For when the cache is wrong in a way an incremental pass cannot fix. The
+  /// only honest repair when we cannot tell what is missing.
+  Future<void> fullResync() async {
+    await _db.rewindSyncCursor();
+    _lastDelta = null;
+    await _tick(force: true);
+  }
+
   Future<void> refreshNow() async {
     final section = await _musicSection();
     if (section == null) return;
@@ -119,6 +145,7 @@ class SyncScheduler {
     try {
       await _syncIfNeeded(force: force);
     } on Object catch (e) {
+      _lastError = '$e';
       _emit(SyncProgress(phase: SyncPhase.failed, message: '$e'));
     } finally {
       _busy = false;
@@ -128,6 +155,7 @@ class SyncScheduler {
   Future<void> _syncIfNeeded({required bool force}) async {
     final section = await _musicSection();
     if (section == null) return;
+    _lastPoll = _now();
 
     final stored = await (_db.select(
       _db.syncState,
@@ -148,6 +176,7 @@ class SyncScheduler {
       serverClientIdentifier: _client.server.clientIdentifier,
       minUpdatedAt: resumable ? stored.lastSyncedUpdatedAt : 0,
     )) {
+      if (update.phase == SyncPhase.failed) _lastError = update.message;
       _emit(update);
     }
     _lastDelta = _now();
@@ -173,8 +202,11 @@ class SyncScheduler {
   Future<PlexSection?> _musicSection() async {
     try {
       return await _client.musicSection();
-    } on Object {
+    } on Object catch (e) {
       // Unreachable server. Normal off the LAN; the next tick tries again.
+      // Recorded rather than swallowed, because "nothing is syncing" and "the
+      // server has been refusing us for an hour" look identical otherwise.
+      _lastError = '$e';
       return null;
     }
   }

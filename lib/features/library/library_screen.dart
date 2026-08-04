@@ -9,6 +9,7 @@ import 'album_list_screen.dart';
 import 'artist_detail_screen.dart';
 import '../player/playback_controller.dart';
 import 'artwork.dart';
+import '../settings/sync_actions.dart';
 import 'playlist_detail_screen.dart';
 import 'star_rating.dart';
 import 'sync_banner.dart';
@@ -38,6 +39,7 @@ class LibraryScreen extends ConsumerWidget {
             const _FavouritesFilterButton(),
             const AlbumSortButton(),
           ],
+          const SyncActions(),
         ],
         bottom: PreferredSize(
           preferredSize: const Size.fromHeight(52),

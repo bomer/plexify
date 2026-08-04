@@ -187,6 +187,29 @@ class PlexNotificationSocket {
   /// True while a connection is open.
   bool get isConnected => _current != null;
 
+  /// Frames received since launch, of any kind.
+  ///
+  /// A connected socket that has never received a frame and one that is quietly
+  /// delivering playback chatter look the same from outside; this tells them
+  /// apart, which is the difference between "not connected" and "connected but
+  /// we are ignoring what it says".
+  int get framesReceived => _framesReceived;
+  int _framesReceived = 0;
+
+  /// Library changes recognised in those frames.
+  int get changesSeen => _changesSeen;
+  int _changesSeen = 0;
+
+  DateTime? get lastFrameAt => _lastFrameAt;
+  DateTime? _lastFrameAt;
+
+  DateTime? get connectedAt => _connectedAt;
+  DateTime? _connectedAt;
+
+  /// Why the last connection attempt failed, if it did.
+  String? get lastError => _lastError;
+  String? _lastError;
+
   /// Doubling backoff, capped at a minute.
   ///
   /// Capped rather than unbounded because the common cause of a drop is the
@@ -255,18 +278,26 @@ class PlexNotificationSocket {
           _identity.headers(token: _server.token),
         );
         _current = socket;
+        _connectedAt = DateTime.now();
+        _lastError = null;
 
         await for (final frame in socket.frames) {
+          _framesReceived++;
+          _lastFrameAt = DateTime.now();
           for (final change in parsePlexNotifications(frame)) {
+            _changesSeen++;
             if (!_changes.isClosed) _changes.add(change);
           }
         }
-      } on Object {
+      } on Object catch (e) {
+        _lastError = '$e';
         // Every failure mode here — refused, timed out, dropped mid-stream — is
-        // handled the same way, by retrying. Surfacing it would only produce an
-        // error banner for something that fixes itself.
+        // handled the same way, by retrying. Recorded for diagnostics, but not
+        // surfaced — it would only produce an error banner for something that
+        // fixes itself.
       } finally {
         _current = null;
+        _connectedAt = null;
       }
 
       if (_stopped) break;
