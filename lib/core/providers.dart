@@ -270,6 +270,7 @@ class SyncDiagnostics {
     required this.passes,
     required this.isSyncing,
     required this.syncError,
+    required this.lastSyncRowCount,
     required this.storedUpdatedAt,
     required this.serverUpdatedAt,
     required this.storedScannedAt,
@@ -299,6 +300,7 @@ class SyncDiagnostics {
   final int passes;
   final bool isSyncing;
   final String? syncError;
+  final int lastSyncRowCount;
 
   final int? storedUpdatedAt;
   final int? serverUpdatedAt;
@@ -355,6 +357,7 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
     passes: scheduler?.passes ?? 0,
     isSyncing: scheduler?.isSyncing ?? false,
     syncError: scheduler?.lastError,
+    lastSyncRowCount: scheduler?.lastSyncRowCount ?? 0,
     storedUpdatedAt: row?.serverUpdatedAt,
     serverUpdatedAt: section?.updatedAt,
     storedScannedAt: row?.serverScannedAt,

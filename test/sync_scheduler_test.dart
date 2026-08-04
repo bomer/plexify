@@ -311,6 +311,26 @@ void main() {
     await failing.stop();
   });
 
+  test('pausing stops the polling until resumed', () async {
+    await seedSyncedState();
+    await scheduler.start();
+    scheduler.pause();
+    clearRequests();
+
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    // Android keeps the isolate alive for a whole playback session, so a poll
+    // that ignored the foreground would run for hours down a mobile connection
+    // checking for changes to a screen nobody is looking at.
+    expect(requests, isEmpty);
+
+    await scheduler.resume();
+
+    // Resuming checks straight away rather than waiting out an interval, so
+    // what you see on coming back is current.
+    expect(requests, isNotEmpty);
+  });
+
   test('stop ends the polling', () async {
     await seedSyncedState();
     await scheduler.start();

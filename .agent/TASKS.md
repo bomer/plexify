@@ -71,17 +71,17 @@ empty, and a delta sync cannot fill them — Plex's `updatedAt` for a track rate
 has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
 a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
 
-**Is `updatedAt>=` actually honoured by Plex?** The delta sweep now runs every five minutes
-regardless of the section clocks, so if that filter is silently ignored the app would refetch
-the whole library on that cadence rather than a handful of rows. Worth confirming against the
-real server — compare the response size of a listing with and without the parameter. If it is
-ignored, lengthen `SyncScheduler.deltaInterval` and find another filter.
+**Is `updatedAt>=` actually honoured by Plex?** Check "Rows in last sync" on the Sync status
+screen after a routine sweep with nothing new. Near zero means the filter works. Anything
+near the library size means Plex is ignoring it and every sweep refetches everything —
+tolerable on a LAN, ruinous on cellular. If so, lengthen `SyncScheduler.deltaInterval` and
+find a filter Plex does honour.
 
-**Verify push sync (#17) against the real server.** Code-complete and covered by tests, but
-the frame shapes came from Plex's documented behaviour, not from a capture. Add a track in
-Plex with the app open and watch it appear without a refresh; delete one and watch it go.
-If nothing happens, log the raw frames first — the likely culprits are the `state` values
-and whether `identifier` is what we filter on.
+**Ratings set in Plex are not pushed, only polled.** Plex emits a timeline entry when it
+finishes *scanning* an item, which is why a new album appears instantly, but rating one is a
+metadata edit that produces no such entry. The five-minute sweep catches it; the refresh
+button catches it now. Accepted rather than fixed — the alternative is watching another
+notification type, and James has asked that the sync logic not grow more paths.
 
 ### Phase 2 — data layer (remaining)
 

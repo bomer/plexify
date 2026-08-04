@@ -66,11 +66,16 @@ class SyncStatusScreen extends ConsumerWidget {
               title: 'Polling',
               subtitle:
                   'Asks whether the library changed every 30 seconds, and '
-                  'sweeps for edits every 5 minutes.',
+                  'sweeps for edits every 5 minutes. Stops while the app is '
+                  'off screen.',
               rows: [
                 ('Last check', _ago(d.lastPollAt)),
                 ('Last sync', _ago(d.lastSyncAt)),
                 ('Sync passes', '${d.passes}'),
+                // Near zero on a routine sweep means the delta filter is
+                // working. Anything near the library size means Plex is
+                // ignoring it and every sweep refetches everything.
+                ('Rows in last sync', '${d.lastSyncRowCount}'),
                 ('Currently syncing', d.isSyncing ? 'Yes' : 'No'),
                 if (d.syncError != null) ('Last error', d.syncError!),
               ],

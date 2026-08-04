@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -51,9 +53,13 @@ class _AppShellState extends ConsumerState<AppShell> {
       onResume: () {
         ref.read(plexNotificationSocketProvider)?.reconnectNow();
         // The socket cannot deliver what happened while the app was closed, so
-        // resume also asks the cheap question directly.
-        ref.read(syncSchedulerProvider)?.wake();
+        // coming back also asks the cheap question directly.
+        unawaited(ref.read(syncSchedulerProvider)?.resume() ?? Future.value());
       },
+      // Polling stops the moment the app is no longer on screen. Playback keeps
+      // the isolate alive for hours on Android, and there is nothing to gain
+      // from checking for library changes nobody can see.
+      onInactive: () => ref.read(syncSchedulerProvider)?.pause(),
     );
   }
 

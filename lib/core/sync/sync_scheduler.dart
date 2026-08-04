@@ -85,6 +85,15 @@ class SyncScheduler {
 
   bool get isSyncing => _busy;
 
+  /// Rows the last sync pulled down.
+  ///
+  /// The number that says whether the delta filter is doing anything. A routine
+  /// sweep with nothing new should report ~0; if it reports the size of the
+  /// library, Plex is ignoring `updatedAt>=` and every sweep is refetching
+  /// everything — cheap on a LAN, ruinous on a phone.
+  int get lastSyncRowCount => _lastSyncRowCount;
+  int _lastSyncRowCount = 0;
+
   /// Runs a first sync, then polls.
   ///
   /// The first pass is unconditional: an interrupted initial sync has to resume,
@@ -108,6 +117,25 @@ class SyncScheduler {
   /// For app resume and network reconnect — both moments when the cache is most
   /// likely to be stale and the user is most likely to be looking at it.
   Future<void> wake() => _tick();
+
+  /// Stops polling until [resume].
+  ///
+  /// Called when the app leaves the foreground. On Android the isolate stays
+  /// alive for the whole of a playback session, so without this the poll runs
+  /// for hours down a phone's mobile connection, checking for changes to a
+  /// screen nobody is looking at. Nothing is lost by waiting: [resume] polls
+  /// immediately, so the first thing you see on coming back is current.
+  void pause() {
+    _timer?.cancel();
+    _timer = null;
+  }
+
+  /// Restarts polling and checks straight away.
+  Future<void> resume() async {
+    if (_stopped || _timer != null) return;
+    _timer = Timer.periodic(pollInterval, (_) => unawaited(_tick()));
+    await _tick();
+  }
 
   /// Pull-to-refresh: asks Plex to rescan, then syncs regardless of whether
   /// anything looks changed.
@@ -171,14 +199,19 @@ class SyncScheduler {
     final changed = !resumable || _sectionChanged(section, stored);
     if (!force && !changed && !_deltaSweepDue()) return;
 
+    final fetched = <SyncPhase, int>{};
+
     await for (final update in LibrarySync(client: _client, db: _db).run(
       section,
       serverClientIdentifier: _client.server.clientIdentifier,
       minUpdatedAt: resumable ? stored.lastSyncedUpdatedAt : 0,
     )) {
       if (update.phase == SyncPhase.failed) _lastError = update.message;
+      fetched[update.phase] = update.done;
       _emit(update);
     }
+
+    _lastSyncRowCount = fetched.values.fold(0, (a, b) => a + b);
     _lastDelta = _now();
     _passes++;
   }
