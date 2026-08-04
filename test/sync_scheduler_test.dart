@@ -26,12 +26,16 @@ void main() {
   late int sectionUpdatedAt;
   late int sectionScannedAt;
 
+  /// Albums the server returns from a listing. Empty unless a test cares.
+  late List<Map<String, dynamic>> albumsFromServer;
+
   const serverId = 'server-1';
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
     requests = [];
     listingQueries = [];
+    albumsFromServer = [];
     sectionUpdatedAt = 100;
     sectionScannedAt = 100;
 
@@ -73,10 +77,24 @@ void main() {
 
         if (request.url.path.endsWith('/all')) {
           listingQueries.add(request.url.queryParameters);
+
+          // Type 9 is albums. Everything else stays empty, so a sync is
+          // otherwise a no-op that still leaves fingerprints in `requests`.
+          final isAlbumPage =
+              request.url.queryParameters['type'] == '9' &&
+              request.url.queryParameters['X-Plex-Container-Start'] != '1';
+          if (isAlbumPage && albumsFromServer.isNotEmpty) {
+            final page = albumsFromServer;
+            albumsFromServer = [];
+            return http.Response(
+              jsonEncode({
+                'MediaContainer': {'totalSize': page.length, 'Metadata': page},
+              }),
+              200,
+            );
+          }
         }
 
-        // Every metadata listing comes back empty, so a sync is a no-op that
-        // still leaves its fingerprints in `requests`.
         return http.Response(
           jsonEncode({
             'MediaContainer': {'totalSize': 0},
@@ -183,6 +201,28 @@ void main() {
       expect(syncedSinceLastCheck(), isTrue);
     },
   );
+
+  test('a rating set in Plex arrives in Favourites', () async {
+    await seedSyncedState();
+
+    // Plex bumps the section's updatedAt when an item is rated, which is what
+    // makes the poll notice at all.
+    sectionUpdatedAt = 200;
+    albumsFromServer = [
+      {
+        'ratingKey': 'b1',
+        'title': 'Kid A',
+        'parentTitle': 'Radiohead',
+        'userRating': 10,
+        'updatedAt': 200,
+      },
+    ];
+
+    await scheduler.wake();
+
+    final favourites = await db.watchFavouriteAlbums().first;
+    expect(favourites.map((a) => a.title), ['Kid A']);
+  });
 
   test('a delta pass asks Plex only for what changed', () async {
     await seedSyncedState(cursor: 4242);

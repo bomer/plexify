@@ -42,27 +42,47 @@ class LibraryWriter {
   Future<void> writeAlbums(List<PlexAlbum> items) async {
     if (items.isEmpty) return;
     await _db.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        _db.albums,
-        items.map(
-          (a) => AlbumsCompanion.insert(
-            ratingKey: a.ratingKey,
-            title: a.title,
-            normalisedTitle: normalise(a.title),
-            artistRatingKey: Value(a.artistRatingKey),
-            artistTitle: a.artist,
-            normalisedArtist: normalise(a.artist),
-            thumb: Value(a.thumb),
-            year: Value(a.year),
-            updatedAt: Value(a.updatedAt),
-            addedAt: Value(a.addedAt),
-            lastViewedAt: Value(a.lastViewedAt),
-            userRating: Value(a.userRating),
-          ),
-        ),
-      );
+      batch.insertAllOnConflictUpdate(_db.albums, items.map(_albumRow));
     });
   }
+
+  /// Inserts an album only if the cache has never seen it.
+  ///
+  /// For paths that need a row to exist before writing to it — rating, most
+  /// importantly. Those updates are `UPDATE ... WHERE ratingKey = ?`, which
+  /// matches nothing for an album the sync has not reached yet and fails
+  /// silently rather than loudly.
+  ///
+  /// Insert-or-ignore rather than upsert: a row already here came from a full
+  /// listing and is richer than whatever partial object prompted this, so it
+  /// must not be overwritten.
+  Future<void> ensureAlbum(PlexAlbum album) async {
+    await _db
+        .into(_db.albums)
+        .insert(_albumRow(album), mode: InsertMode.insertOrIgnore);
+  }
+
+  /// Inserts a track only if the cache has never seen it. See [ensureAlbum].
+  Future<void> ensureTrack(PlexTrack track) async {
+    await _db
+        .into(_db.tracks)
+        .insert(_trackRow(track), mode: InsertMode.insertOrIgnore);
+  }
+
+  AlbumsCompanion _albumRow(PlexAlbum a) => AlbumsCompanion.insert(
+    ratingKey: a.ratingKey,
+    title: a.title,
+    normalisedTitle: normalise(a.title),
+    artistRatingKey: Value(a.artistRatingKey),
+    artistTitle: a.artist,
+    normalisedArtist: normalise(a.artist),
+    thumb: Value(a.thumb),
+    year: Value(a.year),
+    updatedAt: Value(a.updatedAt),
+    addedAt: Value(a.addedAt),
+    lastViewedAt: Value(a.lastViewedAt),
+    userRating: Value(a.userRating),
+  );
 
   /// Stores tracks.
   ///
@@ -78,29 +98,30 @@ class LibraryWriter {
     await _db.batch((batch) {
       batch.insertAllOnConflictUpdate(
         _db.tracks,
-        items.map(
-          (t) => TracksCompanion.insert(
-            ratingKey: t.ratingKey,
-            title: t.title,
-            normalisedTitle: normalise(t.title),
-            albumRatingKey: Value(t.albumRatingKey ?? fallbackAlbumRatingKey),
-            albumTitle: Value(t.album),
-            artistTitle: Value(t.artist),
-            trackIndex: Value(t.index),
-            discIndex: Value(t.discIndex),
-            durationMs: Value(t.durationMs),
-            partKey: Value(t.partKey),
-            container: Value(t.container),
-            thumb: Value(t.thumb),
-            updatedAt: Value(t.updatedAt),
-            addedAt: Value(t.addedAt),
-            lastViewedAt: Value(t.lastViewedAt),
-            userRating: Value(t.userRating),
-          ),
-        ),
+        items.map((t) => _trackRow(t, fallbackAlbumRatingKey)),
       );
     });
   }
+
+  TracksCompanion _trackRow(PlexTrack t, [String? fallbackAlbumRatingKey]) =>
+      TracksCompanion.insert(
+        ratingKey: t.ratingKey,
+        title: t.title,
+        normalisedTitle: normalise(t.title),
+        albumRatingKey: Value(t.albumRatingKey ?? fallbackAlbumRatingKey),
+        albumTitle: Value(t.album),
+        artistTitle: Value(t.artist),
+        trackIndex: Value(t.index),
+        discIndex: Value(t.discIndex),
+        durationMs: Value(t.durationMs),
+        partKey: Value(t.partKey),
+        container: Value(t.container),
+        thumb: Value(t.thumb),
+        updatedAt: Value(t.updatedAt),
+        addedAt: Value(t.addedAt),
+        lastViewedAt: Value(t.lastViewedAt),
+        userRating: Value(t.userRating),
+      );
 
   Future<void> writePlaylists(List<PlexPlaylist> items) async {
     if (items.isEmpty) return;

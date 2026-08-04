@@ -139,6 +139,27 @@ void main() {
       expect((await db.select(db.albums).getSingle()).userRating, 6);
     });
 
+    test('rates an album the cache has never seen', () async {
+      final controller = RatingController(
+        db: db,
+        client: clientThat(succeeds: true),
+      );
+      // A brand new album, reachable through a live Plex read but with no row
+      // yet. The local write is an UPDATE, so without creating the row first it
+      // matches nothing, Plex still accepts the rating, and Favourites stays
+      // empty with no error anywhere.
+      const album = PlexAlbum(
+        ratingKey: 'new-1',
+        title: 'Brand New',
+        artist: 'Someone',
+      );
+
+      final ok = await controller.rateAlbum(album, 5);
+
+      expect(ok, isTrue);
+      expect(await db.watchFavouriteAlbums().first, hasLength(1));
+    });
+
     test('favourites query returns only four stars and above', () async {
       for (final (key, rating) in [
         ('1', 10),

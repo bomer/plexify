@@ -4,6 +4,7 @@ import '../../core/db/app_database.dart';
 import '../../core/plex/plex_client.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../../core/sync/library_writer.dart';
 
 /// Applies star ratings to Plex, optimistically.
 ///
@@ -12,20 +13,32 @@ import '../../core/providers.dart';
 /// disagreed with the server would be worse than one that visibly failed,
 /// because ratings are the thing you later browse by.
 class RatingController {
-  const RatingController({required AppDatabase db, required PlexClient client})
+  RatingController({required AppDatabase db, required PlexClient client})
     : _db = db,
-      _client = client;
+      _client = client,
+      _writer = LibraryWriter(db);
 
   final AppDatabase _db;
   final PlexClient _client;
+  final LibraryWriter _writer;
 
   /// Sets an album's rating in stars. Zero clears it.
-  Future<bool> rateAlbum(PlexAlbum album, int stars) =>
-      _rate(album.ratingKey, album.userRating, stars, _db.setAlbumRating);
+  ///
+  /// The row is created first if the cache has never seen this album. Rating
+  /// something is often the first thing you do with a new record, and the local
+  /// write is an UPDATE — without a row it matches nothing, Plex accepts the
+  /// rating, and the album never appears in Favourites even though the server
+  /// has the stars. Silent, and it looks like the rating was ignored.
+  Future<bool> rateAlbum(PlexAlbum album, int stars) async {
+    await _writer.ensureAlbum(album);
+    return _rate(album.ratingKey, album.userRating, stars, _db.setAlbumRating);
+  }
 
   /// Sets a track's rating in stars. Zero clears it.
-  Future<bool> rateTrack(PlexTrack track, int stars) =>
-      _rate(track.ratingKey, track.userRating, stars, _db.setTrackRating);
+  Future<bool> rateTrack(PlexTrack track, int stars) async {
+    await _writer.ensureTrack(track);
+    return _rate(track.ratingKey, track.userRating, stars, _db.setTrackRating);
+  }
 
   Future<bool> _rate(
     String ratingKey,
