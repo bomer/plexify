@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/db/app_database.dart' show AlbumSort;
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import 'album_detail_screen.dart';
@@ -15,14 +16,45 @@ class AlbumListScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final albums = ref.watch(albumsProvider);
 
+    final count = albums.valueOrNull?.length;
+    final sort = ref.watch(albumSortProvider);
+
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Albums'),
+        title: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Albums'),
+            if (count != null)
+              // Surfacing the count makes a partially-synced library obvious
+              // rather than looking like a complete but small one.
+              Text(
+                '$count in your library',
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
+          ],
+        ),
         actions: [
+          PopupMenuButton<AlbumSort>(
+            tooltip: 'Sort',
+            icon: const Icon(Icons.sort),
+            initialValue: sort,
+            onSelected: (value) =>
+                ref.read(albumSortProvider.notifier).state = value,
+            itemBuilder: (context) => const [
+              PopupMenuItem(
+                value: AlbumSort.recentlyAdded,
+                child: Text('Recently added'),
+              ),
+              PopupMenuItem(value: AlbumSort.title, child: Text('Title A–Z')),
+              PopupMenuItem(value: AlbumSort.artist, child: Text('Artist A–Z')),
+            ],
+          ),
           IconButton(
             tooltip: 'Refresh',
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(albumsProvider),
+            onPressed: () => ref.invalidate(albumsFallbackProvider),
           ),
         ],
       ),
@@ -44,14 +76,14 @@ class AlbumListScreen extends ConsumerWidget {
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => _ErrorView(
         message: '$error',
-        onRetry: () => ref.invalidate(albumsProvider),
+        onRetry: () => ref.invalidate(albumsFallbackProvider),
       ),
       data: (items) {
         if (items.isEmpty) {
           return const _ErrorView(message: 'No albums found in this library.');
         }
         return RefreshIndicator(
-          onRefresh: () async => ref.invalidate(albumsProvider),
+          onRefresh: () async => ref.invalidate(albumsFallbackProvider),
           child: GridView.builder(
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(

@@ -1,7 +1,12 @@
+import 'dart:async';
+
+import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'audio/playback_handler.dart';
 import 'db/app_database.dart';
+import 'db/mappers.dart';
+import 'db/normalise.dart';
 import 'plex/plex_auth.dart';
 import 'plex/plex_client.dart';
 import 'plex/plex_identity.dart';
@@ -104,12 +109,38 @@ final musicSectionProvider = FutureProvider<PlexSection?>((ref) async {
   return client.musicSection();
 });
 
-/// Albums, newest first.
+/// How the album grid is sorted.
+final albumSortProvider = StateProvider<AlbumSort>(
+  (ref) => AlbumSort.recentlyAdded,
+);
+
+/// Albums, read from the local cache.
 ///
-/// Phase 1 reads straight from Plex on every view. Phase 2 replaces this with a
-/// drift-backed provider so browsing stops being network-bound — the widgets
-/// consuming it shouldn't need to change.
-final albumsProvider = FutureProvider<List<PlexAlbum>>((ref) async {
+/// A stream, so the grid fills progressively as sync writes pages rather than
+/// appearing only once sync finishes.
+///
+/// Reading from cache is what makes browsing instant, but it must never be the
+/// reason something is missing. While the cache is still empty this falls
+/// through to a live Plex read, so a fresh install is usable during the first
+/// sync rather than showing "no albums".
+final albumsProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  final sort = ref.watch(albumSortProvider);
+
+  await for (final rows in db.watchAlbums(sort: sort)) {
+    if (rows.isEmpty) {
+      final fallback = await ref.read(albumsFallbackProvider.future);
+      if (fallback.isNotEmpty) {
+        yield fallback;
+        continue;
+      }
+    }
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// Live Plex read, used only while the cache is still empty.
+final albumsFallbackProvider = FutureProvider<List<PlexAlbum>>((ref) async {
   final client = ref.watch(plexClientProvider);
   final section = await ref.watch(musicSectionProvider.future);
   if (client == null || section == null) return const [];
@@ -152,11 +183,77 @@ final librarySyncProvider = StreamProvider<SyncProgress>((ref) async* {
 });
 
 /// Tracks for one album, keyed by its ratingKey.
-final tracksProvider = FutureProvider.family<List<PlexTrack>, String>((
+///
+/// Stale-while-revalidate: cached tracks render immediately, then Plex is asked
+/// in the background and any differences are written through — the stream then
+/// re-emits on its own.
+///
+/// If the cache holds nothing for this album, Plex is queried directly. That is
+/// the additive rule in practice: an album the sync has not reached yet must
+/// still open and play, not appear empty.
+final tracksProvider = StreamProvider.family<List<PlexTrack>, String>((
   ref,
   albumRatingKey,
-) async {
+) async* {
+  final db = ref.watch(databaseProvider);
   final client = ref.watch(plexClientProvider);
-  if (client == null) return const [];
-  return client.tracks(albumRatingKey);
+
+  // Kick off revalidation without blocking the first frame.
+  if (client != null) {
+    unawaited(_revalidateAlbumTracks(db, client, albumRatingKey));
+  }
+
+  await for (final rows in db.watchTracksForAlbum(albumRatingKey)) {
+    if (rows.isEmpty && client != null) {
+      final live = await client.tracks(albumRatingKey);
+      if (live.isNotEmpty) {
+        yield live;
+        continue;
+      }
+    }
+    yield rows.map((r) => r.toDomain()).toList();
+  }
 });
+
+/// Fetches an album's tracks from Plex and writes them through to the cache.
+///
+/// Failures are swallowed: this runs behind whatever is already on screen, and
+/// a network blip should not surface as an error over content that rendered
+/// perfectly well from cache.
+Future<void> _revalidateAlbumTracks(
+  AppDatabase db,
+  PlexClient client,
+  String albumRatingKey,
+) async {
+  try {
+    final live = await client.tracks(albumRatingKey);
+    if (live.isEmpty) return;
+
+    await db.batch((batch) {
+      batch.insertAllOnConflictUpdate(
+        db.tracks,
+        live.map(
+          (t) => TracksCompanion.insert(
+            ratingKey: t.ratingKey,
+            title: t.title,
+            normalisedTitle: normalise(t.title),
+            albumRatingKey: Value(t.albumRatingKey ?? albumRatingKey),
+            albumTitle: Value(t.album),
+            artistTitle: Value(t.artist),
+            trackIndex: Value(t.index),
+            discIndex: Value(t.discIndex),
+            durationMs: Value(t.durationMs),
+            partKey: Value(t.partKey),
+            container: Value(t.container),
+            thumb: Value(t.thumb),
+            updatedAt: Value(t.updatedAt),
+            addedAt: Value(t.addedAt),
+            lastViewedAt: Value(t.lastViewedAt),
+          ),
+        ),
+      );
+    });
+  } on Object {
+    // Cached content stays on screen; nothing to surface.
+  }
+}
