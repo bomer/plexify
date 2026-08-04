@@ -6,7 +6,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 
 **Last updated:** 4 August 2026
 
-**Status:** 15 complete · 18 open
+**Status:** 19 complete · 16 open · 79 tests passing
 
 ---
 
@@ -27,12 +27,16 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 | 13 | Now Playing overlay with seek | Sibling `Stack` layer, not a route — page beneath stays mounted |
 | 14 | Android background playback | Verified on OPPO CPH2791 / Android 16. Three bugs found |
 | 15 | drift schema and codegen | Six tables, normalised search columns, sync state |
-| 16 | Paginated initial sync | Three passes, resumable, server-change wipe |
+| 16 | Paginated initial sync | Three passes plus playlists. Live-verified |
 | 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
+| 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
+| 27 | Home screen and browsing | Jump back in / recently added / favourites. Artist pages with albums *and* tracks, library toggle |
+| 35 | Star ratings and favourites | Write-through to `/:/rate`, optimistic with revert. Favourite = 4★+ |
+| 36 | Smart playlist support | `smart` flag stored and badged; contents always revalidated, never served from cache |
 
 ### Bugs found by device testing (#14)
 
-All three were release-only or device-only and would have shipped:
+All four were release-only or device-only and would have shipped:
 
 1. **`INTERNET` missing from the main manifest.** Flutter only injects it into debug and
    profile manifests, so release builds had no network at all.
@@ -56,10 +60,13 @@ cellular listening depends on this, and it is the least-documented part of the P
 If progressive can't be made to work, escalate: remote falls back to direct-play only.
 **Gates #23.**
 
-**Live-confirm #16 and #20.** Both are code-complete and tested but need a real run: does the
-album count match the library, does the grid fill during sync, do cached albums play?
-Specifically watch whether Plex's section-level track endpoint returns `Media`/`Part` blocks
-— if not, tracks sync without part keys and only become playable after revalidation.
+### Known caveats
+
+**Existing Plex ratings are invisible until a resync.** The v2 `userRating` columns were
+added by migration and start empty, so an already-synced install shows every album unrated
+even though Plex has the stars. Delta sync (#18) will backfill them; until then the only fix
+is deleting the app database to force a full sync. Worth saying out loud because it looks
+like the rating feature is broken rather than the cache being stale.
 
 ### Phase 2 — data layer (remaining)
 
@@ -73,7 +80,8 @@ reason new music appears in seconds.
 foreground, plus on resume and network reconnect — one tiny response, compare
 `updatedAt`/`scannedAt` against stored values. The delta machinery already exists in
 `LibrarySync.run(minUpdatedAt:)`; this is the trigger for it. Pull-to-refresh should also
-fire `/library/sections/{id}/refresh`.
+fire `/library/sections/{id}/refresh`. **Also the thing that backfills `userRating`** into
+caches synced before schema v2.
 
 **#19 — Deletion reconcile.** Deletions don't appear in an `updatedAt` delta, so the cache
 accumulates ghosts that 404 on play. Periodically fetch the ratingKey set only and remove
@@ -101,17 +109,7 @@ once back on the LAN.
 **#25 — Timeline and scrobbling.** `/:/timeline` during playback, `/:/scrobble` on
 completion. The ratingKey is already in `MediaItem.extras`.
 
-### Phase 4 — UI shell (next up)
-
-**#26 — Sidebar with recent playlists.** Home, Search, Library, with recent playlists
-directly beneath — a headline requirement. Collapses to bottom nav on Android. Playlists are
-read-only in v1. **Note: needs a playlist sync pass, which does not exist yet** — the
-`Playlists` and `PlaylistItems` tables are defined but never written to.
-
-**#27 — Home screen and browsing.** Recently played, recently added, jump back in. Artist
-detail pages. Library by artist and album.
-
-### Phase 5 — search
+### Phase 5 — search (next up)
 
 **#28 — Instant local search.** drift-backed on every keystroke, no network round trip. The
 normalised columns and indexes already exist. Merge with `/hubs/search` so unsynced server
