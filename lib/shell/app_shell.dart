@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/app_window.dart';
+import '../core/providers.dart';
 import '../features/home/home_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/mini_player.dart';
@@ -38,6 +39,25 @@ class _AppShellState extends ConsumerState<AppShell> {
     for (final destination in ShellDestination.values)
       destination: GlobalKey<NavigatorState>(),
   };
+
+  AppLifecycleListener? _lifecycle;
+
+  @override
+  void initState() {
+    super.initState();
+    // Coming back to the foreground is the moment the notification socket is
+    // most likely to be dead — the OS reclaims idle connections — and also the
+    // moment stale content is most likely to be noticed.
+    _lifecycle = AppLifecycleListener(
+      onResume: () => ref.read(plexNotificationSocketProvider)?.reconnectNow(),
+    );
+  }
+
+  @override
+  void dispose() {
+    _lifecycle?.dispose();
+    super.dispose();
+  }
 
   NavigatorState? get _activeNavigator =>
       _navigatorKeys[ref.read(shellDestinationProvider)]?.currentState;
@@ -78,6 +98,10 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget build(BuildContext context) {
     final destination = ref.watch(shellDestinationProvider);
     final expanded = ref.watch(nowPlayingExpandedProvider);
+
+    // Watched purely to keep it alive: push sync has no UI, but without a
+    // listener the provider is never constructed and the socket never opens.
+    ref.watch(liveSyncProvider);
 
     final content = IndexedStack(
       index: destination.index,

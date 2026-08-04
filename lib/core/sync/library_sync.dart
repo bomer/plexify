@@ -1,9 +1,9 @@
 import 'package:drift/drift.dart';
 
 import '../db/app_database.dart';
-import '../db/normalise.dart';
 import '../plex/plex_client.dart';
 import '../plex/plex_models.dart';
+import 'library_writer.dart';
 
 /// Which pass the sync is currently on.
 enum SyncPhase { idle, artists, albums, tracks, done, failed }
@@ -44,10 +44,12 @@ class LibrarySync {
     required AppDatabase db,
     this.pageSize = 200,
   }) : _client = client,
-       _db = db;
+       _db = db,
+       _writer = LibraryWriter(db);
 
   final PlexClient _client;
   final AppDatabase _db;
+  final LibraryWriter _writer;
   final int pageSize;
 
   /// Runs a full pass over the section.
@@ -80,7 +82,7 @@ class LibrarySync {
         type: PlexClient.typeArtist,
         parse: PlexArtist.fromJson,
         minUpdatedAt: effectiveMin,
-        write: _writeArtists,
+        write: _writer.writeArtists,
         newest: (items) => items.map((a) => a.updatedAt ?? 0),
         onNewest: (v) => newestUpdatedAt = _max(newestUpdatedAt, v),
       )) {
@@ -93,7 +95,7 @@ class LibrarySync {
         type: PlexClient.typeAlbum,
         parse: PlexAlbum.fromJson,
         minUpdatedAt: effectiveMin,
-        write: _writeAlbums,
+        write: _writer.writeAlbums,
         newest: (items) => items.map((a) => a.updatedAt ?? 0),
         onNewest: (v) => newestUpdatedAt = _max(newestUpdatedAt, v),
       )) {
@@ -106,7 +108,7 @@ class LibrarySync {
         type: PlexClient.typeTrack,
         parse: PlexTrack.fromJson,
         minUpdatedAt: effectiveMin,
-        write: _writeTracks,
+        write: _writer.writeTracks,
         newest: (items) => items.map((t) => t.updatedAt ?? 0),
         onNewest: (v) => newestUpdatedAt = _max(newestUpdatedAt, v),
       )) {
@@ -183,100 +185,10 @@ class LibrarySync {
   /// them should not fail a library sync that otherwise succeeded.
   Future<void> _syncPlaylists() async {
     try {
-      final items = await _client.playlists();
-      if (items.isEmpty) return;
-
-      await _db.batch((batch) {
-        batch.insertAllOnConflictUpdate(
-          _db.playlists,
-          items.map(
-            (p) => PlaylistsCompanion.insert(
-              ratingKey: p.ratingKey,
-              title: p.title,
-              normalisedTitle: normalise(p.title),
-              thumb: Value(p.thumb),
-              itemCount: Value(p.itemCount),
-              durationMs: Value(p.durationMs),
-              updatedAt: Value(p.updatedAt),
-              lastViewedAt: Value(p.lastViewedAt),
-              smart: Value(p.smart),
-            ),
-          ),
-        );
-      });
+      await _writer.writePlaylists(await _client.playlists());
     } on Object {
       // Non-fatal; the rest of the sync stands.
     }
-  }
-
-  Future<void> _writeArtists(List<PlexArtist> items) async {
-    await _db.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        _db.artists,
-        items.map(
-          (a) => ArtistsCompanion.insert(
-            ratingKey: a.ratingKey,
-            title: a.title,
-            normalisedTitle: normalise(a.title),
-            thumb: Value(a.thumb),
-            updatedAt: Value(a.updatedAt),
-            addedAt: Value(a.addedAt),
-          ),
-        ),
-      );
-    });
-  }
-
-  Future<void> _writeAlbums(List<PlexAlbum> items) async {
-    await _db.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        _db.albums,
-        items.map(
-          (a) => AlbumsCompanion.insert(
-            ratingKey: a.ratingKey,
-            title: a.title,
-            normalisedTitle: normalise(a.title),
-            artistRatingKey: Value(a.artistRatingKey),
-            artistTitle: a.artist,
-            normalisedArtist: normalise(a.artist),
-            thumb: Value(a.thumb),
-            year: Value(a.year),
-            updatedAt: Value(a.updatedAt),
-            addedAt: Value(a.addedAt),
-            lastViewedAt: Value(a.lastViewedAt),
-            userRating: Value(a.userRating),
-          ),
-        ),
-      );
-    });
-  }
-
-  Future<void> _writeTracks(List<PlexTrack> items) async {
-    await _db.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        _db.tracks,
-        items.map(
-          (t) => TracksCompanion.insert(
-            ratingKey: t.ratingKey,
-            title: t.title,
-            normalisedTitle: normalise(t.title),
-            albumRatingKey: Value(t.albumRatingKey),
-            albumTitle: Value(t.album),
-            artistTitle: Value(t.artist),
-            trackIndex: Value(t.index),
-            discIndex: Value(t.discIndex),
-            durationMs: Value(t.durationMs),
-            partKey: Value(t.partKey),
-            container: Value(t.container),
-            thumb: Value(t.thumb),
-            updatedAt: Value(t.updatedAt),
-            addedAt: Value(t.addedAt),
-            lastViewedAt: Value(t.lastViewedAt),
-            userRating: Value(t.userRating),
-          ),
-        ),
-      );
-    });
   }
 
   /// Wipes the cache if it was built against a different server.

@@ -1,18 +1,19 @@
 import 'dart:async';
 
-import 'package:drift/drift.dart' show Value;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'audio/playback_handler.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
-import 'db/normalise.dart';
 import 'plex/plex_auth.dart';
 import 'plex/plex_client.dart';
 import 'plex/plex_identity.dart';
 import 'plex/plex_models.dart';
+import 'plex/plex_notifications.dart';
 import 'plex/plex_server.dart';
 import 'sync/library_sync.dart';
+import 'sync/library_writer.dart';
+import 'sync/live_sync.dart';
 
 /// The application's provider graph.
 ///
@@ -212,6 +213,44 @@ final librarySyncProvider = StreamProvider<SyncProgress>((ref) async* {
   );
 });
 
+/// The push-notification connection to Plex.
+///
+/// Held separately from [liveSyncProvider] so the app-resume hook has something
+/// to prod: the OS routinely kills sockets while backgrounded, and waiting out
+/// a backoff to notice would reintroduce exactly the lag this removes.
+final plexNotificationSocketProvider = Provider<PlexNotificationSocket?>((ref) {
+  final server = ref.watch(plexServerProvider);
+  if (server == null) return null;
+
+  final socket = PlexNotificationSocket(
+    server: server,
+    identity: ref.watch(plexIdentityProvider),
+  );
+  socket.start();
+  ref.onDispose(socket.stop);
+  return socket;
+});
+
+/// Applies pushed changes to the cache.
+///
+/// Nothing reads this provider's value — it exists for its side effects, so
+/// something must `watch` it for the connection to be made at all. [AppShell]
+/// does, for the lifetime of the signed-in session.
+final liveSyncProvider = Provider<LiveSync?>((ref) {
+  final client = ref.watch(plexClientProvider);
+  final socket = ref.watch(plexNotificationSocketProvider);
+  if (client == null || socket == null) return null;
+
+  final sync = LiveSync(
+    client: client,
+    db: ref.watch(databaseProvider),
+    changes: socket.changes,
+  );
+  sync.start();
+  ref.onDispose(sync.stop);
+  return sync;
+});
+
 /// Artists, alphabetically.
 final artistsProvider = StreamProvider<List<PlexArtist>>((ref) async* {
   final db = ref.watch(databaseProvider);
@@ -362,31 +401,7 @@ Future<void> _revalidatePlaylist(
     final live = await client.playlistItems(playlistRatingKey);
     if (live.isEmpty) return;
 
-    await db.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        db.tracks,
-        live.map(
-          (t) => TracksCompanion.insert(
-            ratingKey: t.ratingKey,
-            title: t.title,
-            normalisedTitle: normalise(t.title),
-            albumRatingKey: Value(t.albumRatingKey),
-            albumTitle: Value(t.album),
-            artistTitle: Value(t.artist),
-            trackIndex: Value(t.index),
-            discIndex: Value(t.discIndex),
-            durationMs: Value(t.durationMs),
-            partKey: Value(t.partKey),
-            container: Value(t.container),
-            thumb: Value(t.thumb),
-            updatedAt: Value(t.updatedAt),
-            addedAt: Value(t.addedAt),
-            lastViewedAt: Value(t.lastViewedAt),
-            userRating: Value(t.userRating),
-          ),
-        ),
-      );
-    });
+    await LibraryWriter(db).writeTracks(live);
 
     await db.replacePlaylistItems(playlistRatingKey, [
       for (final (index, track) in live.indexed)
@@ -448,31 +463,9 @@ Future<void> _revalidateAlbumTracks(
     final live = await client.tracks(albumRatingKey);
     if (live.isEmpty) return;
 
-    await db.batch((batch) {
-      batch.insertAllOnConflictUpdate(
-        db.tracks,
-        live.map(
-          (t) => TracksCompanion.insert(
-            ratingKey: t.ratingKey,
-            title: t.title,
-            normalisedTitle: normalise(t.title),
-            albumRatingKey: Value(t.albumRatingKey ?? albumRatingKey),
-            albumTitle: Value(t.album),
-            artistTitle: Value(t.artist),
-            trackIndex: Value(t.index),
-            discIndex: Value(t.discIndex),
-            durationMs: Value(t.durationMs),
-            partKey: Value(t.partKey),
-            container: Value(t.container),
-            thumb: Value(t.thumb),
-            updatedAt: Value(t.updatedAt),
-            addedAt: Value(t.addedAt),
-            lastViewedAt: Value(t.lastViewedAt),
-            userRating: Value(t.userRating),
-          ),
-        ),
-      );
-    });
+    await LibraryWriter(
+      db,
+    ).writeTracks(live, fallbackAlbumRatingKey: albumRatingKey);
   } on Object {
     // Cached content stays on screen; nothing to surface.
   }

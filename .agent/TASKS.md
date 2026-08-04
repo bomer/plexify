@@ -6,7 +6,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 
 **Last updated:** 4 August 2026
 
-**Status:** 19 complete · 16 open · 79 tests passing
+**Status:** 20 complete · 15 open · 105 tests passing
 
 ---
 
@@ -28,6 +28,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 | 14 | Android background playback | Verified on OPPO CPH2791 / Android 16. Three bugs found |
 | 15 | drift schema and codegen | Six tables, normalised search columns, sync state |
 | 16 | Paginated initial sync | Three passes plus playlists. Live-verified |
+| 17 | Websocket push sync | `dart:io` socket, backoff reconnect, reconnect on resume. **Needs live verification** |
 | 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
 | 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
 | 27 | Home screen and browsing | Jump back in / recently added / favourites. Artist pages with albums *and* tracks, library toggle |
@@ -68,24 +69,27 @@ even though Plex has the stars. Delta sync (#18) will backfill them; until then 
 is deleting the app database to force a full sync. Worth saying out loud because it looks
 like the rating feature is broken rather than the cache being stale.
 
-### Phase 2 — data layer (remaining)
+**Verify push sync (#17) against the real server.** Code-complete and covered by tests, but
+the frame shapes came from Plex's documented behaviour, not from a capture. Add a track in
+Plex with the app open and watch it appear without a refresh; delete one and watch it go.
+If nothing happens, log the raw frames first — the likely culprits are the `state` values
+and whether `identifier` is what we filter on.
 
-**#17 — Websocket push sync.** Connect to `/:/websockets/notifications` using `dart:io`
-`WebSocket.connect` (the `web_socket_channel` package was removed — not needed since we
-don't target web). Handle `TimelineEntry` to delta-sync items the moment Plex finishes
-scanning, plus delete events. Reconnect with backoff. **Primary sync mechanism** and the
-reason new music appears in seconds.
+### Phase 2 — data layer (remaining)
 
 **#18 — Change-detection poll and delta sync.** Poll `/library/sections` every ~30s
 foreground, plus on resume and network reconnect — one tiny response, compare
 `updatedAt`/`scannedAt` against stored values. The delta machinery already exists in
 `LibrarySync.run(minUpdatedAt:)`; this is the trigger for it. Pull-to-refresh should also
 fire `/library/sections/{id}/refresh`. **Also the thing that backfills `userRating`** into
-caches synced before schema v2.
+caches synced before schema v2. The safety net beneath #17: the socket cannot deliver what
+happened while the app was closed.
 
 **#19 — Deletion reconcile.** Deletions don't appear in an `updatedAt` delta, so the cache
-accumulates ghosts that 404 on play. Periodically fetch the ratingKey set only and remove
-local rows Plex no longer has. `SyncState.lastReconcileAt` exists for this.
+accumulates ghosts that 404 on play. #17 catches deletions that happen while connected;
+this catches the rest. Periodically fetch the ratingKey set only and remove local rows Plex
+no longer has. `SyncState.lastReconcileAt` exists for this. `LibraryWriter.deleteItem`
+already handles cascading to children.
 
 **#21 — Artwork disk cache.** Bounded, keyed by thumb path and size, LRU, prefetch ahead of
 scroll. Biggest perceived-performance win left in the grid.

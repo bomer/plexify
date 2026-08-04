@@ -154,6 +154,25 @@ class PlexClient {
     }
   }
 
+  /// Raw metadata for a single item, or null if the server no longer has it.
+  ///
+  /// Push notifications carry a ratingKey and a type, never the metadata, so
+  /// this is what turns an event into something storable.
+  ///
+  /// A 404 becomes null — the item is genuinely gone. Every other failure
+  /// throws, and that distinction matters: treating a timeout as "deleted"
+  /// would let a network blip silently empty the cache.
+  Future<Map<String, dynamic>?> metadataItem(String ratingKey) async {
+    try {
+      final container = await _getContainer('/library/metadata/$ratingKey');
+      final items = _listOf(container, 'Metadata');
+      return items.isEmpty ? null : items.first;
+    } on PlexClientException catch (e) {
+      if (e.statusCode == 404) return null;
+      rethrow;
+    }
+  }
+
   /// One artist's albums, via the metadata children endpoint.
   Future<List<PlexAlbum>> albumsForArtist(String artistRatingKey) async {
     final container = await _getContainer(
@@ -257,6 +276,7 @@ class PlexClient {
     if (response.statusCode != 200) {
       throw PlexClientException(
         'Plex request failed: $path (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
       );
     }
 
@@ -290,8 +310,13 @@ class PlexClient {
 }
 
 class PlexClientException implements Exception {
-  const PlexClientException(this.message);
+  const PlexClientException(this.message, {this.statusCode});
   final String message;
+
+  /// The HTTP status, when the failure came from a response rather than the
+  /// transport. Callers distinguish 404 — the item is genuinely gone — from
+  /// everything else, which is a reason to leave the cache alone.
+  final int? statusCode;
 
   @override
   String toString() => message;
