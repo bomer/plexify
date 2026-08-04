@@ -48,7 +48,12 @@ class _AppShellState extends ConsumerState<AppShell> {
     // most likely to be dead — the OS reclaims idle connections — and also the
     // moment stale content is most likely to be noticed.
     _lifecycle = AppLifecycleListener(
-      onResume: () => ref.read(plexNotificationSocketProvider)?.reconnectNow(),
+      onResume: () {
+        ref.read(plexNotificationSocketProvider)?.reconnectNow();
+        // The socket cannot deliver what happened while the app was closed, so
+        // resume also asks the cheap question directly.
+        ref.read(syncSchedulerProvider)?.wake();
+      },
     );
   }
 

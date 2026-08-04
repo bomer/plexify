@@ -14,6 +14,7 @@ import 'plex/plex_server.dart';
 import 'sync/library_sync.dart';
 import 'sync/library_writer.dart';
 import 'sync/live_sync.dart';
+import 'sync/sync_scheduler.dart';
 
 /// The application's provider graph.
 ///
@@ -186,39 +187,28 @@ final albumsFallbackProvider = FutureProvider<List<PlexAlbum>>((ref) async {
   return client.albums(section.key);
 });
 
-/// Runs the library sync and reports progress.
+/// Owns when the library syncs: once at startup, then on a cheap poll.
 ///
-/// Starts as soon as a server and music section are available, and resumes
-/// rather than restarts: if a previous run finished, only rows changed since
-/// its cursor are fetched; if it was interrupted, `initialSyncComplete` is
-/// still false and the full pass runs again.
-///
-/// Deliberately not awaited by anything — browsing must never block on sync.
-final librarySyncProvider = StreamProvider<SyncProgress>((ref) async* {
+/// Held as its own provider so pull-to-refresh and the app-resume hook have
+/// something to call. Nothing awaits it — browsing must never block on sync.
+final syncSchedulerProvider = Provider<SyncScheduler?>((ref) {
   final client = ref.watch(plexClientProvider);
-  if (client == null) return;
+  if (client == null) return null;
 
-  final section = await ref.watch(musicSectionProvider.future);
-  if (section == null) return;
-
-  final db = ref.watch(databaseProvider);
-
-  final existing = await (db.select(
-    db.syncState,
-  )..where((s) => s.sectionKey.equals(section.key))).getSingleOrNull();
-
-  // Only trust the delta cursor if a full pass previously completed against
-  // this same server. Otherwise start from scratch.
-  final resumable =
-      existing != null &&
-      existing.initialSyncComplete &&
-      existing.serverClientIdentifier == client.server.clientIdentifier;
-
-  yield* LibrarySync(client: client, db: db).run(
-    section,
-    serverClientIdentifier: client.server.clientIdentifier,
-    minUpdatedAt: resumable ? existing.lastSyncedUpdatedAt : 0,
+  final scheduler = SyncScheduler(
+    client: client,
+    db: ref.watch(databaseProvider),
   );
+  unawaited(scheduler.start());
+  ref.onDispose(scheduler.stop);
+  return scheduler;
+});
+
+/// Sync progress, for the banner.
+final librarySyncProvider = StreamProvider<SyncProgress>((ref) {
+  final scheduler = ref.watch(syncSchedulerProvider);
+  if (scheduler == null) return const Stream<SyncProgress>.empty();
+  return scheduler.progress;
 });
 
 /// The push-notification connection to Plex.

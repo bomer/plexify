@@ -61,8 +61,10 @@ void main() {
     test('skips notifications from other Plex plugins', () {
       expect(
         parsePlexNotifications(
-          timeline('{"identifier":"com.plexapp.plugins.dvr","itemID":"1",'
-              '"state":5}'),
+          timeline(
+            '{"identifier":"com.plexapp.plugins.dvr","itemID":"1",'
+            '"state":5}',
+          ),
         ),
         isEmpty,
       );

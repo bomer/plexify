@@ -1,0 +1,274 @@
+import 'dart:convert';
+
+import 'package:drift/drift.dart' show Value;
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
+import 'package:plexify/core/db/app_database.dart';
+import 'package:plexify/core/plex/plex_client.dart';
+import 'package:plexify/core/plex/plex_identity.dart';
+import 'package:plexify/core/plex/plex_server.dart';
+import 'package:plexify/core/sync/sync_scheduler.dart';
+
+/// The cheap tier of the sync design: ask a small question often, and only do
+/// real work when the answer says something moved.
+void main() {
+  late AppDatabase db;
+  late SyncScheduler scheduler;
+  late List<String> requests;
+
+  /// Query parameters of every section listing, so tests can tell a delta pass
+  /// from a full one.
+  late List<Map<String, String>> listingQueries;
+
+  // What /library/sections currently reports for the music section.
+  late int sectionUpdatedAt;
+  late int sectionScannedAt;
+
+  const serverId = 'server-1';
+
+  setUp(() {
+    db = AppDatabase(NativeDatabase.memory());
+    requests = [];
+    listingQueries = [];
+    sectionUpdatedAt = 100;
+    sectionScannedAt = 100;
+
+    final client = PlexClient(
+      server: const PlexServer(
+        name: 'Tower',
+        baseUrl: 'https://tower.example:32400',
+        token: 'tok',
+        isLocal: true,
+        isRelay: false,
+        clientIdentifier: serverId,
+      ),
+      identity: PlexIdentity.forTesting(),
+      httpClient: MockClient((request) async {
+        requests.add(request.url.path);
+
+        if (request.url.path == '/library/sections') {
+          return http.Response(
+            jsonEncode({
+              'MediaContainer': {
+                'Directory': [
+                  {
+                    'key': '3',
+                    'type': 'artist',
+                    'title': 'Music',
+                    'updatedAt': sectionUpdatedAt,
+                    'scannedAt': sectionScannedAt,
+                  },
+                ],
+              },
+            }),
+            200,
+          );
+        }
+
+        if (request.url.path.endsWith('/refresh')) {
+          return http.Response('', 200);
+        }
+
+        if (request.url.path.endsWith('/all')) {
+          listingQueries.add(request.url.queryParameters);
+        }
+
+        // Every metadata listing comes back empty, so a sync is a no-op that
+        // still leaves its fingerprints in `requests`.
+        return http.Response(
+          jsonEncode({
+            'MediaContainer': {'totalSize': 0},
+          }),
+          200,
+        );
+      }),
+    );
+
+    scheduler = SyncScheduler(
+      client: client,
+      db: db,
+      pollInterval: const Duration(milliseconds: 20),
+    );
+  });
+
+  tearDown(() async {
+    await scheduler.stop();
+    await db.close();
+  });
+
+  /// Pretends a full sync already finished against this server.
+  Future<void> seedSyncedState({
+    int updatedAt = 100,
+    int scannedAt = 100,
+    int cursor = 50,
+  }) {
+    return db
+        .into(db.syncState)
+        .insert(
+          SyncStateCompanion.insert(
+            sectionKey: '3',
+            serverClientIdentifier: serverId,
+            lastSyncedUpdatedAt: Value(cursor),
+            serverUpdatedAt: Value(updatedAt),
+            serverScannedAt: Value(scannedAt),
+            initialSyncComplete: const Value(true),
+          ),
+        );
+  }
+
+  bool syncedSinceLastCheck() => requests.any((path) => path.contains('/all'));
+
+  void clearRequests() => requests.clear();
+
+  test('the first pass runs even when nothing looks changed', () async {
+    await seedSyncedState();
+
+    await scheduler.start();
+
+    // A cache built before the app last closed may have missed anything the
+    // notification socket would otherwise have pushed while it was shut.
+    expect(syncedSinceLastCheck(), isTrue);
+    expect(scheduler.passes, 1);
+  });
+
+  test('a poll with nothing changed costs one small request', () async {
+    await seedSyncedState();
+    await scheduler.start();
+    clearRequests();
+
+    await scheduler.wake();
+
+    expect(requests, ['/library/sections']);
+    expect(syncedSinceLastCheck(), isFalse);
+  });
+
+  test('a changed updatedAt triggers a sync', () async {
+    await seedSyncedState();
+    await scheduler.start();
+    clearRequests();
+
+    sectionUpdatedAt = 200;
+    await scheduler.wake();
+
+    expect(syncedSinceLastCheck(), isTrue);
+  });
+
+  test('a changed scannedAt triggers a sync on its own', () async {
+    await seedSyncedState();
+    await scheduler.start();
+    clearRequests();
+
+    // A scan that finds new music bumps scannedAt first. Watching only
+    // updatedAt would miss precisely the case this exists for.
+    sectionScannedAt = 300;
+    await scheduler.wake();
+
+    expect(syncedSinceLastCheck(), isTrue);
+  });
+
+  test(
+    'pull to refresh asks the server to rescan, then syncs anyway',
+    () async {
+      await seedSyncedState();
+      await scheduler.start();
+      clearRequests();
+
+      await scheduler.refreshNow();
+
+      // Forced: someone who pulls to refresh has already decided the screen is
+      // wrong, and "nothing changed" would be the app arguing with them.
+      expect(requests, contains('/library/sections/3/refresh'));
+      expect(syncedSinceLastCheck(), isTrue);
+    },
+  );
+
+  test('a delta pass asks Plex only for what changed', () async {
+    await seedSyncedState(cursor: 4242);
+    sectionUpdatedAt = 200;
+
+    await scheduler.start();
+
+    // Without this the "delta" sync would quietly be a full one every time,
+    // which on a 50k-track library is the difference between seconds and
+    // minutes of needless traffic.
+    expect(listingQueries, isNotEmpty);
+    expect(
+      listingQueries.every((q) => q['updatedAt>='] == '4242'),
+      isTrue,
+      reason: 'every listing should carry the stored cursor',
+    );
+  });
+
+  test('a cache from another server is resynced in full', () async {
+    await db
+        .into(db.syncState)
+        .insert(
+          SyncStateCompanion.insert(
+            sectionKey: '3',
+            serverClientIdentifier: 'a-different-server',
+            lastSyncedUpdatedAt: const Value(50),
+            serverUpdatedAt: const Value(100),
+            serverScannedAt: const Value(100),
+            initialSyncComplete: const Value(true),
+          ),
+        );
+
+    await scheduler.start();
+
+    // ratingKeys collide across servers, so the other server's cursor is
+    // meaningless here — carrying it over would skip everything older than a
+    // timestamp from an unrelated library.
+    expect(listingQueries, isNotEmpty);
+    expect(
+      listingQueries.any((q) => q.containsKey('updatedAt>=')),
+      isFalse,
+      reason: 'a foreign cursor must not be reused',
+    );
+
+    final state = await db.select(db.syncState).getSingle();
+    expect(state.serverClientIdentifier, serverId);
+  });
+
+  test('an unreachable server is retried, not reported as failure', () async {
+    final failing = SyncScheduler(
+      client: PlexClient(
+        server: const PlexServer(
+          name: 'Tower',
+          baseUrl: 'https://tower.example:32400',
+          token: 'tok',
+          isLocal: true,
+          isRelay: false,
+          clientIdentifier: serverId,
+        ),
+        identity: PlexIdentity.forTesting(),
+        httpClient: MockClient((_) async => http.Response('', 500)),
+      ),
+      db: db,
+      pollInterval: const Duration(milliseconds: 20),
+    );
+
+    final events = <String>[];
+    failing.progress.listen((p) => events.add(p.phase.name));
+
+    await failing.start();
+    await pumpEventQueue();
+
+    // Being off the LAN is the normal case, not an error state worth a banner.
+    expect(events, isEmpty);
+    expect(failing.passes, 0);
+    await failing.stop();
+  });
+
+  test('stop ends the polling', () async {
+    await seedSyncedState();
+    await scheduler.start();
+    await scheduler.stop();
+    clearRequests();
+
+    await Future<void>.delayed(const Duration(milliseconds: 80));
+
+    expect(requests, isEmpty);
+  });
+}

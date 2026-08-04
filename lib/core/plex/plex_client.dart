@@ -154,6 +154,32 @@ class PlexClient {
     }
   }
 
+  /// Asks Plex to rescan a section.
+  ///
+  /// Returns as soon as the scan is queued, not when it finishes — the results
+  /// arrive later over the notification socket or on the next poll. This is the
+  /// server-side half of pull-to-refresh: without it, refreshing would only
+  /// re-read what Plex already knew, which is exactly the "scan, then check,
+  /// then check again" dance this app exists to remove.
+  Future<void> refreshSection(String sectionKey) async {
+    final uri = Uri.parse(
+      '${_server.baseUrl}/library/sections/$sectionKey/refresh',
+    );
+    final response = await _http.get(
+      uri,
+      headers: _identity.headers(token: _server.token),
+    );
+
+    // The body is empty on success, so this deliberately does not go through
+    // _getContainer — there is no MediaContainer to parse.
+    if (response.statusCode >= 400) {
+      throw PlexClientException(
+        'Could not start a library scan (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
   /// Raw metadata for a single item, or null if the server no longer has it.
   ///
   /// Push notifications carry a ratingKey and a type, never the metadata, so

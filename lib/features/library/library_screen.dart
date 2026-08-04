@@ -72,12 +72,19 @@ class LibraryScreen extends ConsumerWidget {
         children: [
           const SyncBanner(),
           Expanded(
-            child: switch (view) {
-              LibraryView.artists => const _ArtistsView(),
-              LibraryView.albums => const AlbumGrid(),
-              LibraryView.playlists => const _PlaylistsView(),
-              LibraryView.favourites => const _FavouritesView(),
-            },
+            // One gesture does both halves of the job: asks Plex to rescan the
+            // library, then pulls whatever changed. Previously that meant
+            // triggering a scan in Plex, waiting, and re-checking here.
+            child: RefreshIndicator(
+              onRefresh: () async =>
+                  ref.read(syncSchedulerProvider)?.refreshNow(),
+              child: switch (view) {
+                LibraryView.artists => const _ArtistsView(),
+                LibraryView.albums => const AlbumGrid(),
+                LibraryView.playlists => const _PlaylistsView(),
+                LibraryView.favourites => const _FavouritesView(),
+              },
+            ),
           ),
         ],
       ),

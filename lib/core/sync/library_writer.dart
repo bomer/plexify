@@ -136,11 +136,12 @@ class LibraryWriter {
   /// absent, because it looks like a broken player rather than a deleted album.
   Future<void> deleteItem(String ratingKey) async {
     await _db.transaction(() async {
-      final albumKeys = await (_db.selectOnly(_db.albums)
-            ..addColumns([_db.albums.ratingKey])
-            ..where(_db.albums.artistRatingKey.equals(ratingKey)))
-          .map((row) => row.read(_db.albums.ratingKey)!)
-          .get();
+      final albumKeys =
+          await (_db.selectOnly(_db.albums)
+                ..addColumns([_db.albums.ratingKey])
+                ..where(_db.albums.artistRatingKey.equals(ratingKey)))
+              .map((row) => row.read(_db.albums.ratingKey)!)
+              .get();
 
       for (final albumKey in [ratingKey, ...albumKeys]) {
         await (_db.delete(

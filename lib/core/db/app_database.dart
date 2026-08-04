@@ -24,7 +24,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -43,6 +43,22 @@ class AppDatabase extends _$AppDatabase {
         await m.addColumn(tracks, tracks.userRating);
         await m.addColumn(playlists, playlists.smart);
         await m.createIndex(idxAlbumsRating);
+      }
+
+      // v3 rewinds the delta cursor, forcing one full pass.
+      //
+      // The v2 rating columns start empty, and a delta sync cannot fill them:
+      // it asks Plex for rows changed since the cursor, and a rating set months
+      // ago has not changed since. Without this, an upgraded install would show
+      // every album unrated indefinitely and look like the feature was broken.
+      //
+      // Safe to repeat — every write on the sync path is an upsert, so the pass
+      // refreshes rows rather than duplicating them, and it runs in the
+      // background while the cache stays fully browsable.
+      if (from < 3) {
+        await m.database
+            .update(syncState)
+            .write(const SyncStateCompanion(lastSyncedUpdatedAt: Value(0)));
       }
     },
     beforeOpen: (details) async {

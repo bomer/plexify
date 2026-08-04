@@ -304,22 +304,22 @@ void main() {
     expect(row.smart, isTrue);
   });
 
-  test('falls back to the textual type when the event omits the number', () async {
-    serverItems['a1'] = {
-      'ratingKey': 'a1',
-      'type': 'artist',
-      'title': 'Björk',
-    };
+  test(
+    'falls back to the textual type when the event omits the number',
+    () async {
+      serverItems['a1'] = {
+        'ratingKey': 'a1',
+        'type': 'artist',
+        'title': 'Björk',
+      };
 
-    await push(
-      const PlexLibraryChange(
-        kind: PlexChangeKind.upserted,
-        ratingKey: 'a1',
-      ),
-    );
+      await push(
+        const PlexLibraryChange(kind: PlexChangeKind.upserted, ratingKey: 'a1'),
+      );
 
-    expect((await db.select(db.artists).getSingle()).title, 'Björk');
-  });
+      expect((await db.select(db.artists).getSingle()).title, 'Björk');
+    },
+  );
 
   test('the newest notification wins even if its fetch is faster', () async {
     // The first request is answered slowly and the second quickly. Applied

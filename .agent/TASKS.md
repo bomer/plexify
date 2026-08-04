@@ -6,7 +6,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 
 **Last updated:** 4 August 2026
 
-**Status:** 21 complete · 15 open · 108 tests passing
+**Status:** 22 complete · 14 open · 119 tests passing
 
 ---
 
@@ -29,6 +29,7 @@ across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rational
 | 15 | drift schema and codegen | Six tables, normalised search columns, sync state |
 | 16 | Paginated initial sync | Three passes plus playlists. Live-verified |
 | 17 | Websocket push sync | `dart:io` socket, backoff reconnect, reconnect on resume. **Needs live verification** |
+| 18 | Change-detection poll and delta sync | 30s poll on `/library/sections`, wake on resume, pull-to-refresh. Schema v3 rewinds the cursor once |
 | 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
 | 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
 | 27 | Home screen and browsing | Jump back in / recently added / favourites. Artist pages with albums *and* tracks, library toggle |
@@ -65,11 +66,10 @@ If progressive can't be made to work, escalate: remote falls back to direct-play
 
 ### Known caveats
 
-**Existing Plex ratings are invisible until a resync.** The v2 `userRating` columns were
-added by migration and start empty, so an already-synced install shows every album unrated
-even though Plex has the stars. Delta sync (#18) will backfill them; until then the only fix
-is deleting the app database to force a full sync. Worth saying out loud because it looks
-like the rating feature is broken rather than the cache being stale.
+**Existing Plex ratings arrive on the next launch, once.** The v2 `userRating` columns start
+empty, and a delta sync cannot fill them — Plex's `updatedAt` for a track rated months ago
+has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
+a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
 
 **Verify push sync (#17) against the real server.** Code-complete and covered by tests, but
 the frame shapes came from Plex's documented behaviour, not from a capture. Add a track in
@@ -78,14 +78,6 @@ If nothing happens, log the raw frames first — the likely culprits are the `st
 and whether `identifier` is what we filter on.
 
 ### Phase 2 — data layer (remaining)
-
-**#18 — Change-detection poll and delta sync.** Poll `/library/sections` every ~30s
-foreground, plus on resume and network reconnect — one tiny response, compare
-`updatedAt`/`scannedAt` against stored values. The delta machinery already exists in
-`LibrarySync.run(minUpdatedAt:)`; this is the trigger for it. Pull-to-refresh should also
-fire `/library/sections/{id}/refresh`. **Also the thing that backfills `userRating`** into
-caches synced before schema v2. The safety net beneath #17: the socket cannot deliver what
-happened while the app was closed.
 
 **#19 — Deletion reconcile.** Deletions don't appear in an `updatedAt` delta, so the cache
 accumulates ghosts that 404 on play. #17 catches deletions that happen while connected;

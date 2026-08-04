@@ -25,25 +25,29 @@ class HomeScreen extends ConsumerWidget {
         children: [
           const SyncBanner(),
           Expanded(
-            child: ListView(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              children: [
-                _Shelf(
-                  title: 'Jump back in',
-                  albums: recentlyPlayed,
-                  // Hidden entirely rather than shown empty: on a fresh install
-                  // nothing has been played, and an empty row reads as broken.
-                  hideWhenEmpty: true,
-                ),
-                _Shelf(title: 'Recently added', albums: recentlyAdded),
-                _Shelf(
-                  title: 'Favourites',
-                  albums: ref.watch(favouriteAlbumsProvider),
-                  // Nothing rated yet is the normal state on day one, and an
-                  // empty row would read as broken rather than unused.
-                  hideWhenEmpty: true,
-                ),
-              ],
+            child: RefreshIndicator(
+              onRefresh: () async =>
+                  ref.read(syncSchedulerProvider)?.refreshNow(),
+              child: ListView(
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                children: [
+                  _Shelf(
+                    title: 'Jump back in',
+                    albums: recentlyPlayed,
+                    // Hidden entirely rather than shown empty: on a fresh install
+                    // nothing has been played, and an empty row reads as broken.
+                    hideWhenEmpty: true,
+                  ),
+                  _Shelf(title: 'Recently added', albums: recentlyAdded),
+                  _Shelf(
+                    title: 'Favourites',
+                    albums: ref.watch(favouriteAlbumsProvider),
+                    // Nothing rated yet is the normal state on day one, and an
+                    // empty row would read as broken rather than unused.
+                    hideWhenEmpty: true,
+                  ),
+                ],
+              ),
             ),
           ),
         ],
