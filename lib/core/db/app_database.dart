@@ -70,6 +70,31 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
+  /// Artists, alphabetically by normalised name.
+  Stream<List<Artist>> watchArtists() {
+    final query = select(artists)
+      ..orderBy([(a) => OrderingTerm.asc(a.normalisedTitle)]);
+    return query.watch();
+  }
+
+  /// One artist's albums, oldest first.
+  ///
+  /// Chronological rather than alphabetical: a discography reads as a timeline,
+  /// and albums without a year sort last so they don't head the list.
+  Stream<List<Album>> watchAlbumsForArtist(String artistRatingKey) {
+    final query = select(albums)
+      ..where((a) => a.artistRatingKey.equals(artistRatingKey))
+      ..orderBy([
+        (a) => OrderingTerm(
+          expression: a.year,
+          mode: OrderingMode.asc,
+          nulls: NullsOrder.last,
+        ),
+        (a) => OrderingTerm.asc(a.normalisedTitle),
+      ]);
+    return query.watch();
+  }
+
   /// Playlists, most recently played first.
   ///
   /// Plex leaves `lastViewedAt` null on playlists that have never been played,

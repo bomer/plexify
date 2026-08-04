@@ -131,42 +131,44 @@ void main() {
       expect(rows.map((t) => t.ratingKey), ['c', 'a']);
     });
 
-    test('playlist tracks come back in playlist order, not track order',
-        () async {
-      await addPlaylist('p1', 'Shuffle-ish');
-      for (final (key, index) in [('z', 1), ('a', 2), ('m', 3)]) {
-        await db
-            .into(db.tracks)
-            .insert(
-              TracksCompanion.insert(
-                ratingKey: key,
-                title: 'Track $key',
-                normalisedTitle: normalise('Track $key'),
-                trackIndex: Value(index),
-              ),
-            );
-      }
+    test(
+      'playlist tracks come back in playlist order, not track order',
+      () async {
+        await addPlaylist('p1', 'Shuffle-ish');
+        for (final (key, index) in [('z', 1), ('a', 2), ('m', 3)]) {
+          await db
+              .into(db.tracks)
+              .insert(
+                TracksCompanion.insert(
+                  ratingKey: key,
+                  title: 'Track $key',
+                  normalisedTitle: normalise('Track $key'),
+                  trackIndex: Value(index),
+                ),
+              );
+        }
 
-      await db.replacePlaylistItems('p1', [
-        PlaylistItemsCompanion.insert(
-          playlistRatingKey: 'p1',
-          trackRatingKey: 'm',
-          position: 0,
-        ),
-        PlaylistItemsCompanion.insert(
-          playlistRatingKey: 'p1',
-          trackRatingKey: 'z',
-          position: 1,
-        ),
-        PlaylistItemsCompanion.insert(
-          playlistRatingKey: 'p1',
-          trackRatingKey: 'a',
-          position: 2,
-        ),
-      ]);
+        await db.replacePlaylistItems('p1', [
+          PlaylistItemsCompanion.insert(
+            playlistRatingKey: 'p1',
+            trackRatingKey: 'm',
+            position: 0,
+          ),
+          PlaylistItemsCompanion.insert(
+            playlistRatingKey: 'p1',
+            trackRatingKey: 'z',
+            position: 1,
+          ),
+          PlaylistItemsCompanion.insert(
+            playlistRatingKey: 'p1',
+            trackRatingKey: 'a',
+            position: 2,
+          ),
+        ]);
 
-      final rows = await db.watchPlaylistTracks('p1').first;
-      expect(rows.map((t) => t.ratingKey), ['m', 'z', 'a']);
-    });
+        final rows = await db.watchPlaylistTracks('p1').first;
+        expect(rows.map((t) => t.ratingKey), ['m', 'z', 'a']);
+      },
+    );
   });
 }

@@ -126,6 +126,14 @@ class PlexClient {
     );
   }
 
+  /// One artist's albums, via the metadata children endpoint.
+  Future<List<PlexAlbum>> albumsForArtist(String artistRatingKey) async {
+    final container = await _getContainer(
+      '/library/metadata/$artistRatingKey/children',
+    );
+    return _listOf(container, 'Metadata').map(PlexAlbum.fromJson).toList();
+  }
+
   /// Audio playlists on the server.
   ///
   /// Not scoped to a library section — playlists live at the account level, so

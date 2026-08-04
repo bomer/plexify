@@ -1,77 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/db/app_database.dart' show AlbumSort;
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import 'album_detail_screen.dart';
-import 'sync_banner.dart';
+import 'artwork.dart';
 
-/// Album grid. Phase 1 fetches straight from Plex on every visit; Phase 2 puts
-/// the drift cache behind [albumsProvider] so this stops being network-bound.
-class AlbumListScreen extends ConsumerWidget {
-  const AlbumListScreen({super.key});
+/// The album grid.
+///
+/// Chrome-free: [LibraryScreen] supplies the app bar, view toggle and sync
+/// banner, so this is only the content and can be embedded anywhere.
+class AlbumGrid extends ConsumerWidget {
+  const AlbumGrid({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final albums = ref.watch(albumsProvider);
 
-    final count = albums.valueOrNull?.length;
-    final sort = ref.watch(albumSortProvider);
-
-    return Scaffold(
-      appBar: AppBar(
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text('Albums'),
-            if (count != null)
-              // Surfacing the count makes a partially-synced library obvious
-              // rather than looking like a complete but small one.
-              Text(
-                '$count in your library',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-          ],
-        ),
-        actions: [
-          PopupMenuButton<AlbumSort>(
-            tooltip: 'Sort',
-            icon: const Icon(Icons.sort),
-            initialValue: sort,
-            onSelected: (value) =>
-                ref.read(albumSortProvider.notifier).state = value,
-            itemBuilder: (context) => const [
-              PopupMenuItem(
-                value: AlbumSort.recentlyAdded,
-                child: Text('Recently added'),
-              ),
-              PopupMenuItem(value: AlbumSort.title, child: Text('Title A–Z')),
-              PopupMenuItem(value: AlbumSort.artist, child: Text('Artist A–Z')),
-            ],
-          ),
-          IconButton(
-            tooltip: 'Refresh',
-            icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(albumsFallbackProvider),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          const SyncBanner(),
-          Expanded(child: _body(context, ref, albums)),
-        ],
-      ),
-    );
-  }
-
-  Widget _body(
-    BuildContext context,
-    WidgetRef ref,
-    AsyncValue<List<PlexAlbum>> albums,
-  ) {
     return albums.when(
       loading: () => const Center(child: CircularProgressIndicator()),
       error: (error, _) => _ErrorView(
@@ -87,8 +32,8 @@ class AlbumListScreen extends ConsumerWidget {
           child: GridView.builder(
             padding: const EdgeInsets.all(16),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              // Sizing by extent rather than a fixed column count means
-              // the same grid works on a phone and a wide desktop window.
+              // Sizing by extent rather than a fixed column count means the
+              // same grid works on a phone and a wide desktop window.
               maxCrossAxisExtent: 200,
               childAspectRatio: 0.75,
               crossAxisSpacing: 16,
@@ -103,16 +48,14 @@ class AlbumListScreen extends ConsumerWidget {
   }
 }
 
-class _AlbumTile extends ConsumerWidget {
+class _AlbumTile extends StatelessWidget {
   const _AlbumTile({required this.album});
 
   final PlexAlbum album;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final client = ref.watch(plexClientProvider);
-    final art = client?.artworkUrl(album.thumb);
 
     return InkWell(
       borderRadius: BorderRadius.circular(8),
@@ -127,14 +70,7 @@ class _AlbumTile extends ConsumerWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: art == null
-                  ? _ArtPlaceholder(theme: theme)
-                  : Image.network(
-                      art,
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      errorBuilder: (_, _, _) => _ArtPlaceholder(theme: theme),
-                    ),
+              child: Artwork(thumb: album.thumb),
             ),
           ),
           const SizedBox(height: 8),
@@ -153,23 +89,6 @@ class _AlbumTile extends ConsumerWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ArtPlaceholder extends StatelessWidget {
-  const _ArtPlaceholder({required this.theme});
-  final ThemeData theme;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      color: theme.colorScheme.surfaceContainerHighest,
-      child: Icon(
-        Icons.album,
-        size: 40,
-        color: theme.colorScheme.onSurfaceVariant,
       ),
     );
   }

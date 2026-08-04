@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../library/album_detail_screen.dart';
+import '../library/artwork.dart';
 import '../library/sync_banner.dart';
 
 /// Landing screen: what you were listening to, and what's new.
@@ -96,16 +97,14 @@ class _Shelf extends ConsumerWidget {
   }
 }
 
-class _ShelfTile extends ConsumerWidget {
+class _ShelfTile extends StatelessWidget {
   const _ShelfTile({required this.album});
 
   final PlexAlbum album;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final client = ref.watch(plexClientProvider);
-    final art = client?.artworkUrl(album.thumb);
 
     return SizedBox(
       width: 150,
@@ -124,19 +123,7 @@ class _ShelfTile extends ConsumerWidget {
               child: SizedBox(
                 width: 150,
                 height: 150,
-                child: art == null
-                    ? Container(
-                        color: theme.colorScheme.surfaceContainerHighest,
-                        child: const Icon(Icons.album, size: 32),
-                      )
-                    : Image.network(
-                        art,
-                        fit: BoxFit.cover,
-                        errorBuilder: (_, _, _) => Container(
-                          color: theme.colorScheme.surfaceContainerHighest,
-                          child: const Icon(Icons.album, size: 32),
-                        ),
-                      ),
+                child: Artwork(thumb: album.thumb),
               ),
             ),
             const SizedBox(height: 8),

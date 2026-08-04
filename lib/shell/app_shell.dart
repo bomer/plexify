@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/app_window.dart';
 import '../features/home/home_screen.dart';
-import '../features/library/album_list_screen.dart';
+import '../features/library/library_screen.dart';
 import '../features/player/mini_player.dart';
 import '../features/player/now_playing_screen.dart';
 import '../features/player/player_providers.dart';
@@ -71,7 +71,7 @@ class _AppShellState extends ConsumerState<AppShell> {
   Widget _rootFor(ShellDestination destination) => switch (destination) {
     ShellDestination.home => const HomeScreen(),
     ShellDestination.search => const SearchScreen(),
-    ShellDestination.library => const AlbumListScreen(),
+    ShellDestination.library => const LibraryScreen(),
   };
 
   @override

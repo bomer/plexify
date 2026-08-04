@@ -182,6 +182,42 @@ final librarySyncProvider = StreamProvider<SyncProgress>((ref) async* {
   );
 });
 
+/// Artists, alphabetically.
+final artistsProvider = StreamProvider<List<PlexArtist>>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchArtists()) {
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// One artist's albums, oldest first.
+///
+/// Falls back to a live Plex read when the cache has nothing for this artist —
+/// an artist page opened before sync reaches them must still show their work
+/// rather than looking like an empty discography.
+final artistAlbumsProvider = StreamProvider.family<List<PlexAlbum>, String>((
+  ref,
+  artistRatingKey,
+) async* {
+  final db = ref.watch(databaseProvider);
+  final client = ref.watch(plexClientProvider);
+
+  await for (final rows in db.watchAlbumsForArtist(artistRatingKey)) {
+    if (rows.isEmpty && client != null) {
+      try {
+        final live = await client.albumsForArtist(artistRatingKey);
+        if (live.isNotEmpty) {
+          yield live;
+          continue;
+        }
+      } on Object {
+        // Fall through to the empty cached list.
+      }
+    }
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
 /// Playlists, most recently played first.
 ///
 /// Falls through to a live Plex read while the cache is empty, for the same
