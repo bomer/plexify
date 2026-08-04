@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:permission_handler/permission_handler.dart';
+import 'package:flutter/services.dart';
 
 /// Requests the Android notification permission needed for playback controls.
 ///
@@ -10,12 +10,19 @@ import 'package:permission_handler/permission_handler.dart';
 /// `POST_NOTIFICATIONS: granted=false`, which means audio plays but the media
 /// notification and lock-screen transport controls never appear.
 ///
-/// Deliberately **not** gating: if the user declines, playback still works, they
-/// just lose the notification controls. Refusing to play music because someone
-/// said no to notifications would be absurd.
+/// Implemented over our own platform channel rather than `permission_handler`.
+/// That package ships a Windows implementation using the deprecated
+/// `<experimental/coroutine>` header, which current MSVC rejects outright and
+/// which broke the desktop build — a steep price for a permission that only
+/// exists on Android.
+///
+/// Deliberately **not** gating: if the user declines, playback still works,
+/// they just lose the notification controls. Refusing to play music because
+/// someone said no to notifications would be absurd.
 class NotificationPermission {
   const NotificationPermission._();
 
+  static const _channel = MethodChannel('plexify/app');
   static bool _asked = false;
 
   /// Asks once per process, the first time playback starts.
@@ -29,14 +36,11 @@ class NotificationPermission {
     _asked = true;
 
     try {
-      final status = await Permission.notification.status;
-      // isPermanentlyDenied means the OS will no longer show a prompt; asking
-      // again is a silent no-op, so don't bother.
-      if (status.isDenied) {
-        await Permission.notification.request();
-      }
-    } on Object {
+      await _channel.invokeMethod<void>('requestNotificationPermission');
+    } on PlatformException {
       // A permission failure must never prevent playback.
+    } on MissingPluginException {
+      // Channel not wired on this platform; nothing to do.
     }
   }
 }
