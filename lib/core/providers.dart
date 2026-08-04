@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'audio/playback_handler.dart';
+import 'db/app_database.dart';
 import 'plex/plex_auth.dart';
 import 'plex/plex_client.dart';
 import 'plex/plex_identity.dart';
@@ -25,6 +26,16 @@ final plexIdentityProvider = Provider<PlexIdentity>(
 final audioHandlerProvider = Provider<PlexifyAudioHandler>(
   (ref) => throw StateError('audioHandlerProvider must be overridden in main()'),
 );
+
+/// The local library cache.
+///
+/// Single instance for the app's lifetime — drift holds an open SQLite
+/// connection, so rebuilding this provider would leak file handles.
+final databaseProvider = Provider<AppDatabase>((ref) {
+  final db = AppDatabase();
+  ref.onDispose(db.close);
+  return db;
+});
 
 final plexAuthProvider = Provider<PlexAuth>(
   (ref) => PlexAuth(identity: ref.watch(plexIdentityProvider)),
