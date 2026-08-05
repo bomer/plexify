@@ -40,6 +40,59 @@ void main() {
       expect(track.duration, const Duration(milliseconds: 251946));
     });
 
+    test('derives a source bitrate from the part size and duration', () {
+      // Plex sends no bitrate of its own, so the quality policy has to infer
+      // one. 3,000,000 bytes over 120s is 200 kbps.
+      final track = PlexTrack.fromJson(
+        jsonDecode('''
+        {
+          "ratingKey": "3", "title": "Small", "duration": 120000,
+          "Media": [
+            {
+              "container": "mp3",
+              "Part": [{"key": "/library/parts/1/f.mp3", "size": 3000000}]
+            }
+          ]
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(track.partSizeBytes, 3000000);
+      expect(track.sourceKbps, 200);
+    });
+
+    test('has no source bitrate when Plex omitted the part size', () {
+      // Null, not zero: an unknown rate must not read as "below the floor",
+      // which would pin the track to direct play on every connection.
+      final track = PlexTrack.fromJson(
+        jsonDecode('''
+        {
+          "ratingKey": "4", "title": "Sizeless", "duration": 120000,
+          "Media": [{"Part": [{"key": "/library/parts/1/f.mp3"}]}]
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(track.partSizeBytes, isNull);
+      expect(track.sourceKbps, isNull);
+    });
+
+    test('has no source bitrate when the duration is unknown', () {
+      final track = PlexTrack.fromJson(
+        jsonDecode('''
+        {
+          "ratingKey": "5", "title": "Timeless",
+          "Media": [{"Part": [{"key": "/library/parts/1/f.mp3", "size": 500}]}]
+        }
+        ''')
+            as Map<String, dynamic>,
+      );
+
+      expect(track.sourceKbps, isNull);
+    });
+
     test('is not playable when the media has no parts', () {
       final track = PlexTrack.fromJson(
         jsonDecode('''

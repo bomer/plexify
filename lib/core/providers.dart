@@ -402,8 +402,12 @@ final timelineReporterProvider = Provider<TimelineReporter?>((ref) {
     mediaItems: handler.mediaItem,
     playbackStates: handler.playbackState,
     // A getter rather than the position stream, which fires five times a
-    // second for a reporter that needs it every ten.
-    position: () => handler.player.position,
+    // second for a reporter that needs it every ten. The handler's own
+    // position rather than the player's, because a seeked transcode runs on a
+    // stream that restarted at an offset — the player's clock would report a
+    // track two thirds through as barely started, and the scrobble would
+    // never fire.
+    position: () => handler.position,
   );
   reporter.start();
   ref.onDispose(reporter.stop);

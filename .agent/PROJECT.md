@@ -54,7 +54,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 238 tests, no live server needed
+flutter test             # 271 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -174,8 +174,11 @@ wrong recreates "I added it to Plex and it won't show up", which is the whole re
 project exists.
 
 **2. Audio cache entries key on `(trackId, qualityDecision)`, never `trackId` alone.**
-Quality adapts to network. Key on trackId alone and a 320k copy cached on cellular is served
-forever once back on the LAN, silently defeating adaptive quality.
+The decision is binary — direct play or transcode, see [there is no bitrate
+control](#there-is-no-bitrate-control) — but the two are still different bytes. Key on
+trackId alone and a transcoded copy cached on cellular is served forever once back on the
+LAN, silently defeating the whole point of deciding. `PlaybackController` writes the
+decision onto every `MediaItem` as `extras['qualityDecision']` so #24 has it to key on.
 
 **3. Cache keys never contain a URL.**
 The artwork URL — and the transcode URL, and the direct-play URL — embeds the server's base
@@ -221,6 +224,14 @@ launch, which is the hardest kind of bug to notice and the easiest to introduce 
 at a time. The store is loaded in `main()` and read **synchronously** thereafter, so the first
 frame is already correct; anything lazily loaded here paints the default and then swaps.
 
+**11. Position is asked of `PlexifyAudioHandler`, never of `player`.**
+A transcode cannot be seeked — Plex answers 200 to a ranged request and declares no length —
+so `seek` restarts the stream at an `offset=` instead, and the player's clock begins again
+from zero. The handler holds the difference in `_streamStartedAt` and adds it back in
+`position` and in `_toPlaybackState`. Read `player.position` directly and a track two thirds
+through reports as barely started: the progress bar lies, and `TimelineReporter` never
+crosses the scrobble threshold, so the play silently never reaches Plex's history.
+
 ---
 
 ## Testing
@@ -229,6 +240,17 @@ frame is already correct; anything lazily loaded here paints the default and the
   CI never needs a live Plex server. Follow this for new API surface.
 - **Database code is tested against real in-memory SQLite** — `AppDatabase(NativeDatabase.memory())`.
   Not mocks; the point is catching schema and index mistakes.
+- **The audio engine is faked in Dart** — `test/support/fake_just_audio.dart` installs a
+  `JustAudioPlatform` that records what it was asked to load. Without it anything reaching
+  `AudioPlayer.load` or `.seek` throws `MissingPluginException` and the handler's own logic
+  never runs at all. It found a real bug the hour it was written: reloading a stream
+  re-emits `currentIndex`, which was firing the track-change reset and wiping the seek that
+  had just happened.
+- **Migration tests must drop the column first.** `NativeDatabase.memory()` creates the
+  schema at *head*, so running `onUpgrade` against it re-runs DDL for columns that already
+  exist. `test/migration_test.dart` drops what the migration adds before calling it —
+  otherwise the ALTER is never genuinely exercised. Pass the real head as `to`; the branches
+  test `from`, so an install arriving from v2 runs every later body in one pass.
 - Two import collisions you will hit:
   - `import 'package:drift/drift.dart' hide isNull;` — drift and matcher both export `isNull`.
   - `import 'package:drift/drift.dart' show Value;` when a test only needs `Value`.
@@ -454,6 +476,16 @@ mp3 already smaller than ~240 kbps, transcoding costs *more* data for *worse* au
 policy that transcodes everything on cellular would be actively harmful. The probe's "Is
 transcoding worth it for this track?" check measures the source rate for exactly this reason.
 
+That decision now lives in `lib/core/audio/quality_policy.dart`, which reads three signals
+and keeps them apart on purpose. **Connectivity** is what *this device* is paying for; a
+laptop on a phone's hotspot reports as wifi and is still metered. **Server locality** is
+what the request reaches the server through; a relay is bandwidth-limited by Plex on top of
+whatever the local network is doing, so it transcodes regardless. **Source rate** is
+`PlexTrack.sourceKbps`, derived from Media > Part's `size` over the duration — Plex sends no
+bitrate of its own. A null source rate means "nothing measured yet", never "below the
+floor": treating it as a floor would pin every not-yet-synced track to direct play on
+cellular, which is the expensive direction to be wrong in.
+
 ### Two things that will mislead the next reader
 
 - **Plex issues its own transcode session key** rather than echoing the `session` parameter, so
@@ -464,6 +496,12 @@ transcoding worth it for this track?" check measures the source rate for exactly
   than an error, and still renames the completed cache file. What it cannot do is seek *ahead*
   of what it has downloaded — that path issues a ranged sub-request and throws on anything but
   206. Seeking a transcode must go through `offset=` instead.
+- **Seeking a transcode reuses the session id.** A new id starts a second transcode and
+  abandons the first, leaving the server encoding for nobody; Plex replaces the stream for a
+  session it already knows. `PlaybackController._seekUrl` rebuilds from the `MediaItem`'s
+  `extras['transcodeSession']` for that reason, and the offset is always measured from the
+  queue's canonical offset-zero URL — rebuilding from the *loaded* URL would compound
+  offsets, so a seek to 2:00 followed by one to 0:30 would land at 2:30.
 
 ## Things only the user can do
 

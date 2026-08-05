@@ -263,6 +263,7 @@ class PlexTrack {
     this.discIndex,
     this.partKey,
     this.container,
+    this.partSizeBytes,
     this.thumb,
     this.updatedAt,
     this.addedAt,
@@ -304,17 +305,33 @@ class PlexTrack {
   /// current platform can direct-play or needs a transcode.
   final String? container;
 
+  /// Media > Part's own `size`, in bytes. Declared by Plex for a static file,
+  /// unlike a live transcode's (see `TranscodeProbe`'s "declares the total
+  /// size" check). Null means unknown, never zero.
+  final int? partSizeBytes;
+
   final String? thumb;
 
   bool get isPlayable => partKey != null && partKey!.isNotEmpty;
 
   Duration get duration => Duration(milliseconds: durationMs);
 
+  /// The source file's own bitrate, implied by its size and duration rather
+  /// than declared anywhere — Plex does not send one directly. Null when
+  /// either input is unknown, which `QualityPolicy` treats as "nothing
+  /// measured yet", not as a reason to transcode.
+  int? get sourceKbps {
+    final bytes = partSizeBytes;
+    if (bytes == null || bytes <= 0 || durationMs <= 0) return null;
+    return (bytes * 8 / (durationMs / 1000) / 1000).round();
+  }
+
   factory PlexTrack.fromJson(Map<String, dynamic> json) {
     // Media -> Part -> key is the path to the file. Both levels are lists and
     // either can be missing; take the first entry of each.
     String? partKey;
     String? container;
+    int? partSizeBytes;
 
     final media = json['Media'];
     if (media is List && media.isNotEmpty) {
@@ -327,6 +344,7 @@ class PlexTrack {
           if (firstPart is Map<String, dynamic>) {
             partKey = _str(firstPart['key']);
             container ??= _str(firstPart['container']);
+            partSizeBytes = _int(firstPart['size']);
           }
         }
       }
@@ -344,6 +362,7 @@ class PlexTrack {
       discIndex: _int(json['parentIndex']),
       partKey: partKey,
       container: container,
+      partSizeBytes: partSizeBytes,
       thumb: _str(json['thumb']) ?? _str(json['parentThumb']),
       updatedAt: _int(json['updatedAt']),
       addedAt: _int(json['addedAt']),

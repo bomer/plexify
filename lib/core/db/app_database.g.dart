@@ -1348,6 +1348,17 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
     type: DriftSqlType.string,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _partSizeBytesMeta = const VerificationMeta(
+    'partSizeBytes',
+  );
+  @override
+  late final GeneratedColumn<int> partSizeBytes = GeneratedColumn<int>(
+    'part_size_bytes',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _thumbMeta = const VerificationMeta('thumb');
   @override
   late final GeneratedColumn<String> thumb = GeneratedColumn<String>(
@@ -1414,6 +1425,7 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
     durationMs,
     partKey,
     container,
+    partSizeBytes,
     thumb,
     updatedAt,
     addedAt,
@@ -1513,6 +1525,15 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
         container.isAcceptableOrUnknown(data['container']!, _containerMeta),
       );
     }
+    if (data.containsKey('part_size_bytes')) {
+      context.handle(
+        _partSizeBytesMeta,
+        partSizeBytes.isAcceptableOrUnknown(
+          data['part_size_bytes']!,
+          _partSizeBytesMeta,
+        ),
+      );
+    }
     if (data.containsKey('thumb')) {
       context.handle(
         _thumbMeta,
@@ -1599,6 +1620,10 @@ class $TracksTable extends Tracks with TableInfo<$TracksTable, Track> {
         DriftSqlType.string,
         data['${effectivePrefix}container'],
       ),
+      partSizeBytes: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}part_size_bytes'],
+      ),
       thumb: attachedDatabase.typeMapping.read(
         DriftSqlType.string,
         data['${effectivePrefix}thumb'],
@@ -1648,6 +1673,11 @@ class Track extends DataClass implements Insertable<Track> {
   /// Container format — used by the quality policy to decide whether the
   /// current platform can direct-play or needs a transcode.
   final String? container;
+
+  /// Media > Part's own `size`, in bytes. Source bitrate is derived from this
+  /// and [durationMs] rather than stored directly, so the quality policy asks
+  /// nothing Plex didn't already send.
+  final int? partSizeBytes;
   final String? thumb;
   final int? updatedAt;
   final int? addedAt;
@@ -1667,6 +1697,7 @@ class Track extends DataClass implements Insertable<Track> {
     required this.durationMs,
     this.partKey,
     this.container,
+    this.partSizeBytes,
     this.thumb,
     this.updatedAt,
     this.addedAt,
@@ -1694,6 +1725,9 @@ class Track extends DataClass implements Insertable<Track> {
     }
     if (!nullToAbsent || container != null) {
       map['container'] = Variable<String>(container);
+    }
+    if (!nullToAbsent || partSizeBytes != null) {
+      map['part_size_bytes'] = Variable<int>(partSizeBytes);
     }
     if (!nullToAbsent || thumb != null) {
       map['thumb'] = Variable<String>(thumb);
@@ -1734,6 +1768,9 @@ class Track extends DataClass implements Insertable<Track> {
       container: container == null && nullToAbsent
           ? const Value.absent()
           : Value(container),
+      partSizeBytes: partSizeBytes == null && nullToAbsent
+          ? const Value.absent()
+          : Value(partSizeBytes),
       thumb: thumb == null && nullToAbsent
           ? const Value.absent()
           : Value(thumb),
@@ -1769,6 +1806,7 @@ class Track extends DataClass implements Insertable<Track> {
       durationMs: serializer.fromJson<int>(json['durationMs']),
       partKey: serializer.fromJson<String?>(json['partKey']),
       container: serializer.fromJson<String?>(json['container']),
+      partSizeBytes: serializer.fromJson<int?>(json['partSizeBytes']),
       thumb: serializer.fromJson<String?>(json['thumb']),
       updatedAt: serializer.fromJson<int?>(json['updatedAt']),
       addedAt: serializer.fromJson<int?>(json['addedAt']),
@@ -1791,6 +1829,7 @@ class Track extends DataClass implements Insertable<Track> {
       'durationMs': serializer.toJson<int>(durationMs),
       'partKey': serializer.toJson<String?>(partKey),
       'container': serializer.toJson<String?>(container),
+      'partSizeBytes': serializer.toJson<int?>(partSizeBytes),
       'thumb': serializer.toJson<String?>(thumb),
       'updatedAt': serializer.toJson<int?>(updatedAt),
       'addedAt': serializer.toJson<int?>(addedAt),
@@ -1811,6 +1850,7 @@ class Track extends DataClass implements Insertable<Track> {
     int? durationMs,
     Value<String?> partKey = const Value.absent(),
     Value<String?> container = const Value.absent(),
+    Value<int?> partSizeBytes = const Value.absent(),
     Value<String?> thumb = const Value.absent(),
     Value<int?> updatedAt = const Value.absent(),
     Value<int?> addedAt = const Value.absent(),
@@ -1830,6 +1870,9 @@ class Track extends DataClass implements Insertable<Track> {
     durationMs: durationMs ?? this.durationMs,
     partKey: partKey.present ? partKey.value : this.partKey,
     container: container.present ? container.value : this.container,
+    partSizeBytes: partSizeBytes.present
+        ? partSizeBytes.value
+        : this.partSizeBytes,
     thumb: thumb.present ? thumb.value : this.thumb,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     addedAt: addedAt.present ? addedAt.value : this.addedAt,
@@ -1861,6 +1904,9 @@ class Track extends DataClass implements Insertable<Track> {
           : this.durationMs,
       partKey: data.partKey.present ? data.partKey.value : this.partKey,
       container: data.container.present ? data.container.value : this.container,
+      partSizeBytes: data.partSizeBytes.present
+          ? data.partSizeBytes.value
+          : this.partSizeBytes,
       thumb: data.thumb.present ? data.thumb.value : this.thumb,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
@@ -1887,6 +1933,7 @@ class Track extends DataClass implements Insertable<Track> {
           ..write('durationMs: $durationMs, ')
           ..write('partKey: $partKey, ')
           ..write('container: $container, ')
+          ..write('partSizeBytes: $partSizeBytes, ')
           ..write('thumb: $thumb, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('addedAt: $addedAt, ')
@@ -1909,6 +1956,7 @@ class Track extends DataClass implements Insertable<Track> {
     durationMs,
     partKey,
     container,
+    partSizeBytes,
     thumb,
     updatedAt,
     addedAt,
@@ -1930,6 +1978,7 @@ class Track extends DataClass implements Insertable<Track> {
           other.durationMs == this.durationMs &&
           other.partKey == this.partKey &&
           other.container == this.container &&
+          other.partSizeBytes == this.partSizeBytes &&
           other.thumb == this.thumb &&
           other.updatedAt == this.updatedAt &&
           other.addedAt == this.addedAt &&
@@ -1949,6 +1998,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
   final Value<int> durationMs;
   final Value<String?> partKey;
   final Value<String?> container;
+  final Value<int?> partSizeBytes;
   final Value<String?> thumb;
   final Value<int?> updatedAt;
   final Value<int?> addedAt;
@@ -1967,6 +2017,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     this.durationMs = const Value.absent(),
     this.partKey = const Value.absent(),
     this.container = const Value.absent(),
+    this.partSizeBytes = const Value.absent(),
     this.thumb = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.addedAt = const Value.absent(),
@@ -1986,6 +2037,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     this.durationMs = const Value.absent(),
     this.partKey = const Value.absent(),
     this.container = const Value.absent(),
+    this.partSizeBytes = const Value.absent(),
     this.thumb = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.addedAt = const Value.absent(),
@@ -2007,6 +2059,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     Expression<int>? durationMs,
     Expression<String>? partKey,
     Expression<String>? container,
+    Expression<int>? partSizeBytes,
     Expression<String>? thumb,
     Expression<int>? updatedAt,
     Expression<int>? addedAt,
@@ -2026,6 +2079,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
       if (durationMs != null) 'duration_ms': durationMs,
       if (partKey != null) 'part_key': partKey,
       if (container != null) 'container': container,
+      if (partSizeBytes != null) 'part_size_bytes': partSizeBytes,
       if (thumb != null) 'thumb': thumb,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (addedAt != null) 'added_at': addedAt,
@@ -2047,6 +2101,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
     Value<int>? durationMs,
     Value<String?>? partKey,
     Value<String?>? container,
+    Value<int?>? partSizeBytes,
     Value<String?>? thumb,
     Value<int?>? updatedAt,
     Value<int?>? addedAt,
@@ -2066,6 +2121,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
       durationMs: durationMs ?? this.durationMs,
       partKey: partKey ?? this.partKey,
       container: container ?? this.container,
+      partSizeBytes: partSizeBytes ?? this.partSizeBytes,
       thumb: thumb ?? this.thumb,
       updatedAt: updatedAt ?? this.updatedAt,
       addedAt: addedAt ?? this.addedAt,
@@ -2111,6 +2167,9 @@ class TracksCompanion extends UpdateCompanion<Track> {
     if (container.present) {
       map['container'] = Variable<String>(container.value);
     }
+    if (partSizeBytes.present) {
+      map['part_size_bytes'] = Variable<int>(partSizeBytes.value);
+    }
     if (thumb.present) {
       map['thumb'] = Variable<String>(thumb.value);
     }
@@ -2146,6 +2205,7 @@ class TracksCompanion extends UpdateCompanion<Track> {
           ..write('durationMs: $durationMs, ')
           ..write('partKey: $partKey, ')
           ..write('container: $container, ')
+          ..write('partSizeBytes: $partSizeBytes, ')
           ..write('thumb: $thumb, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('addedAt: $addedAt, ')
@@ -4220,6 +4280,7 @@ typedef $$TracksTableCreateCompanionBuilder =
       Value<int> durationMs,
       Value<String?> partKey,
       Value<String?> container,
+      Value<int?> partSizeBytes,
       Value<String?> thumb,
       Value<int?> updatedAt,
       Value<int?> addedAt,
@@ -4240,6 +4301,7 @@ typedef $$TracksTableUpdateCompanionBuilder =
       Value<int> durationMs,
       Value<String?> partKey,
       Value<String?> container,
+      Value<int?> partSizeBytes,
       Value<String?> thumb,
       Value<int?> updatedAt,
       Value<int?> addedAt,
@@ -4309,6 +4371,11 @@ class $$TracksTableFilterComposer
 
   ColumnFilters<String> get container => $composableBuilder(
     column: $table.container,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get partSizeBytes => $composableBuilder(
+    column: $table.partSizeBytes,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4402,6 +4469,11 @@ class $$TracksTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get partSizeBytes => $composableBuilder(
+    column: $table.partSizeBytes,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<String> get thumb => $composableBuilder(
     column: $table.thumb,
     builder: (column) => ColumnOrderings(column),
@@ -4482,6 +4554,11 @@ class $$TracksTableAnnotationComposer
   GeneratedColumn<String> get container =>
       $composableBuilder(column: $table.container, builder: (column) => column);
 
+  GeneratedColumn<int> get partSizeBytes => $composableBuilder(
+    column: $table.partSizeBytes,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<String> get thumb =>
       $composableBuilder(column: $table.thumb, builder: (column) => column);
 
@@ -4541,6 +4618,7 @@ class $$TracksTableTableManager
                 Value<int> durationMs = const Value.absent(),
                 Value<String?> partKey = const Value.absent(),
                 Value<String?> container = const Value.absent(),
+                Value<int?> partSizeBytes = const Value.absent(),
                 Value<String?> thumb = const Value.absent(),
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> addedAt = const Value.absent(),
@@ -4559,6 +4637,7 @@ class $$TracksTableTableManager
                 durationMs: durationMs,
                 partKey: partKey,
                 container: container,
+                partSizeBytes: partSizeBytes,
                 thumb: thumb,
                 updatedAt: updatedAt,
                 addedAt: addedAt,
@@ -4579,6 +4658,7 @@ class $$TracksTableTableManager
                 Value<int> durationMs = const Value.absent(),
                 Value<String?> partKey = const Value.absent(),
                 Value<String?> container = const Value.absent(),
+                Value<int?> partSizeBytes = const Value.absent(),
                 Value<String?> thumb = const Value.absent(),
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> addedAt = const Value.absent(),
@@ -4597,6 +4677,7 @@ class $$TracksTableTableManager
                 durationMs: durationMs,
                 partKey: partKey,
                 container: container,
+                partSizeBytes: partSizeBytes,
                 thumb: thumb,
                 updatedAt: updatedAt,
                 addedAt: addedAt,

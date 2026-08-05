@@ -3,11 +3,88 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plexify/core/db/app_database.dart';
 
-/// The v3 migration exists to fix a specific silent failure: an install that
-/// synced under v1 has rating columns that a delta sync can never fill, because
-/// Plex's `updatedAt` for a track rated months ago has not moved since.
+/// Each migration here exists to fix a specific silent failure, so each test
+/// asserts the fix rather than the mechanics.
+///
+/// One constraint shapes all of them: `NativeDatabase.memory()` creates the
+/// schema at **head**, not at the version being migrated *from*. Running
+/// `onUpgrade` against it therefore re-runs DDL for columns that already
+/// exist. Where a migration adds a column, the test drops it first — that is
+/// what makes the ALTER genuinely exercised rather than skipped over.
+///
+/// The `to` argument is always [AppDatabase.schemaVersion]'s current value.
+/// Passing an intermediate version would be fiction: drift only ever calls
+/// this with the real head, and the branches inside test `from`, so an
+/// install arriving from v2 runs the v3 *and* v4 bodies in one pass.
 void main() {
-  test('v3 rewinds the delta cursor so ratings get backfilled', () async {
+  /// Puts a head-schema database back into the shape it had before v4.
+  Future<void> dropPartSizeColumn(AppDatabase db) =>
+      db.customStatement('ALTER TABLE tracks DROP COLUMN part_size_bytes');
+
+  test(
+    'arriving from v2 rewinds the delta cursor so ratings get backfilled',
+    () async {
+      final db = AppDatabase(NativeDatabase.memory());
+      addTearDown(db.close);
+
+      await db
+          .into(db.syncState)
+          .insert(
+            SyncStateCompanion.insert(
+              sectionKey: '3',
+              serverClientIdentifier: 'server-1',
+              lastSyncedUpdatedAt: const Value(999999),
+              initialSyncComplete: const Value(true),
+            ),
+          );
+
+      // Simulate arriving from v2, where the rating columns exist but are empty
+      // and the part size does not exist at all.
+      await dropPartSizeColumn(db);
+      final migrator = db.createMigrator();
+      await db.migration.onUpgrade(migrator, 2, 4);
+
+      final state = await db.select(db.syncState).getSingle();
+      expect(state.lastSyncedUpdatedAt, 0);
+
+      // Everything else has to survive: rewinding the cursor must cost one extra
+      // sync pass, not the whole cache.
+      expect(state.initialSyncComplete, isTrue);
+      expect(state.serverClientIdentifier, 'server-1');
+    },
+  );
+
+  test('v4 adds the part size without disturbing existing rows', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db
+        .into(db.tracks)
+        .insert(
+          TracksCompanion.insert(
+            ratingKey: 't1',
+            title: 'Everything In Its Right Place',
+            normalisedTitle: 'everything in its right place',
+            durationMs: const Value(251946),
+            partKey: const Value('/library/parts/9931/file.flac'),
+          ),
+        );
+
+    await dropPartSizeColumn(db);
+    final migrator = db.createMigrator();
+    await db.migration.onUpgrade(migrator, 3, 4);
+
+    // Unlike v3 this deliberately does *not* rewind the sync cursor: a null
+    // part size degrades to "nothing measured", which QualityPolicy treats
+    // exactly as it behaved before the column existed. The row survives, and
+    // the next sync that touches this track fills it in.
+    final row = await db.select(db.tracks).getSingle();
+    expect(row.partSizeBytes, isNull);
+    expect(row.partKey, '/library/parts/9931/file.flac');
+    expect(row.durationMs, 251946);
+  });
+
+  test('an install already at head is left alone', () async {
     final db = AppDatabase(NativeDatabase.memory());
     addTearDown(db.close);
 
@@ -18,21 +95,17 @@ void main() {
             sectionKey: '3',
             serverClientIdentifier: 'server-1',
             lastSyncedUpdatedAt: const Value(999999),
-            initialSyncComplete: const Value(true),
           ),
         );
 
-    // Simulate arriving from v2, where the rating columns exist but are empty.
+    // No branch should fire, so nothing should move — in particular the
+    // cursor must not be rewound a second time, which would cost a full sync
+    // pass on every launch.
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 2, 3);
+    await db.migration.onUpgrade(migrator, 4, 4);
 
     final state = await db.select(db.syncState).getSingle();
-    expect(state.lastSyncedUpdatedAt, 0);
-
-    // Everything else has to survive: rewinding the cursor must cost one extra
-    // sync pass, not the whole cache.
-    expect(state.initialSyncComplete, isTrue);
-    expect(state.serverClientIdentifier, 'server-1');
+    expect(state.lastSyncedUpdatedAt, 999999);
   });
 
   test(
@@ -41,22 +114,20 @@ void main() {
       final db = AppDatabase(NativeDatabase.memory());
       addTearDown(db.close);
 
-      // Touching a v2 column proves the schema is current without asserting on a
-      // version number that will keep moving.
+      // Touching the newest column proves the schema is current without
+      // asserting on a version number that will keep moving.
       await db
-          .into(db.albums)
+          .into(db.tracks)
           .insert(
-            AlbumsCompanion.insert(
-              ratingKey: 'b1',
+            TracksCompanion.insert(
+              ratingKey: 't1',
               title: 'Kid A',
               normalisedTitle: 'kid a',
-              artistTitle: 'Radiohead',
-              normalisedArtist: 'radiohead',
-              userRating: const Value(10),
+              partSizeBytes: const Value(3000000),
             ),
           );
 
-      expect((await db.select(db.albums).getSingle()).userRating, 10);
+      expect((await db.select(db.tracks).getSingle()).partSizeBytes, 3000000);
       expect(await db.select(db.syncState).get(), isEmpty);
     },
   );

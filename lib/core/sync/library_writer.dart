@@ -116,6 +116,7 @@ class LibraryWriter {
         durationMs: Value(t.durationMs),
         partKey: Value(t.partKey),
         container: Value(t.container),
+        partSizeBytes: Value(t.partSizeBytes),
         thumb: Value(t.thumb),
         updatedAt: Value(t.updatedAt),
         addedAt: Value(t.addedAt),

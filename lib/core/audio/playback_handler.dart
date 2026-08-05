@@ -20,9 +20,18 @@ class PlexifyAudioHandler extends BaseAudioHandler
     // the lock screen shows the right track after an automatic advance.
     _player.currentIndexStream.listen((index) {
       final items = queue.value;
-      if (index != null && index >= 0 && index < items.length) {
-        mediaItem.add(items[index]);
+      if (index == null || index < 0 || index >= items.length) return;
+
+      // Only a genuine *change* of track means the player's clock is the
+      // track's clock again. Reloading the current track's stream at an offset
+      // re-emits the same index, and clearing the offset here would throw away
+      // the seek that had just been performed — leaving every position
+      // understated by however far in the user had skipped.
+      if (index != _currentIndex) {
+        _currentIndex = index;
+        _streamStartedAt = Duration.zero;
       }
+      mediaItem.add(items[index]);
     });
 
     // just_audio does not advance past the end on its own; without this the
@@ -42,7 +51,34 @@ class PlexifyAudioHandler extends BaseAudioHandler
   set onQueueExhausted(void Function()? callback) =>
       _onQueueExhausted = callback;
 
+  /// Rebuilds a playback URL to begin at [offset], or returns null if the item
+  /// cannot be restarted partway in.
+  ///
+  /// Set by whatever knows how to build URLs — this handler deliberately does
+  /// not. See [seek] for why it is needed at all.
+  /// Readable as well as writable so a departing owner can check the resolver
+  /// is still its own before clearing it, rather than wiping its
+  /// replacement's.
+  Future<String?> Function(MediaItem item, Duration offset)? resolveSeekUrl;
+
+  /// How far into the current track the loaded stream begins.
+  ///
+  /// Non-zero only after a transcode seek, where the stream is restarted at an
+  /// offset and the player's own clock therefore starts again from zero. Every
+  /// position this handler reports adds it back, so the rest of the app —
+  /// progress bar, lock screen, scrobble threshold — keeps working in track
+  /// time rather than stream time.
+  Duration _streamStartedAt = Duration.zero;
+
+  /// The queue index [_streamStartedAt] belongs to, so a reload of the current
+  /// track can be told apart from an advance to the next one.
+  int? _currentIndex;
+
   AudioPlayer get player => _player;
+
+  /// Position within the *track*, which is not the player's position once a
+  /// transcode has been seeked. Prefer this over `player.position` everywhere.
+  Duration get position => _streamStartedAt + _player.position;
 
   /// Replaces the queue and starts playing at [initialIndex].
   ///
@@ -56,6 +92,8 @@ class PlexifyAudioHandler extends BaseAudioHandler
     if (items.isEmpty) return;
     final index = initialIndex.clamp(0, items.length - 1);
 
+    _streamStartedAt = Duration.zero;
+    _currentIndex = index;
     queue.add(items);
     mediaItem.add(items[index]);
 
@@ -73,8 +111,61 @@ class PlexifyAudioHandler extends BaseAudioHandler
   @override
   Future<void> pause() => _player.pause();
 
+  /// Seeks within the current track.
+  ///
+  /// Ordinary files seek the way anyone would expect. A **transcode cannot**:
+  /// #8 measured that Plex's music transcoder answers 200 to a ranged request
+  /// and offers the whole stream, and declares no length at all — so there is
+  /// nothing for the player to seek *within*. Its only handle on the middle of
+  /// a track is `offset=`, which starts a fresh transcode partway in.
+  ///
+  /// So for a transcode this reloads the stream at [position] and remembers
+  /// where it began, rather than asking the player to do something it has no
+  /// way to do. The session id is reused deliberately: Plex replaces the
+  /// stream for a session it already knows, where a new id would leave the
+  /// old transcode running for nobody.
+  ///
+  /// Falls back to an ordinary seek if the URL cannot be rebuilt — worse, but
+  /// no worse than before, and never an exception into the transport controls.
   @override
-  Future<void> seek(Duration position) => _player.seek(position);
+  Future<void> seek(Duration position) async {
+    final item = mediaItem.value;
+    final resolve = resolveSeekUrl;
+
+    if (item == null || resolve == null || !_isTranscode(item)) {
+      _streamStartedAt = Duration.zero;
+      return _player.seek(position);
+    }
+
+    final url = await resolve(item, position);
+    if (url == null) return _player.seek(position);
+
+    final items = queue.value;
+    final index = _player.currentIndex ?? items.indexOf(item);
+    if (index < 0 || index >= items.length) return _player.seek(position);
+
+    final playing = _player.playing;
+
+    // Rebuilt whole rather than swapping one entry, so the queue either side
+    // of the current track stays loaded and gapless advance still works.
+    // `queue` itself is left alone: its ids are the canonical offset-zero
+    // URLs, which is what keeps a second seek measuring from the start of the
+    // track rather than compounding on the first.
+    _streamStartedAt = position;
+    await _player.setAudioSources(
+      [
+        for (final (i, queued) in items.indexed)
+          AudioSource.uri(Uri.parse(i == index ? url : queued.id)),
+      ],
+      initialIndex: index,
+      initialPosition: Duration.zero,
+    );
+
+    if (playing) await _player.play();
+  }
+
+  static bool _isTranscode(MediaItem item) =>
+      item.extras?['qualityDecision'] == 'transcode';
 
   @override
   Future<void> skipToNext() => _player.seekToNext();
@@ -144,8 +235,9 @@ class PlexifyAudioHandler extends BaseAudioHandler
       androidCompactActionIndices: const [0, 1, 2],
       processingState: _processingState(event.processingState),
       playing: playing,
-      updatePosition: _player.position,
-      bufferedPosition: _player.bufferedPosition,
+      // Track time, not stream time — see [position].
+      updatePosition: position,
+      bufferedPosition: _streamStartedAt + _player.bufferedPosition,
       speed: _player.speed,
       queueIndex: event.currentIndex,
     );

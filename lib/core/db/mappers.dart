@@ -34,6 +34,7 @@ extension TrackRowMapper on Track {
     discIndex: discIndex,
     partKey: partKey,
     container: container,
+    partSizeBytes: partSizeBytes,
     thumb: thumb,
     updatedAt: updatedAt,
     addedAt: addedAt,

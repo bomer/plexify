@@ -92,6 +92,11 @@ class Tracks extends Table {
   /// current platform can direct-play or needs a transcode.
   TextColumn get container => text().nullable()();
 
+  /// Media > Part's own `size`, in bytes. Source bitrate is derived from this
+  /// and [durationMs] rather than stored directly, so the quality policy asks
+  /// nothing Plex didn't already send.
+  IntColumn get partSizeBytes => integer().nullable()();
+
   TextColumn get thumb => text().nullable()();
   IntColumn get updatedAt => integer().nullable()();
   IntColumn get addedAt => integer().nullable()();

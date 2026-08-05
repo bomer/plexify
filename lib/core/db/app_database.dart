@@ -24,7 +24,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -59,6 +59,18 @@ class AppDatabase extends _$AppDatabase {
         await m.database
             .update(syncState)
             .write(const SyncStateCompanion(lastSyncedUpdatedAt: Value(0)));
+      }
+
+      // v4 adds the part size the quality policy (#23) derives a source
+      // bitrate from.
+      //
+      // No cursor rewind needed this time, unlike v3: a row left null here
+      // degrades safely rather than silently — QualityPolicy treats an
+      // unknown source rate as "nothing measured yet" and transcodes as it
+      // would have before this column existed, never the reverse. The next
+      // sync that touches a track backfills it.
+      if (from < 4) {
+        await m.addColumn(tracks, tracks.partSizeBytes);
       }
     },
     beforeOpen: (details) async {

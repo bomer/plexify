@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 5 August 2026
 
-**Status:** 31 complete · 13 open · 238 tests passing
+**Status:** 32 complete · 12 open · 271 tests passing
 
 ---
 
@@ -18,9 +18,8 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 
 | # | Task | Where it sits |
 |---|---|---|
-| 23 | Transcode-or-direct-play | Next. Smaller than planned — #8 found no bitrate to adapt |
-| 24 | Audio disk cache | Needs #23's decision to key on |
-| 43b | Settings: playback and storage | Lands with #23/#24 — the two sections #43a left empty |
+| 24 | Audio disk cache | Next. #23 landed the key to store under |
+| 43b | Settings: playback and storage | Lands with #24 — the two sections #43a left empty |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 | 44 | Now Playing navigation test | The plan's non-retrofittable invariant, currently unguarded |
 | 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
@@ -43,15 +42,17 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
+| 1 | **#24 → #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
 | 2 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 | 3 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
 | 4 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
-Four finished tasks still want live confirmation that no test can give — listed under
-[Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation).
+Five finished tasks still want live confirmation that no test can give — listed under
+[Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation). #23's
+entry is the one that matters most before #24 builds on it: a transcode has never been heard
+playing on either platform, only requested.
 
 ---
 
@@ -60,48 +61,22 @@ Four finished tasks still want live confirmation that no test can give — liste
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
 
-### #23 — Transcode-or-direct-play *(unblocked, and smaller than planned)*
-
-Renamed from "adaptive quality" because #8 established there is no quality to adapt: Plex
-transcodes music to VBR mp3 at ~235–242 kbps and ignores every documented way of asking for
-less. The decision is binary.
+### #24 — Audio disk cache *(unblocked by #23)*
 
 **Subtasks**
 
-1. A `QualityPolicy` mapping (connectivity type, server locality, user override) → direct play
-   or transcode. No bitrate anywhere in the type — there is nothing to put there.
-2. **Compare source rate against ~240 kbps before transcoding.** Transcoding a 128k mp3 up to
-   240 spends more data for worse audio, so the policy must transcode lossless and leave
-   already-small files alone. `PlexTrack` does not currently parse the part's `size`, so this
-   needs adding — the probe reads it from a ranged request instead.
-3. `PlaybackController._toMediaItem` chooses the URL from the decision. Already the single
-   place that knows how to reach a playable URL; the comment at
-   [playback_controller.dart:54](../lib/features/player/playback_controller.dart:54) marks it.
-4. Record the decision on the `MediaItem` so #24 can key its cache on it.
-5. Apply on next track, not mid-track.
-6. Seeking a transcode must restart it at `offset=` — Range is not supported, and
-   `LockCachingAudioSource` throws if asked to seek past what it has downloaded.
-
-**Considerations**
-
-- The remote-wifi bandwidth probe is now pointless: there is no lower rate to fall back to.
-  The choice is transcode or don't.
-- The cache key stays `(trackId, decision)` even though the decision is binary — a direct-play
-  FLAC and a transcoded mp3 of the same track are still different bytes.
-
-
-### #24 — Audio disk cache *(needs #23)*
-
-**Subtasks**
-
-1. `LockCachingAudioSource` in place of `AudioSource.uri` at
-   [playback_handler.dart:63](../lib/core/audio/playback_handler.dart:63).
-2. **Key on `(ratingKey, qualityDecision)`.** Keyed on ratingKey alone, a 320k copy cached on
-   cellular is served forever once back on the LAN, and the fidelity adaptive quality exists
-   to protect silently never arrives.
-3. Bounded LRU — ~2GB Android, ~10GB desktop, configurable in #43b.
-4. Fill on wifi/LAN only, so it never burns cellular in the background.
-5. Eviction must not delete a file currently being read.
+1. `LockCachingAudioSource` in place of `AudioSource.uri`. Note there are now **two** sites,
+   not one: `setQueueAndPlay` and the reload inside `seek`.
+2. **Key on `(ratingKey, qualityDecision)`.** Both are already on the `MediaItem` —
+   `extras['ratingKey']` and `extras['qualityDecision']` — put there by #23 for this. Keyed
+   on ratingKey alone, a transcoded copy cached on cellular is served forever once back on
+   the LAN, and the fidelity the decision exists to protect silently never arrives.
+3. **A seeked transcode is a partial file that is not the track.** Its URL carries an
+   `offset`, so caching it under the track's key would store the tail as though it were the
+   whole. Either exclude offset reloads from the cache or key them separately.
+4. Bounded LRU — ~2GB Android, ~10GB desktop, configurable in #43b.
+5. Fill on wifi/LAN only, so it never burns cellular in the background.
+6. Eviction must not delete a file currently being read.
 
 **Considerations**
 
@@ -115,7 +90,11 @@ less. The decision is binary.
 ### #43b — Settings: playback and storage
 
 Quality override per network, data-saver toggle, artwork and audio cache size and clear.
-Lands **with** #23/#24, not after — that is what fills the two missing sections.
+Lands **with** #24, not after — that is what fills the two missing sections.
+
+`QualityPolicy.decide` already takes an `override` that wins over every other signal, and
+nothing passes one yet. That is the hook: a `QualityDecision?` on `AppSettings`, threaded
+through `PlaybackController`.
 
 **Considerations**
 

@@ -34,6 +34,7 @@ between the next reader and paying for it twice.
 | 18 | Change-detection poll and delta sync | 30s poll on `/library/sections`, wake on resume, pull-to-refresh. Schema v3 rewinds the cursor once |
 | 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
 | 21 | Artwork disk cache | Hand-rolled over `path_provider`, keyed on `(thumb, size)` so a token refresh or a re-race is a hit. Custom `ImageProvider`, LRU-bounded, prefetch via `scrollCacheExtent` |
+| 23 | Transcode-or-direct-play | Binary, per #8 — no bitrate anywhere in the type. Three signals kept apart: connectivity, server locality, source rate. Schema v4 adds the part size. Seeking a transcode reloads at `offset=`; the handler holds the difference |
 | 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified — Plexify appears in the Plex dashboard |
 | 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
 | 27 | Home screen and browsing | Jump back in / recently added / favourites. Artist pages with albums *and* tracks, library toggle |
@@ -211,6 +212,53 @@ injected cache never saw its own files. The cold-start path was the one thing te
 reach, which is the path most likely to be wrong. `_override` now says *where*, not *whether
 to scan*.
 
+### #23 — Transcode-or-direct-play *(done, 5 Aug 2026)*
+
+[quality_policy.dart](../lib/core/audio/quality_policy.dart) is thirty lines of decision and
+the rest is the plumbing that makes the decision reachable. #8 had already established there
+is no bitrate to adapt, so the type is an enum of two values and contains no number at all.
+
+**Three signals, kept apart deliberately.** Collapsing them into one "am I at home" flag is
+the obvious simplification and it is wrong in both directions. *Connectivity* is what this
+device is paying for — a laptop on a phone's hotspot reports as wifi and is still metered.
+*Server locality* is what the request reaches the server through — a relay is
+bandwidth-limited by Plex on top of whatever the local network is doing, so it transcodes
+even on wifi. *Source rate* overrides both: transcoding a file already at the transcoder's
+own output spends more data for worse audio, so it direct-plays on any connection.
+
+**The source rate had to be added to the schema.** Plex sends no bitrate, only Media > Part's
+`size`, which `PlexTrack.sourceKbps` divides by the duration. Schema v4 carries it. Unlike
+v3 it does *not* rewind the sync cursor, because a null degrades safely: `QualityPolicy`
+reads null as "nothing measured yet" and behaves exactly as it would have before the column
+existed. Reading it as "below the floor" would pin every unsynced track to direct play on
+cellular — the expensive direction to be wrong in.
+
+**Seeking was the largest part of the work**, and the task listed it last. A transcode
+answers 200 to a ranged request and declares no length, so there is nothing for the player to
+seek within; the only handle is `offset=`, which starts a fresh transcode partway in. So
+`seek` reloads the stream and the handler remembers where it began, adding the difference
+back in `position` and `_toPlaybackState` — see invariant 11. The queue keeps its
+offset-zero URLs so a second seek measures from the start of the track rather than compounding
+on the first, and the session id is reused so Plex replaces the stream instead of leaving the
+old transcode running for nobody.
+
+**Sessions are torn down where they become unreachable**: replacing the queue stops the
+previous batch's, and losing the connection stops whatever is still open. Plex does not stop
+them on its own, and an abandoned one keeps the server encoding into a buffer nobody reads.
+
+**Found on the way, by a fake that had to be built first.** `flutter test` has no platform
+channels, so everything reaching `AudioPlayer.load` threw `MissingPluginException` and the
+handler's logic was untestable — which is why it had no tests to begin with.
+[fake_just_audio.dart](../test/support/fake_just_audio.dart) implements
+`JustAudioPlatform` in Dart, and the first thing it caught was a real bug: reloading a stream
+re-emits `currentIndex`, which fired the track-change reset and wiped the seek that had just
+been performed. Every position after a seek would have read as zero — a silent failure, since
+the audio plays correctly and only the progress bar and the scrobble threshold are wrong.
+
+Migration tests needed the same honesty: `NativeDatabase.memory()` creates the schema at
+head, so `onUpgrade` re-ran DDL for a column that already existed. They now drop it first,
+and pass the real head as `to` rather than an intermediate version the code never sees.
+
 ---
 
 ## Still wanting live confirmation
@@ -225,5 +273,11 @@ Done in code, and neither can be confirmed from a test:
 - **#42** — the switch-server path has never run against a second server, because the account
   has one. Tests cover the binding behaviour and the wipe; two real servers do not exist to
   try it on.
+- **#23** — three things a fake engine cannot answer. That a Plex transcode actually *plays*
+  through libmpv on Windows and ExoPlayer on Android, rather than merely being requested;
+  that seeking one lands where the scrubber was dropped and does not stall; and that the
+  policy picks transcode at all off the LAN, which needs the phone off wifi. "Route" on the
+  Sync status screen says which connection is in use, and Plex web → Status shows whether
+  the server thinks it is transcoding.
 - **#21** — the payoff is a cold start that does not refetch every thumbnail. Visible on the
   phone, not assertable here.
