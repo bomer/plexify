@@ -114,6 +114,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     // nothing notices when the server address stops working.
     ref.watch(liveSyncProvider);
     ref.watch(connectionMonitorProvider);
+    ref.watch(timelineReporterProvider);
 
     final content = IndexedStack(
       index: destination.index,

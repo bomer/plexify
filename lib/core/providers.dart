@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import 'audio/playback_handler.dart';
+import 'audio/timeline_reporter.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
 import 'plex/connection_health.dart';
@@ -343,6 +344,29 @@ final liveSyncProvider = Provider<LiveSync?>((ref) {
   return sync;
 });
 
+/// Reports playback to Plex so history stays in one place.
+///
+/// Like [liveSyncProvider], nothing reads its value — it exists for its side
+/// effects, so [AppShell] watches it to keep it alive for the session.
+final timelineReporterProvider = Provider<TimelineReporter?>((ref) {
+  final client = ref.watch(plexClientProvider);
+  if (client == null) return null;
+
+  final handler = ref.watch(audioHandlerProvider);
+  final reporter = TimelineReporter(
+    client: client,
+    writer: LibraryWriter(ref.watch(databaseProvider)),
+    mediaItems: handler.mediaItem,
+    playbackStates: handler.playbackState,
+    // A getter rather than the position stream, which fires five times a
+    // second for a reporter that needs it every ten.
+    position: () => handler.player.position,
+  );
+  reporter.start();
+  ref.onDispose(reporter.stop);
+  return reporter;
+});
+
 /// Everything the sync layer knows about itself, gathered for the status
 /// screen.
 ///
@@ -357,6 +381,10 @@ class SyncDiagnostics {
     required this.reconnects,
     required this.lastReconnectAt,
     required this.lastReconnectReason,
+    required this.timelineReports,
+    required this.scrobbles,
+    required this.lastReportAt,
+    required this.reportError,
     required this.socketConnected,
     required this.framesReceived,
     required this.changesSeen,
@@ -392,6 +420,13 @@ class SyncDiagnostics {
   final int reconnects;
   final DateTime? lastReconnectAt;
   final String? lastReconnectReason;
+
+  /// Plays reported to Plex. Zero after listening to something is the whole
+  /// symptom of history quietly not being recorded.
+  final int timelineReports;
+  final int scrobbles;
+  final DateTime? lastReportAt;
+  final String? reportError;
 
   final bool socketConnected;
   final int framesReceived;
@@ -430,6 +465,7 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
   final live = ref.watch(liveSyncProvider);
   final health = ref.watch(connectionHealthProvider);
   final monitor = ref.watch(connectionMonitorProvider);
+  final reporter = ref.watch(timelineReporterProvider);
 
   // Asked live, so the stored clocks can be compared against what Plex says
   // right now — the comparison that decides whether a sync happens at all.
@@ -462,6 +498,10 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
       ReconnectReason.manual => 'Asked for it',
       null => null,
     },
+    timelineReports: reporter?.reports ?? 0,
+    scrobbles: reporter?.scrobbles ?? 0,
+    lastReportAt: reporter?.lastReportAt,
+    reportError: reporter?.lastError,
     socketConnected: socket?.isConnected ?? false,
     framesReceived: socket?.framesReceived ?? 0,
     changesSeen: socket?.changesSeen ?? 0,

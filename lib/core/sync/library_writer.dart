@@ -145,6 +145,43 @@ class LibraryWriter {
     });
   }
 
+  /// Records locally that a track was played, and its album with it.
+  ///
+  /// Plex is told separately, but waiting for that to come back around through
+  /// a sync would leave Home's "Jump back in" showing yesterday's listening for
+  /// up to five minutes after a play. Writing both ends keeps the shelf honest
+  /// immediately; the next sweep simply agrees with it.
+  ///
+  /// Plex stores these as epoch **seconds**, so the same unit is used here —
+  /// milliseconds would sort correctly among themselves and wrongly against
+  /// every row the sync wrote.
+  Future<void> markPlayed(String trackRatingKey, DateTime at) async {
+    final seconds = at.millisecondsSinceEpoch ~/ 1000;
+
+    await _db.transaction(() async {
+      await (_db.update(
+        _db.tracks,
+      )..where((t) => t.ratingKey.equals(trackRatingKey))).write(
+        TracksCompanion(lastViewedAt: Value(seconds)),
+      );
+
+      final albumKey =
+          await (_db.selectOnly(_db.tracks)
+                ..addColumns([_db.tracks.albumRatingKey])
+                ..where(_db.tracks.ratingKey.equals(trackRatingKey)))
+              .map((row) => row.read(_db.tracks.albumRatingKey))
+              .getSingleOrNull();
+
+      if (albumKey != null) {
+        await (_db.update(
+          _db.albums,
+        )..where((a) => a.ratingKey.equals(albumKey))).write(
+          AlbumsCompanion(lastViewedAt: Value(seconds)),
+        );
+      }
+    });
+  }
+
   /// Removes an item and anything beneath it.
   ///
   /// The ratingKey could name any kind of item, so all four tables are tried —

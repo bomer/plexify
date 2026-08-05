@@ -94,6 +94,22 @@ class SyncStatusScreen extends ConsumerWidget {
             ),
 
             _Section(
+              title: 'Playback reporting',
+              subtitle:
+                  'Tells Plex what is playing, and records the play when it '
+                  'finishes — so history stays in one place no matter which '
+                  'app you listened in.',
+              rows: [
+                ('Timeline reports', '${d.timelineReports}'),
+                // Zero after finishing a track is the whole symptom. A play
+                // that was never reported cannot be recovered later.
+                ('Plays recorded', '${d.scrobbles}'),
+                ('Last report', _ago(d.lastReportAt)),
+                if (d.reportError != null) ('Last error', d.reportError!),
+              ],
+            ),
+
+            _Section(
               title: 'Change detection',
               subtitle:
                   'A sync is triggered when the server clocks differ from '

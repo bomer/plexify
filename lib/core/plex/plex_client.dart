@@ -154,6 +154,72 @@ class PlexClient {
     }
   }
 
+  /// Reports what we are playing, and where we are in it.
+  ///
+  /// This is what puts Plexify in the server's "Now Playing" list and what
+  /// keeps `viewOffset` current, so a track abandoned halfway can be resumed
+  /// from any client. Plex expects these every few seconds during playback and
+  /// treats their absence as the session having ended.
+  ///
+  /// [state] is `playing`, `paused` or `stopped`.
+  Future<void> reportTimeline({
+    required String ratingKey,
+    required String state,
+    required Duration position,
+    required Duration duration,
+  }) async {
+    final uri = Uri.parse('${_server.baseUrl}/:/timeline').replace(
+      queryParameters: {
+        'identifier': 'com.plexapp.plugins.library',
+        'ratingKey': ratingKey,
+        // Plex wants both the bare key and the full metadata path; sending only
+        // one gets a 200 that quietly does nothing.
+        'key': '/library/metadata/$ratingKey',
+        'state': state,
+        'time': '${position.inMilliseconds}',
+        'duration': '${duration.inMilliseconds}',
+      },
+    );
+
+    final response = await _http.get(
+      uri,
+      headers: _identity.headers(token: _server.token),
+    );
+
+    if (response.statusCode >= 400) {
+      throw PlexClientException(
+        'Timeline report rejected (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
+  /// Marks an item as played, incrementing its play count.
+  ///
+  /// Separate from [reportTimeline] because Plex does not derive a play from
+  /// timeline events — a track can be reported to the end without ever counting
+  /// as listened to.
+  Future<void> scrobble(String ratingKey) async {
+    final uri = Uri.parse('${_server.baseUrl}/:/scrobble').replace(
+      queryParameters: {
+        'identifier': 'com.plexapp.plugins.library',
+        'key': ratingKey,
+      },
+    );
+
+    final response = await _http.get(
+      uri,
+      headers: _identity.headers(token: _server.token),
+    );
+
+    if (response.statusCode >= 400) {
+      throw PlexClientException(
+        'Could not record the play (HTTP ${response.statusCode})',
+        statusCode: response.statusCode,
+      );
+    }
+  }
+
   /// Asks Plex to rescan a section.
   ///
   /// Returns as soon as the scan is queued, not when it finishes — the results

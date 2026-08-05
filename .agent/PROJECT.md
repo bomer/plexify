@@ -91,6 +91,13 @@ working out which one *should* have carried a given change.
 | `sync_scheduler.dart` 30s poll | Anything that moved the section's `updatedAt` / `scannedAt` | ≤30s |
 | `sync_scheduler.dart` 5min sweep | Metadata edits the section clocks never announced — **ratings set in Plex** | ≤5min |
 
+Playback history travels the other way. `timeline_reporter.dart` sends `/:/timeline` every
+ten seconds and on every state change, and `/:/scrobble` once a track passes 90%. It also
+writes `lastViewedAt` locally, because Home's "Jump back in" sorts on that column and waiting
+for a sweep to bring it back from Plex would leave the shelf showing yesterday's listening
+for minutes after a play. Everything there is best-effort and swallows its errors — the audio
+is the point, the bookkeeping is a courtesy.
+
 The sweep exists because the section clocks describe the library's *shape*. Rating an album
 in Plex changes no files and adds no rows, so neither clock moves and the poll alone would
 never fetch it. This was a real bug, not a hypothetical.
@@ -271,6 +278,14 @@ I go outside" while launching cold on cellular worked perfectly, which points th
 investigation at the audio layer rather than the connection. Fixed in #41 by
 `ConnectionMonitor`. **Anything that caches a resolved address needs an invalidation story
 before it is relied on** — artwork URLs (#21) are the next one.
+
+**A "once only" flag guarding queued work has two wrong places to be reset.** The scrobble
+mark in `timeline_reporter.dart` must be cleared only if it still refers to the track being
+left. Cleared synchronously when the track changes, the outgoing track loses its mark before
+the queued closure evaluates it and gets counted twice. Cleared unconditionally inside that
+closure, it discards a mark the *incoming* track already earned — because a queued report can
+run between the event arriving and the closure executing. Both produce duplicate plays, and
+neither is visible without a test that counts.
 
 **Turning "not connected" into a state you cannot leave.** The first cut of #41 let a failed
 re-resolve clear the server. That reads as honest and is a dead end: no server means no

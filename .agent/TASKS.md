@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 25 complete · 17 open · 155 tests passing
+**Status:** 26 complete · 16 open · 170 tests passing
 
 ---
 
@@ -41,6 +41,7 @@ known traps.
 | 39 | Sync status screen | Socket/poll/clock state, row counts, sync now and full resync. Poll pauses off screen |
 | 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
+| 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately |
 
 ### Bugs found by device testing (#14)
 
@@ -66,19 +67,23 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#25** Timeline and scrobbling | Plays are split across two clients right now, so every Plexify play is missing from the history both read. Every day this waits is history that cannot be recovered. |
-| 2 | **#8** Transcode spike | Needs James present. Gates #23 and #24, i.e. all of cellular listening — half the use. |
-| 3 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
-| 4 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
-| 5 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
-| 6 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8. This is what makes the cellular half pleasant rather than merely working. |
-| 7 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 8 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
-| 9 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#8** Transcode spike | Needs James present. Gates #23 and #24, i.e. all of cellular listening — half the use. |
+| 2 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
+| 3 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
+| 4 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
+| 5 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8. This is what makes the cellular half pleasant rather than merely working. |
+| 6 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 7 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
+| 8 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
-**#41 is done** — it was first, and it also built the connectivity listener #23 will reuse.
-Still needs live confirmation: walk out of the house mid-track and watch "Reconnects" and
-"Route" on the Sync status screen.
+**#41 and #25 are done.** Both still want live confirmation, and neither can be confirmed
+from a test:
+
+- **#41** — walk out of the house mid-track, then read "Route" and "Reconnects" on the Sync
+  status screen. There is a Reconnect button there that exercises the same path indoors.
+- **#25** — play a track to the end, then check Plex web → Status → Now Playing shows
+  Plexify while it runs, and that the play count moved afterwards. "Plays recorded" on the
+  Sync status screen says what the app thinks it sent.
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
@@ -88,45 +93,6 @@ Still needs live confirmation: walk out of the house mid-track and watch "Reconn
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
-
-### #25 — Timeline and scrobbling
-
-**Already a visible bug, not a future feature.** Home's "Jump back in" reads
-`Albums.lastViewedAt` ([providers.dart:452](../lib/core/providers.dart:452)), and only Plex
-writes that column. Playing an album in Plexify updates nothing, so the row goes staler the
-more Plexify is used. With Plexamp still in rotation, history is being split between a client
-that reports and one that does not, and the unreported half cannot be reconstructed later.
-
-**Subtasks**
-
-1. `PlexClient.reportTimeline(...)` → `/:/timeline` with `ratingKey`,
-   `key=/library/metadata/{ratingKey}`, `state=playing|paused|stopped`, `time` (ms),
-   `duration` (ms), `identifier=com.plexapp.plugins.library`. The client identifier header is
-   already sent by `PlexIdentity`.
-2. `PlexClient.scrobble(ratingKey)` → `/:/scrobble?key={ratingKey}&identifier=com.plexapp.plugins.library`.
-3. A `TimelineReporter` listening to the handler's streams: post every ~10s while playing,
-   and immediately on play, pause, stop and track change.
-4. Fire the scrobble once per play at ~90% (what Plex's own clients use), and **only once** —
-   seeking backwards or repeating the track must not re-fire until the track actually changes.
-5. Write `lastViewedAt` locally at the same moment, through `LibraryWriter`, so Home updates
-   instantly instead of waiting for the next sweep to bring it back from Plex.
-6. `MediaItem.extras['ratingKey']` is already populated
-   ([playback_controller.dart:74](../lib/features/player/playback_controller.dart:74)) — the
-   URL cannot be reversed into a ratingKey, which is why it is carried.
-
-**Considerations**
-
-- **Every call must fail silently.** Reporting runs against a server that may be asleep,
-  unreachable, or (before #41 lands) at a dead address. Nothing here may block or interrupt
-  playback — this is a background courtesy, not part of the playback path.
-- The local `lastViewedAt` write needs the same guard ratings needed: an `UPDATE` matches
-  nothing for a track the sync has not reached. Go through `LibraryWriter`.
-- Data cost is negligible — a timeline post is a few hundred bytes every 10s, far below the
-  audio it accompanies.
-- Verification is direct: Plex web → Status → Now Playing should list Plexify as an active
-  session while a track plays, and the play should appear in history afterwards.
-- Test with a recording fake client: assert scrobble fires once per track, at the threshold,
-  not twice across a seek-back, and not at all for a track skipped early.
 
 ### #8 — Transcode spike *(needs James present)*
 
@@ -372,6 +338,18 @@ screen after a routine sweep with nothing new. Near zero means the filter works.
 near the library size means Plex is ignoring it and every sweep refetches everything —
 tolerable on a LAN, ruinous on cellular. If so, lengthen `SyncScheduler.deltaInterval` and
 find a filter Plex does honour.
+
+**Repeating a track does not record a second play.** `TimelineReporter` resets its
+"already counted" mark when the media item changes, and repeat-one never changes it —
+`just_audio` keeps the same index. Going back to a track manually *does* count again, which
+is the common case. Worth revisiting alongside #22, which is where repeat gets built.
+
+**A play is judged by elapsed time, not by the player's position.** At the moment a track
+change arrives the player has already moved on, so its position getter reports the *new*
+track. `TimelineReporter` projects the outgoing track's position from the last sample plus
+wall time instead. That is right for a track that ran to its end and for one that was
+skipped, and slightly wrong if playback stalled on a long buffer just before the change —
+which would under-count, never over-count. The safer direction of the two.
 
 **Ratings set in Plex are not pushed, only polled.** Plex emits a timeline entry when it
 finishes *scanning* an item, which is why a new album appears instantly, but rating one is a
