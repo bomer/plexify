@@ -30,7 +30,9 @@ import 'sync/sync_scheduler.dart';
 /// available asynchronously at startup, so they throw here and are replaced with
 /// real values via `overrides` in `main.dart`. Reading one before that override
 /// is a programming error, and failing loudly is better than handing back a
-/// half-initialised audio engine.
+/// half-initialised audio engine. `settingsStoreProvider`, in
+/// `settings/app_settings.dart`, is overridden the same way and for the same
+/// reason.
 
 final plexIdentityProvider = Provider<PlexIdentity>(
   (ref) =>
@@ -482,13 +484,7 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
   return SyncDiagnostics(
     serverName: server?.name,
     serverUrl: server?.baseUrl,
-    route: server == null
-        ? '—'
-        : server.isRelay
-        ? 'Relay (slow, transcoded)'
-        : server.isLocal
-        ? 'Local network'
-        : 'Remote',
+    route: server?.routeLabel ?? '—',
     failedRequests: health.consecutiveFailures,
     reconnects: monitor.attempts,
     lastReconnectAt: monitor.lastAttemptAt,

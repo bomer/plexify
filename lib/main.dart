@@ -5,6 +5,7 @@ import 'core/audio/audio_init.dart';
 import 'core/plex/plex_auth.dart';
 import 'core/plex/plex_identity.dart';
 import 'core/providers.dart';
+import 'core/settings/app_settings.dart';
 import 'shell/app.dart';
 
 Future<void> main() async {
@@ -21,11 +22,16 @@ Future<void> main() async {
   // Seed the token from secure storage so a returning user skips the link flow.
   final storedToken = await PlexAuth(identity: identity).readToken();
 
+  // Loaded before the first frame so the app never paints the default theme and
+  // then corrects itself.
+  final settings = await SettingsStore.load();
+
   runApp(
     ProviderScope(
       overrides: [
         plexIdentityProvider.overrideWithValue(identity),
         audioHandlerProvider.overrideWithValue(audioHandler),
+        settingsStoreProvider.overrideWithValue(settings),
         authTokenProvider.overrideWith((ref) => storedToken),
       ],
       child: const PlexifyApp(),

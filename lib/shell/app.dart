@@ -2,18 +2,20 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/providers.dart';
+import '../core/settings/app_settings.dart';
 import '../features/auth/login_screen.dart';
 import 'app_shell.dart';
 
-class PlexifyApp extends StatelessWidget {
+class PlexifyApp extends ConsumerWidget {
   const PlexifyApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     return MaterialApp(
       title: 'Plexify',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.dark,
+      // Read synchronously, so the first frame is already in the chosen theme.
+      themeMode: ref.watch(settingsProvider.select((s) => s.themeMode)),
       theme: _theme(Brightness.light),
       darkTheme: _theme(Brightness.dark),
       home: const _Root(),

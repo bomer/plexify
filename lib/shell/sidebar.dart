@@ -47,16 +47,22 @@ class Sidebar extends ConsumerWidget {
               ),
             ),
 
+            // Settings is deliberately excluded here and pinned to the bottom
+            // instead: it is the one destination you reach occasionally, and
+            // sitting it above the playlists would push the thing you reach
+            // constantly further down.
             for (final destination in ShellDestination.values)
-              _NavItem(
-                label: destination.label,
-                icon: destination == current
-                    ? destination.selectedIcon
-                    : destination.icon,
-                selected: destination == current,
-                onTap: () => ref.read(shellDestinationProvider.notifier).state =
-                    destination,
-              ),
+              if (destination != ShellDestination.settings)
+                _NavItem(
+                  label: destination.label,
+                  icon: destination == current
+                      ? destination.selectedIcon
+                      : destination.icon,
+                  selected: destination == current,
+                  onTap: () =>
+                      ref.read(shellDestinationProvider.notifier).state =
+                          destination,
+                ),
 
             const SizedBox(height: 16),
             Padding(
@@ -96,6 +102,18 @@ class Sidebar extends ConsumerWidget {
                 },
               ),
             ),
+
+            const Divider(height: 1),
+            _NavItem(
+              label: ShellDestination.settings.label,
+              icon: current == ShellDestination.settings
+                  ? ShellDestination.settings.selectedIcon
+                  : ShellDestination.settings.icon,
+              selected: current == ShellDestination.settings,
+              onTap: () => ref.read(shellDestinationProvider.notifier).state =
+                  ShellDestination.settings,
+            ),
+            const SizedBox(height: 8),
           ],
         ),
       ),

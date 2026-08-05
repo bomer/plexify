@@ -203,6 +203,15 @@ newly discovered failure mode its own recovery route; that is how a system becom
 untestable, and James has asked explicitly that the sync logic not grow more paths. Add a
 trigger, or make an existing path observable. Do not add a fourth mechanism.
 
+**9. Settings have one write path, and it is `SettingsController._apply`.**
+`lib/core/settings/app_settings.dart` holds all three pieces: `AppSettings` (one immutable
+value), `SettingsStore` (the `shared_preferences` keys), `SettingsController` (the only
+mutator). Adding a setting is a field, a key, and a setter — never a `setString` at a call
+site. A setter that updates the state and forgets to persist works perfectly until the next
+launch, which is the hardest kind of bug to notice and the easiest to introduce one call site
+at a time. The store is loaded in `main()` and read **synchronously** thereafter, so the first
+frame is already correct; anything lazily loaded here paints the default and then swaps.
+
 ---
 
 ## Testing

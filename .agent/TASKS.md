@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 27 complete · 15 open · 201 tests passing
+**Status:** 28 complete · 14 open · 209 tests passing
 
 ---
 
@@ -42,6 +42,7 @@ known traps.
 | 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 | 8 | Transcode spike | Answered on both routes by `TranscodeProbe`, kept in the app under Sync status. Progressive works; `offset` works; **no bitrate control exists**. Parameter set and consequences in [PROJECT.md](PROJECT.md#the-music-transcode-endpoint) |
+| 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
 | 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified — Plexify appears in the Plex dashboard |
 
 ### Bugs found by device testing (#14)
@@ -68,13 +69,12 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
-| 2 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
-| 3 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
-| 4 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
-| 5 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 6 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
-| 7 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. Its home in Settings → Account now exists. |
+| 2 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
+| 3 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
+| 4 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 5 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
+| 6 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
 **#41 and #25 are done.** Both still want live confirmation, and neither can be confirmed
 from a test:
@@ -115,22 +115,50 @@ way to re-check after a Plex upgrade. Full parameter set and reasoning in
 local then remote and never fell back. If relay ever becomes the working route, re-run there
 before trusting any of this.
 
-### #43 — Settings screen (split)
+### #43a — Settings shell *(done, 5 Aug 2026)*
 
-The Sync status screen is the only settings-shaped thing in the app. Split, because the shell
-is needed early and the contents are not.
+A fourth [`ShellDestination`](../lib/shell/shell_destination.dart), not a pushed route, so
+Settings keeps its own navigation stack: open Sync status, switch to Library, come back, and
+you are still on Sync status. In the sidebar it is pinned below the playlists rather than
+listed with the other destinations — it is the one you reach occasionally, and putting it
+above the playlists would push the thing you reach constantly further down.
 
-**#43a — the shell.** A Settings destination, with Sync status nested inside it rather than
-reached from an app-bar icon. Sections: Account, Playback, Storage, Sync, About. Persist with
-`shared_preferences`, already a dependency.
+**Sync status moved inside it.** It was reachable only from an `info` button beside Refresh
+in the Home app bar, which is not where anyone looks for a diagnostic. That button is gone,
+and [settings_screen.dart](../lib/features/settings/settings_screen.dart) is now the only
+route to it — which is what the test in `settings_test.dart` guards.
 
-**#43b — playback and storage.** Quality override per network, data-saver toggle, artwork and
-audio cache size and clear. Lands **with** #23/#24, not after.
+**The persistence seam** is [app_settings.dart](../lib/core/settings/app_settings.dart):
+`AppSettings` (one immutable value), `SettingsStore` (`shared_preferences`), and
+`SettingsController`. Adding a setting is three edits and no more — a field, a key, a setter —
+and every mutation goes through `_apply`, so there is exactly one place that writes to disk.
+That matters more than it looks: a setter that changes the state and forgets to persist works
+perfectly until the next launch.
+
+Read **synchronously**. `SettingsStore.load()` is awaited in `main()` alongside the identity
+and the audio handler, and `settingsStoreProvider` is overridden the same way, so the first
+frame is already correct. Loading settings lazily would paint the default and then swap,
+which is a visible flash on every cold start.
+
+**Sections shipped: Account, Appearance, Sync, About.** Playback and Storage are *not* here,
+despite being in the original plan for this task — there is nothing yet for them to control,
+and a screen of controls that change nothing looks finished, so nobody notices the wiring is
+missing. They arrive with #43b.
+
+Theme mode is the first real setting, and deliberately so: it removes a hardcoded
+`ThemeMode.dark` from `app.dart`, so the store is exercised by something that reads it rather
+than shipping as untested infrastructure. Stored by **name**, not index — a `ThemeMode` that
+gained a value or reordered under an SDK upgrade would otherwise silently change the theme.
+
+### #43b — Settings: playback and storage
+
+Quality override per network, data-saver toggle, artwork and audio cache size and clear.
+Lands **with** #23/#24, not after — that is what fills the two missing sections.
 
 **Considerations**
 
-- Do not build settings nothing reads yet. The split exists so #42 has a home immediately
-  without inventing controls for policy that does not exist.
+- Do not build settings nothing reads yet. That rule is why #43a shipped four sections and
+  not six.
 - Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel or
   — far cheaper — a manual toggle. Suggest manual.
 

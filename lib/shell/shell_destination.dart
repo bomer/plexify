@@ -5,7 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 enum ShellDestination {
   home('Home', Icons.home_outlined, Icons.home),
   search('Search', Icons.search_outlined, Icons.search),
-  library('Library', Icons.library_music_outlined, Icons.library_music);
+  library('Library', Icons.library_music_outlined, Icons.library_music),
+  // A destination rather than a pushed route, so Settings keeps its own
+  // navigation stack: opening Sync status, switching to Library and coming back
+  // returns to Sync status rather than to the top of Settings.
+  settings('Settings', Icons.settings_outlined, Icons.settings);
 
   const ShellDestination(this.label, this.icon, this.selectedIcon);
 

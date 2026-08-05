@@ -12,6 +12,7 @@ import '../features/player/mini_player.dart';
 import '../features/player/now_playing_screen.dart';
 import '../features/player/player_providers.dart';
 import '../features/search/search_screen.dart';
+import '../features/settings/settings_screen.dart';
 import 'layout.dart';
 import 'shell_destination.dart';
 import 'sidebar.dart';
@@ -133,6 +134,7 @@ class _AppShellState extends ConsumerState<AppShell> {
     ShellDestination.home => const HomeScreen(),
     ShellDestination.search => const SearchScreen(),
     ShellDestination.library => const LibraryScreen(),
+    ShellDestination.settings => const SettingsScreen(),
   };
 
   @override

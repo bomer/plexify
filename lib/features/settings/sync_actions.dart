@@ -2,13 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
-import 'sync_status_screen.dart';
 
-/// Refresh, and a way into the sync status screen.
+/// Refresh.
 ///
-/// The refresh button is not a duplicate of pull-to-refresh: that gesture needs
-/// a drag, and a mouse wheel produces none, so on the desktop there was no way
-/// to ask for a sync at all.
+/// Not a duplicate of pull-to-refresh: that gesture needs a drag, and a mouse
+/// wheel produces none, so on the desktop there was no way to ask for a sync at
+/// all.
+///
+/// Sync status used to sit beside this as an `info` button. It moved into
+/// Settings — it is a diagnostic, and an icon in the corner of Home is not
+/// where anyone looks for one.
 class SyncActions extends ConsumerStatefulWidget {
   const SyncActions({super.key});
 
@@ -33,28 +36,16 @@ class _SyncActionsState extends ConsumerState<SyncActions> {
 
   @override
   Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        IconButton(
-          tooltip: 'Refresh from Plex',
-          onPressed: _busy ? null : _refresh,
-          icon: _busy
-              ? const SizedBox(
-                  width: 18,
-                  height: 18,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.refresh),
-        ),
-        IconButton(
-          tooltip: 'Sync status',
-          icon: const Icon(Icons.info_outline),
-          onPressed: () => Navigator.of(context).push(
-            MaterialPageRoute<void>(builder: (_) => const SyncStatusScreen()),
-          ),
-        ),
-      ],
+    return IconButton(
+      tooltip: 'Refresh from Plex',
+      onPressed: _busy ? null : _refresh,
+      icon: _busy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : const Icon(Icons.refresh),
     );
   }
 }

@@ -39,6 +39,17 @@ class PlexServer {
   /// direct-playing lossless files. The quality policy uses this to decide
   /// whether to transcode.
   bool get preferTranscode => isRelay;
+
+  /// How this connection was reached, in the user's words.
+  ///
+  /// Named on the server rather than at each display site: which of three
+  /// routes is in use explains most of what anyone notices about speed, so it
+  /// is shown in several places and the three descriptions must agree.
+  String get routeLabel => isRelay
+      ? 'Relay (slow, transcoded)'
+      : isLocal
+      ? 'Local network'
+      : 'Remote';
 }
 
 /// Discovers Plex servers and works out the best way to reach each one.
