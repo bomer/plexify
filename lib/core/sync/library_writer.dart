@@ -159,11 +159,9 @@ class LibraryWriter {
     final seconds = at.millisecondsSinceEpoch ~/ 1000;
 
     await _db.transaction(() async {
-      await (_db.update(
-        _db.tracks,
-      )..where((t) => t.ratingKey.equals(trackRatingKey))).write(
-        TracksCompanion(lastViewedAt: Value(seconds)),
-      );
+      await (_db.update(_db.tracks)
+            ..where((t) => t.ratingKey.equals(trackRatingKey)))
+          .write(TracksCompanion(lastViewedAt: Value(seconds)));
 
       final albumKey =
           await (_db.selectOnly(_db.tracks)
@@ -173,11 +171,9 @@ class LibraryWriter {
               .getSingleOrNull();
 
       if (albumKey != null) {
-        await (_db.update(
-          _db.albums,
-        )..where((a) => a.ratingKey.equals(albumKey))).write(
-          AlbumsCompanion(lastViewedAt: Value(seconds)),
-        );
+        await (_db.update(_db.albums)
+              ..where((a) => a.ratingKey.equals(albumKey)))
+            .write(AlbumsCompanion(lastViewedAt: Value(seconds)));
       }
     });
   }

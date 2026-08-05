@@ -72,20 +72,22 @@ void main() {
     expect(seen, isNot(contains(null)));
   });
 
-  test('a reconnect that reaches nothing leaves the old server in place',
-      () async {
-    await container.read(connectServerProvider.future);
-    discovery.failNext = true;
+  test(
+    'a reconnect that reaches nothing leaves the old server in place',
+    () async {
+      await container.read(connectServerProvider.future);
+      discovery.failNext = true;
 
-    await container.read(connectionMonitorProvider).reconnectNow();
+      await container.read(connectionMonitorProvider).reconnectNow();
 
-    // Being unreachable is normal — off the LAN with the server asleep. And
-    // dropping it is a trap: no server means no client, no client means no
-    // requests, and no requests means ConnectionHealth can never see another
-    // failure to retry on. Keeping the stale address keeps the poll running,
-    // and its failures are what drive the next attempt.
-    expect(container.read(plexServerProvider), isNotNull);
-  });
+      // Being unreachable is normal — off the LAN with the server asleep. And
+      // dropping it is a trap: no server means no client, no client means no
+      // requests, and no requests means ConnectionHealth can never see another
+      // failure to retry on. Keeping the stale address keeps the poll running,
+      // and its failures are what drive the next attempt.
+      expect(container.read(plexServerProvider), isNotNull);
+    },
+  );
 
   test('signing out does clear the server', () async {
     await container.read(connectServerProvider.future);

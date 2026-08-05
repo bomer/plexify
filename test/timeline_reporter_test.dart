@@ -338,7 +338,10 @@ void main() {
       expect(album.lastViewedAt, isNotNull);
       // Plex stores epoch seconds; milliseconds here would sort wrongly against
       // every row the sync wrote.
-      expect(album.lastViewedAt, DateTime(2026, 8, 5, 12).millisecondsSinceEpoch ~/ 1000);
+      expect(
+        album.lastViewedAt,
+        DateTime(2026, 8, 5, 12).millisecondsSinceEpoch ~/ 1000,
+      );
     });
 
     test('history is recorded even when Plex refused the scrobble', () async {
