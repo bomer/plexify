@@ -25,9 +25,9 @@ const _tailCapBytes = 1024 * 1024;
 /// `/music/:/transcode/universal/start` is the least-documented endpoint this
 /// app depends on, and every claim about it that matters is a claim about
 /// *behaviour*, not shape: whether it hands back audio or redirects into HLS,
-/// whether it honours Range, whether it declares a length, and which of two
-/// undocumented bitrate parameters actually does anything. None of those can be
-/// settled by reading, so this settles them by asking.
+/// whether it honours Range, whether it declares a length, and which of several
+/// undocumented ways of asking for a bitrate actually does anything. None of
+/// those can be settled by reading, so this settles them by asking.
 ///
 /// It is kept in the app rather than written as a script because the answers
 /// differ by route — LAN, remote, and relay are three different servers as far
@@ -53,9 +53,10 @@ class TranscodeProbe {
   /// gets run.
   static const _windowBytes = 64 * 1024;
 
-  /// Requested bitrates. The pair has to be far apart for the comparison to
-  /// mean anything: two nearby values could differ by container overhead alone.
-  static const _highKbps = 320;
+  /// The cap asked for when testing whether a cap works at all.
+  ///
+  /// Far enough below any plausible natural output that a server honouring it
+  /// cannot be mistaken for one ignoring it.
   static const _lowKbps = 128;
 
   /// How far the measured bitrate may sit from the requested one before the
@@ -72,13 +73,7 @@ class TranscodeProbe {
     // bitrate of a 400 page proves nothing.
     final tried = <TranscodeProfile, _Attempt>{};
     for (final profile in TranscodeProfile.candidates) {
-      final attempt = await _attempt(
-        track,
-        profile,
-        TranscodeBitrateParameter.musicBitrate,
-        _highKbps,
-        log,
-      );
+      final attempt = await _attempt(track, profile, log);
       tried[profile] = attempt;
       // Deliberately does not stop at the first success: knowing that a leaner
       // profile also works is what says which parameters were never needed.
@@ -99,30 +94,22 @@ class TranscodeProbe {
     if (winner != null) {
       // Measured from delivered bytes rather than a declared size, because on
       // a live transcode there is no declared size to read.
-      final tailHigh = await _measureTail(
-        track,
-        winner.key,
-        TranscodeBitrateParameter.musicBitrate,
-        _highKbps,
-        log,
-      );
-      checks.add(_offsetShortensTheStream(tailHigh));
+      final natural = await _measureTail(track, winner.key, null, null, log);
+      checks.add(_offsetShortensTheStream(natural));
 
-      final tailMusicLow = await _measureTail(
-        track,
-        winner.key,
-        TranscodeBitrateParameter.musicBitrate,
-        _lowKbps,
-        log,
-      );
-      final tailMaxAudioLow = await _measureTail(
-        track,
-        winner.key,
-        TranscodeBitrateParameter.maxAudioBitrate,
-        _lowKbps,
-        log,
-      );
-      checks.add(_bitrateParameter(tailHigh, tailMusicLow, tailMaxAudioLow));
+      final capped = <TranscodeBitrateMechanism, _Tail>{};
+      if (natural.kbps != null) {
+        for (final mechanism in TranscodeBitrateMechanism.candidates) {
+          capped[mechanism] = await _measureTail(
+            track,
+            winner.key,
+            mechanism,
+            _lowKbps,
+            log,
+          );
+        }
+      }
+      checks.add(_bitrateMechanism(natural, capped));
     } else {
       checks
         ..add(
@@ -134,7 +121,7 @@ class TranscodeProbe {
         )
         ..add(
           const ProbeCheck(
-            'Which bitrate parameter does Plex honour?',
+            'How can the bitrate be capped?',
             ProbeOutcome.unknown,
             'Not measured — no parameter set returned audio.',
           ),
@@ -325,42 +312,45 @@ class TranscodeProbe {
     );
   }
 
-  ProbeCheck _bitrateParameter(_Tail high, _Tail musicLow, _Tail maxAudioLow) {
-    final baseline = high.kbps;
-    final music = musicLow.kbps;
-    final maxAudio = maxAudioLow.kbps;
-
-    if (baseline == null || music == null || maxAudio == null) {
+  /// Which way of asking for a lower bitrate actually lowers it.
+  ///
+  /// Compared against the rate the server produces when asked for nothing,
+  /// because "asked for 320, got 235" says nothing on its own — the source may
+  /// simply be quieter than that. Only a request that moves the output away
+  /// from the natural rate has been honoured.
+  ProbeCheck _bitrateMechanism(
+    _Tail natural,
+    Map<TranscodeBitrateMechanism, _Tail> capped,
+  ) {
+    final baseline = natural.kbps;
+    if (baseline == null) {
       return ProbeCheck(
-        'Which bitrate parameter does Plex honour?',
+        'How can the bitrate be capped?',
         ProbeOutcome.unknown,
-        'Could not measure: '
-            'musicBitrate=$_highKbps → ${high.describe}, '
-            'musicBitrate=$_lowKbps → ${musicLow.describe}, '
-            'maxAudioBitrate=$_lowKbps → ${maxAudioLow.describe}.',
+        'Could not measure the natural rate: ${natural.describe}.',
       );
     }
 
-    final honoured = [
-      if (_near(music, _lowKbps)) 'musicBitrate',
-      if (_near(maxAudio, _lowKbps)) 'maxAudioBitrate',
-    ];
-    final baselineHonoured = _near(baseline, _highKbps);
-
-    final detail =
-        'Measured over the last $_tailSeconds seconds. '
-        'musicBitrate=$_highKbps → ~$baseline kbps, '
-        'musicBitrate=$_lowKbps → ~$music kbps, '
-        'maxAudioBitrate=$_lowKbps → ~$maxAudio kbps. '
-        '${honoured.isEmpty ? 'Neither parameter changed the output.' : 'Honoured: ${honoured.join(' and ')}.'}'
-        '${baselineHonoured ? '' : ' Note: the $_highKbps request did not '
-                  'measure near $_highKbps either, so the source may simply be '
-                  'lower-rate than that.'}';
+    final lines = <String>[];
+    final worked = <String>[];
+    for (final entry in capped.entries) {
+      final kbps = entry.value.kbps;
+      final honoured = kbps != null && _near(kbps, _lowKbps);
+      if (honoured) worked.add(entry.key.name);
+      lines.add(
+        '  ${entry.key.name}: '
+        '${kbps == null ? entry.value.describe : '~$kbps kbps'}'
+        '${honoured ? ' — honoured' : ''}',
+      );
+    }
 
     return ProbeCheck(
-      'Which bitrate parameter does Plex honour?',
-      honoured.isEmpty ? ProbeOutcome.fail : ProbeOutcome.pass,
-      detail,
+      'How can the bitrate be capped?',
+      worked.isEmpty ? ProbeOutcome.fail : ProbeOutcome.pass,
+      'Natural output ~$baseline kbps. Asked each for $_lowKbps:\n'
+          '${lines.join('\n')}\n'
+          '${worked.isEmpty ? 'None of them changed the output, so there is no '
+                    'way to cap the rate — cellular listening costs full price.' : 'Use: ${worked.first}.'}',
     );
   }
 
@@ -404,17 +394,15 @@ class TranscodeProbe {
   Future<_Attempt> _attempt(
     PlexTrack track,
     TranscodeProfile profile,
-    TranscodeBitrateParameter parameter,
-    int kbps,
     _SessionLog log,
   ) async {
     final session = _newSession();
 
+    // No bitrate asked for: this step is about which parameters the endpoint
+    // requires, and a rejected bitrate parameter would muddle the answer.
     final url = _client.transcodeUrl(
       track.ratingKey,
       session: session,
-      bitrateKbps: kbps,
-      bitrateParameter: parameter,
       profile: profile,
     );
 
@@ -447,8 +435,8 @@ class TranscodeProbe {
   Future<_Tail> _measureTail(
     PlexTrack track,
     TranscodeProfile profile,
-    TranscodeBitrateParameter parameter,
-    int kbps,
+    TranscodeBitrateMechanism? mechanism,
+    int? kbps,
     _SessionLog log,
   ) async {
     final offset = track.duration - const Duration(seconds: _tailSeconds);
@@ -466,7 +454,7 @@ class TranscodeProbe {
       track.ratingKey,
       session: session,
       bitrateKbps: kbps,
-      bitrateParameter: parameter,
+      bitrate: mechanism,
       profile: profile,
       offset: offset,
     );

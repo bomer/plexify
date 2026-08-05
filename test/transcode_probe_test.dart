@@ -10,6 +10,25 @@ import 'package:plexify/core/plex/plex_server.dart';
 import 'package:plexify/core/plex/transcode.dart';
 import 'package:plexify/core/plex/transcode_probe.dart';
 
+PlexClient _client() => PlexClient(
+  server: const PlexServer(
+    name: 'Tower',
+    baseUrl: 'https://tower.example:32400',
+    token: 'sekrit',
+    isLocal: true,
+    isRelay: false,
+  ),
+  identity: PlexIdentity.forTesting(),
+);
+
+/// Reads a bitrate cap out of a device profile the way Plex would.
+String? _bitrateFromProfile(Map<String, String> query) {
+  final extra = query['X-Plex-Client-Profile-Extra'];
+  if (extra == null) return null;
+  final match = RegExp(r'audio\.bitrate&value=(\d+)').firstMatch(extra);
+  return match?.group(1);
+}
+
 /// The transcode endpoint is the least-documented thing Plexify depends on, and
 /// every way it can fail is quiet: it answers 200, the audio plays, and the
 /// consequence — no caching, no seeking, a bitrate cap that does nothing —
@@ -44,7 +63,7 @@ void main() {
     bool declareSize = true,
     Set<String> honouredBitrateParameters = const {'musicBitrate'},
     Set<String> requiredParameters = const {},
-    int defaultKbps = 320,
+    int naturalKbps = 320,
   }) {
     return MockClient((request) async {
       requests.add(request.url);
@@ -83,9 +102,13 @@ void main() {
         );
       }
 
-      var kbps = defaultKbps;
+      // Whichever mechanism this server understands moves the output rate;
+      // the others are accepted and ignored, exactly as a real one does.
+      var kbps = naturalKbps;
       for (final name in honouredBitrateParameters) {
-        final asked = request.url.queryParameters[name];
+        final asked = name == 'profile'
+            ? _bitrateFromProfile(request.url.queryParameters)
+            : request.url.queryParameters[name];
         if (asked != null) kbps = int.parse(asked);
       }
 
@@ -176,29 +199,45 @@ void main() {
       expect(q['session'], isNotEmpty);
     });
 
-    test('names whichever bitrate parameter it was given', () {
-      final client = PlexClient(
-        server: const PlexServer(
-          name: 'Tower',
-          baseUrl: 'https://tower.example:32400',
-          token: 'sekrit',
-          isLocal: true,
-          isRelay: false,
-        ),
-        identity: PlexIdentity.forTesting(),
-      );
+    test('omits the bitrate entirely when none was asked for', () {
+      final url = Uri.parse(_client().transcodeUrl('1', session: 's'));
 
+      // The natural output is the only honest baseline to compare a cap
+      // against, and it cannot be measured while asking for one.
+      expect(url.queryParameters.containsKey('musicBitrate'), isFalse);
+      expect(url.queryParameters.containsKey('maxAudioBitrate'), isFalse);
+    });
+
+    test('expresses the bitrate whichever way it was asked to', () {
       final url = Uri.parse(
-        client.transcodeUrl(
+        _client().transcodeUrl(
           '1',
           session: 's',
           bitrateKbps: 128,
-          bitrateParameter: TranscodeBitrateParameter.maxAudioBitrate,
+          bitrate: TranscodeBitrateMechanism.maxAudioBitrate,
         ),
       );
 
       expect(url.queryParameters['maxAudioBitrate'], '128');
       expect(url.queryParameters.containsKey('musicBitrate'), isFalse);
+    });
+
+    test('lets the profile mechanism override a profile string', () {
+      // The cap lives inside the device profile, so it has to win over
+      // whatever profile the transcode profile already set.
+      final url = Uri.parse(
+        _client().transcodeUrl(
+          '1',
+          session: 's',
+          bitrateKbps: 128,
+          bitrate: TranscodeBitrateMechanism.profileLimitation,
+          profile: TranscodeProfile.webClient,
+        ),
+      );
+
+      final extra = url.queryParameters['X-Plex-Client-Profile-Extra']!;
+      expect(extra, contains('audio.bitrate&value=128'));
+      expect(extra, contains('add-transcode-target'));
     });
   });
 
@@ -296,7 +335,7 @@ void main() {
         // than the window asked for, so any bitrate read off them is fiction.
         expect(check(report, 'Does offset shorten').outcome, ProbeOutcome.fail);
         expect(
-          check(report, 'Which bitrate parameter').outcome,
+          check(report, 'How can the bitrate be capped').outcome,
           ProbeOutcome.unknown,
         );
       },
@@ -326,62 +365,68 @@ void main() {
           server(declareSize: false),
         ).run(track);
 
-        final bitrate = check(report, 'Which bitrate parameter');
+        final bitrate = check(report, 'How can the bitrate be capped');
         expect(bitrate.outcome, ProbeOutcome.pass);
-        expect(bitrate.detail, contains('Honoured: musicBitrate.'));
+        expect(bitrate.detail, contains('Use: musicBitrate.'));
       },
     );
   });
 
-  group('which bitrate parameter is honoured', () {
-    test('is named when only musicBitrate works', () async {
+  group('how the bitrate can be capped', () {
+    test('names the mechanism that moved the output', () async {
       final report = await probeAgainst(
         server(honouredBitrateParameters: {'musicBitrate'}),
       ).run(track);
 
-      final bitrate = check(report, 'Which bitrate parameter');
-      expect(bitrate.outcome, ProbeOutcome.pass);
-      expect(bitrate.detail, contains('Honoured: musicBitrate.'));
+      final capped = check(report, 'How can the bitrate be capped');
+      expect(capped.outcome, ProbeOutcome.pass);
+      expect(capped.detail, contains('Use: musicBitrate.'));
+      // Named against the rate the server produces unprompted, because
+      // "asked for 320, got 235" says nothing on its own.
+      expect(capped.detail, contains('Natural output ~320 kbps'));
     });
 
-    test('is named when only maxAudioBitrate works', () async {
+    test('finds the cap hidden in the device profile', () async {
+      // The mechanism Plex's own clients use, and the one that would be
+      // missed entirely by testing query parameters alone.
+      final report = await probeAgainst(
+        server(honouredBitrateParameters: {'profile'}),
+      ).run(track);
+
+      final capped = check(report, 'How can the bitrate be capped');
+      expect(capped.outcome, ProbeOutcome.pass);
+      expect(capped.detail, contains('Use: client profile limitation.'));
+    });
+
+    test('reports every mechanism, not only the one that worked', () async {
       final report = await probeAgainst(
         server(honouredBitrateParameters: {'maxAudioBitrate'}),
       ).run(track);
 
-      final bitrate = check(report, 'Which bitrate parameter');
-      expect(bitrate.outcome, ProbeOutcome.pass);
-      expect(bitrate.detail, contains('Honoured: maxAudioBitrate.'));
+      final capped = check(report, 'How can the bitrate be capped');
+      for (final mechanism in TranscodeBitrateMechanism.candidates) {
+        expect(capped.detail, contains(mechanism.name));
+      }
+      expect(capped.detail, contains('~320 kbps'));
     });
 
-    test('reports both when both work', () async {
-      final report = await probeAgainst(
-        server(honouredBitrateParameters: {'musicBitrate', 'maxAudioBitrate'}),
-      ).run(track);
-
-      expect(
-        check(report, 'Which bitrate parameter').detail,
-        contains('Honoured: musicBitrate and maxAudioBitrate.'),
-      );
-    });
-
-    test('is a failure when neither changes anything', () async {
+    test('says plainly when nothing caps it', () async {
       final report = await probeAgainst(
         server(honouredBitrateParameters: const {}),
       ).run(track);
 
-      final bitrate = check(report, 'Which bitrate parameter');
+      final capped = check(report, 'How can the bitrate be capped');
       // This is the case that makes cellular listening expensive: the app
       // believes it asked for 128k and the server sends the full rate.
-      expect(bitrate.outcome, ProbeOutcome.fail);
-      expect(bitrate.detail, contains('Neither parameter'));
+      expect(capped.outcome, ProbeOutcome.fail);
+      expect(capped.detail, contains('cellular listening costs full price'));
     });
 
     test('is not guessed at when the endpoint returned no audio', () async {
       final report = await probeAgainst(server(hls: true)).run(track);
 
       expect(
-        check(report, 'Which bitrate parameter').outcome,
+        check(report, 'How can the bitrate be capped').outcome,
         ProbeOutcome.unknown,
       );
       // Comparing the sizes of two error pages would produce a confident
@@ -392,67 +437,6 @@ void main() {
         hasLength(TranscodeProfile.candidates.length),
       );
     });
-  });
-
-  group('finding the parameter set the server accepts', () {
-    test('names the leanest one that works', () async {
-      final report = await probeAgainst(server()).run(track);
-
-      final accepted = check(report, 'Which parameter set');
-      expect(accepted.outcome, ProbeOutcome.pass);
-      expect(accepted.detail, contains('Leanest that works: minimal'));
-    });
-
-    test('walks past the ones the server rejects', () async {
-      // A server that will not decide without knowing who is asking — which
-      // it cannot learn from headers, because the audio engine sends none.
-      final report = await probeAgainst(
-        server(requiredParameters: {'X-Plex-Product'}),
-      ).run(track);
-
-      final accepted = check(report, 'Which parameter set');
-      expect(accepted.outcome, ProbeOutcome.pass);
-      expect(accepted.detail, contains('Leanest that works: identified'));
-      // The rejections are the finding, not noise: each one names a parameter
-      // the server turned out to need.
-      expect(accepted.detail, contains('minimal: HTTP 400'));
-      expect(report.workingProfile, 'identified');
-    });
-
-    test('reports every candidate, not just the winner', () async {
-      final report = await probeAgainst(server()).run(track);
-
-      final accepted = check(report, 'Which parameter set');
-      for (final profile in TranscodeProfile.candidates) {
-        // A leaner profile that also worked names parameters never needed.
-        expect(accepted.detail, contains(profile.name));
-      }
-    });
-
-    test('says so plainly when nothing works', () async {
-      final report = await probeAgainst(
-        server(requiredParameters: {'nothing-sends-this'}),
-      ).run(track);
-
-      final accepted = check(report, 'Which parameter set');
-      expect(accepted.outcome, ProbeOutcome.fail);
-      expect(accepted.detail, contains('None of them'));
-      expect(report.workingProfile, isNull);
-    });
-
-    test(
-      'carries the rejection body, which is where the reason lives',
-      () async {
-        final report = await probeAgainst(
-          server(requiredParameters: {'nothing-sends-this'}),
-        ).run(track);
-
-        expect(
-          check(report, 'Does the progressive endpoint answer').detail,
-          contains('400 Bad Request'),
-        );
-      },
-    );
   });
 
   group('transcode sessions', () {

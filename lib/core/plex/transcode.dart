@@ -1,22 +1,58 @@
 import 'plex_identity.dart';
 
-/// Which query parameter Plex honours when a music transcode is asked for a
-/// bitrate.
+/// A way of asking Plex for a particular bitrate.
 ///
-/// Both names are cited for `/music/:/transcode/universal/start`, neither is
-/// documented, and they are not interchangeable on every server version. The
-/// spike in `transcode_probe.dart` settles it by measurement. Until then, code
-/// that needs a bitrate names the one it is assuming rather than picking
-/// silently — a transcode that quietly ignores the parameter looks identical to
-/// one that honours it, right up until the cellular bill.
-enum TranscodeBitrateParameter {
-  musicBitrate('musicBitrate'),
-  maxAudioBitrate('maxAudioBitrate');
+/// Measured against a real server, `musicBitrate` and `maxAudioBitrate` — the
+/// two names everyone cites — both turned out to change nothing: the output
+/// came back at the same rate whether 320 or 128 was asked for. A transcode
+/// that ignores the cap is indistinguishable from one that honours it until
+/// the cellular bill arrives, so the question is worth more than one attempt.
+///
+/// The third candidate is the one Plex's own clients use: the bitrate is not a
+/// parameter at all but a *limitation* inside the device profile, which is also
+/// where the transcode target is declared. If a plain parameter is only
+/// consulted when a target exists, that would explain both results at once.
+class TranscodeBitrateMechanism {
+  const TranscodeBitrateMechanism(this.name, this.why, this.apply);
 
-  const TranscodeBitrateParameter(this.queryName);
+  final String name;
 
-  /// The literal query-string key.
-  final String queryName;
+  /// What this mechanism is testing, in one line.
+  final String why;
+
+  /// Query parameters expressing a request for [kbps].
+  final Map<String, String> Function(int kbps) apply;
+
+  static final musicBitrate = TranscodeBitrateMechanism(
+    'musicBitrate',
+    'The parameter cited most often for music.',
+    (kbps) => {'musicBitrate': '$kbps'},
+  );
+
+  static final maxAudioBitrate = TranscodeBitrateMechanism(
+    'maxAudioBitrate',
+    'The other cited name, borrowed from the video endpoint.',
+    (kbps) => {'maxAudioBitrate': '$kbps'},
+  );
+
+  /// Declares an mp3 target and caps it, both inside the device profile.
+  ///
+  /// Extras are joined with `+`, which is how Plex parses more than one.
+  static final profileLimitation = TranscodeBitrateMechanism(
+    'client profile limitation',
+    'Expresses the cap the way Plex clients do — inside the device profile, '
+        'alongside the transcode target it applies to.',
+    (kbps) => {
+      'X-Plex-Client-Profile-Extra':
+          'add-transcode-target(type=musicProfile&context=streaming'
+          '&protocol=http&container=mp3&audioCodec=mp3)'
+          '+add-limitation(scope=musicCodec&scopeName=mp3&type=upperBound'
+          '&name=audio.bitrate&value=$kbps&replace=true)',
+    },
+  );
+
+  /// Tried in order. The first that moves the delivered bitrate is the answer.
+  static final candidates = [musicBitrate, maxAudioBitrate, profileLimitation];
 }
 
 /// One candidate set of transcode parameters.

@@ -358,14 +358,15 @@ class PlexClient {
   /// abandons the first — and must be handed to [stopTranscodeSession] when
   /// playback ends.
   ///
-  /// [bitrateParameter] and [profile] are both live questions rather than
-  /// preferences; see [TranscodeBitrateParameter] and [TranscodeProfile].
+  /// [bitrate] and [profile] are both live questions rather than preferences;
+  /// see [TranscodeBitrateMechanism] and [TranscodeProfile]. Omitting
+  /// [bitrate] asks for whatever the server produces unprompted, which is the
+  /// only honest baseline to compare a cap against.
   String transcodeUrl(
     String ratingKey, {
     required String session,
-    required int bitrateKbps,
-    TranscodeBitrateParameter bitrateParameter =
-        TranscodeBitrateParameter.musicBitrate,
+    int? bitrateKbps,
+    TranscodeBitrateMechanism? bitrate,
     TranscodeProfile? profile,
     Duration offset = Duration.zero,
   }) {
@@ -383,8 +384,12 @@ class PlexClient {
             // Layered over the base so a profile can override the decision
             // flags as well as add to them.
             ...(profile ?? TranscodeProfile.identified).build(_identity),
+            // Layered over the profile in turn: one mechanism expresses the
+            // cap inside the device profile, so it must win over any profile
+            // string already there.
+            if (bitrate != null && bitrateKbps != null)
+              ...bitrate.apply(bitrateKbps),
             'session': session,
-            bitrateParameter.queryName: '$bitrateKbps',
             // Credentials go in the query string because this URL is handed to
             // the audio engine, which does its own HTTP and carries none of our
             // headers. Same reasoning as directPlayUrl.
