@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 29 complete · 13 open · 220 tests passing
+**Status:** 30 complete · 12 open · 238 tests passing
 
 ---
 
@@ -42,6 +42,7 @@ known traps.
 | 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 | 8 | Transcode spike | Answered on both routes by `TranscodeProbe`, kept in the app under Sync status. Progressive works; `offset` works; **no bitrate control exists**. Parameter set and consequences in [PROJECT.md](PROJECT.md#the-music-transcode-endpoint) |
+| 21 | Artwork disk cache | Hand-rolled over `path_provider`, keyed on `(thumb, size)` so a token refresh or a re-race is a hit. Custom `ImageProvider`, LRU-bounded, prefetch via `scrollCacheExtent` |
 | 42 | Sign out and switch server | One teardown, two endings. Wipes the cache eagerly and stops the writers first. Chosen server is binding — no fallback. Found and fixed a `stop()` that always threw |
 | 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
 | 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified — Plexify appears in the Plex dashboard |
@@ -70,11 +71,10 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
-| 2 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
-| 3 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 4 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
-| 5 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
+| 2 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 3 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
+| 4 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
 **#41 and #25 are done.** Both still want live confirmation, and neither can be confirmed
 from a test:
@@ -208,36 +208,46 @@ stream is piping in. It was reachable in production from the Windows media-key *
 button. The `super.stop()` call was also redundant: stopping the player emits idle through
 the pipe anyway.
 
-### #21 — Artwork disk cache
+### #21 — Artwork disk cache *(done, 5 Aug 2026)*
 
-[artwork.dart:45](../lib/features/library/artwork.dart:45) is a plain `Image.network`, so the
-cache is Flutter's in-memory `ImageCache` — dropped on every launch. Every cold start
-refetches every visible thumbnail.
+**Hand-rolled**, in [artwork_cache.dart](../lib/core/artwork/artwork_cache.dart) and
+[artwork_image.dart](../lib/core/artwork/artwork_image.dart). `cached_network_image` was
+rejected on both of its own terms: it keys on the URL, which is the one thing this cache must
+not do, and it brings `flutter_cache_manager` and `sqflite` — a second SQLite binding into an
+app that already ships drift and has to work on Windows. Fetch bytes, write a file, delete
+the oldest is a small enough job to own.
 
-**Subtasks**
+**The key is `(thumb, size)` and nothing else.** The artwork URL embeds the base address and
+the token, and both move — the token on refresh, the address every time the connection
+re-races. A URL-keyed cache looks perfect on a desk and misses on every visible thumbnail the
+moment you walk out of the house, which is when it is most needed. Tests cover a changed
+token and a changed address both being hits.
 
-1. Pick the mechanism: `cached_network_image` (brings `flutter_cache_manager`) or hand-rolled
-   over `path_provider` + drift.
-2. **Key on `(thumb, size)`, never the URL.** The artwork URL embeds both `baseUrl` and
-   `X-Plex-Token` ([plex_client.dart:246](../lib/core/plex/plex_client.dart:246)), and both
-   change — the token on refresh, the base URL every time #41 re-races. URL-keyed caching
-   would silently miss on every network switch, which is the exact moment it matters most.
-3. Bound it and evict LRU.
-4. Prefetch ahead of scroll in the album grid.
-5. Keep the existing placeholder for both null and error — that consistency is why `Artwork`
-   is centralised.
+`PlexArtwork` is an `ImageProvider` rather than bytes behind a `FutureBuilder`, which buys
+the same key in Flutter's in-memory `ImageCache`: one decode shared across every cell showing
+that album, surviving a reconnect. `Image.memory` keys on the byte list's identity and would
+re-decode on every rebuild.
 
-**Considerations**
+**The URL is not part of the key and is only consulted on a miss**, so a cached grid draws
+with no connection at all. `Artwork` passes null while disconnected instead of giving up.
 
-- **Verify the chosen package works on Windows before committing to it.**
-  `flutter_cache_manager` reaches for `sqflite`, whose Windows support is not a given. If it
-  does not, a drift-backed custom cache manager is the fallback — drift is already there and
-  already works on both platforms.
-- `Artwork` watches `plexClientProvider`, so a re-resolve rebuilds every image widget with a
-  new URL. With the key right this is a cache hit; with it wrong it is a full re-download of
-  the visible grid on every network change.
-- Test: same thumb at two sizes yields two entries; same thumb after a token change yields a
-  hit, not a second entry.
+Bounded at 64 MB on Android and 256 MB elsewhere, evicted least-recently-**used**. The index
+is in memory, rebuilt from the directory on first use, and nothing about it is persisted:
+after a restart the order falls back to file modification time. That is close enough for
+artwork and keeps a database write out of every scroll frame.
+
+Prefetch is `scrollCacheExtent: ScrollCacheExtent.viewport(1)` on the album grid. Building a
+tile is what starts its image load, so a screen of rows built ahead *is* a screen of artwork
+already fetching — a scroll listener calling `precacheImage` would only duplicate machinery
+the framework already has.
+
+Signing out clears it too: thumb paths are server-scoped, so the same path on another server
+is different art.
+
+**Found on the way:** injecting a directory for tests skipped the index rebuild, so an
+injected cache never saw its own files. The cold-start path was the one thing tests could not
+reach, which is the path most likely to be wrong. `_override` now says *where*, not *whether
+to scan*.
 
 ### #23 — Transcode-or-direct-play *(unblocked, and smaller than planned)*
 

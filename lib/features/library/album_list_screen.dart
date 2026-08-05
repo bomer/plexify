@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+// ScrollCacheExtent lives in the rendering layer and is not re-exported by
+// material.dart.
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/plex/plex_models.dart';
@@ -31,6 +34,14 @@ class AlbumGrid extends ConsumerWidget {
           onRefresh: () async => ref.invalidate(albumsFallbackProvider),
           child: GridView.builder(
             padding: const EdgeInsets.all(16),
+            // A full screen of rows built ahead of the viewport, which on this
+            // grid means a screen of artwork already fetching. Building a tile
+            // is what starts its image load, so this *is* the prefetch — the
+            // framework has the machinery, and a scroll listener calling
+            // precacheImage would only duplicate it. Expressed against the
+            // viewport rather than in pixels so a tall desktop window gets
+            // proportionally more, not the same as a phone.
+            scrollCacheExtent: const ScrollCacheExtent.viewport(1),
             gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
               // Sizing by extent rather than a fixed column count means the
               // same grid works on a phone and a wide desktop window.

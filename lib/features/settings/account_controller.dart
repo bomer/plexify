@@ -75,8 +75,10 @@ class AccountController {
     await _ref.read(syncSchedulerProvider)?.stop();
     _ref.read(plexNotificationSocketProvider)?.stop();
 
-    // 4. Now the cache can go.
+    // 4. Now the caches can go. Artwork too: thumb paths are server-scoped, so
+    //    the same path on another server is different art entirely.
     await _ref.read(databaseProvider).clearLibrary();
+    await _ref.read(artworkCacheProvider).clear();
   }
 }
 

@@ -4,6 +4,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import 'artwork/artwork_cache.dart';
 import 'audio/playback_handler.dart';
 import 'audio/timeline_reporter.dart';
 import 'db/app_database.dart';
@@ -44,6 +45,14 @@ final audioHandlerProvider = Provider<PlexifyAudioHandler>(
   (ref) =>
       throw StateError('audioHandlerProvider must be overridden in main()'),
 );
+
+/// Artwork on disk.
+///
+/// One instance for the app's lifetime — it holds the in-memory index that
+/// makes eviction possible, and rebuilding it would mean rescanning the
+/// directory. Not tied to the connection: cached images render with no server
+/// at all, which is what lets a grid draw while offline.
+final artworkCacheProvider = Provider<ArtworkCache>((ref) => ArtworkCache());
 
 /// The local library cache.
 ///

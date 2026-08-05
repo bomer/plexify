@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:drift/native.dart';
@@ -7,6 +8,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:plexify/core/artwork/artwork_cache.dart';
 import 'package:plexify/core/audio/playback_handler.dart';
 import 'package:plexify/core/db/app_database.dart';
 import 'package:plexify/core/plex/plex_client.dart';
@@ -29,15 +31,24 @@ void main() {
   const localUri = 'https://local.plex.direct:32400';
 
   late AppDatabase db;
+  late Directory artworkDirectory;
+  late ArtworkCache artwork;
 
   setUp(() {
     db = AppDatabase(NativeDatabase.memory());
+    artworkDirectory = Directory.systemTemp.createTempSync('account_artwork');
+    artwork = ArtworkCache(directory: artworkDirectory);
     SharedPreferences.setMockInitialValues({});
     // Signing out deletes the token, and the real Keystore/DPAPI channel is not
     // available under `flutter test`.
     FlutterSecureStorage.setMockInitialValues({'plex_auth_token': 'token'});
   });
-  tearDown(() => db.close());
+  tearDown(() async {
+    await db.close();
+    if (artworkDirectory.existsSync()) {
+      artworkDirectory.deleteSync(recursive: true);
+    }
+  });
 
   /// A server resource with one connection, reachable or not per [reaching].
   Map<String, dynamic> resource(String id, String name, String uri) => {
@@ -87,6 +98,7 @@ void main() {
         plexIdentityProvider.overrideWithValue(PlexIdentity.forTesting()),
         settingsStoreProvider.overrideWithValue(store),
         databaseProvider.overrideWithValue(db),
+        artworkCacheProvider.overrideWithValue(artwork),
         authTokenProvider.overrideWith((ref) => token),
         audioHandlerProvider.overrideWithValue(PlexifyAudioHandler()),
         if (withDiscovery != null)
@@ -130,6 +142,18 @@ void main() {
       await c.read(accountControllerProvider).signOut();
 
       expect(await db.countAlbums(), 0);
+    });
+
+    test('takes the artwork with it', () async {
+      File('${artworkDirectory.path}/cover').writeAsBytesSync([1, 2, 3]);
+      final c = await containerWith();
+
+      await c.read(accountControllerProvider).signOut();
+
+      // Thumb paths are server-scoped, so the same path on another server is
+      // different art. Keeping the files would show one library's covers over
+      // another's albums.
+      expect(artworkDirectory.listSync(), isEmpty);
     });
 
     test(

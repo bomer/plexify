@@ -53,7 +53,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 171 tests, no live server needed
+flutter test             # 238 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -125,8 +125,8 @@ sufficient alone.
 
 ### Start here when something "didn't show up"
 
-The **Sync status** screen (ℹ️ in the Home or Library app bar, `lib/features/settings/`)
-reports socket connection and frame counts, when the poll and sync last ran, the stored
+The **Sync status** screen (Settings → Sync, `lib/features/settings/`) reports socket
+connection and frame counts, when the poll and sync last ran, the stored
 section clocks beside what the server reports right now, cached row counts, and the last
 error from each path. It exists because three separate mechanisms failing all look identical
 from the library screen — and two rounds of diagnosis were wasted guessing before it did.
@@ -176,34 +176,42 @@ project exists.
 Quality adapts to network. Key on trackId alone and a 320k copy cached on cellular is served
 forever once back on the LAN, silently defeating adaptive quality.
 
-**3. Plex `ratingKey`s are unique only within a server.**
+**3. Cache keys never contain a URL.**
+The artwork URL — and the transcode URL, and the direct-play URL — embeds the server's base
+address and the `X-Plex-Token`, and both move: the token when it is refreshed, the address
+every time the connection re-races between LAN, remote and relay. `ArtworkKey` is
+`(thumb, size)`, and `(trackId, qualityDecision)` is the audio equivalent below. A URL-keyed
+cache looks perfect on a desk and misses on everything at once the moment the phone leaves
+the house, which is the exact moment it was supposed to help.
+
+**4. Plex `ratingKey`s are unique only within a server.**
 `SyncState.serverClientIdentifier` records which server the cache belongs to, and
 `clearLibrary()` wipes on change. Never merge rows across servers.
 
-**4. Nothing blocks on sync.** The first sync of a large library takes minutes. Browsing,
+**5. Nothing blocks on sync.** The first sync of a large library takes minutes. Browsing,
 playback and search must all work while it runs.
 
-**5. Anything that must survive navigation lives outside the `Navigator`.**
+**6. Anything that must survive navigation lives outside the `Navigator`.**
 The mini player sits in the shell scaffold's bottom slot; Now Playing is a sibling `Stack`
 layer, not a pushed route. Pushing routes over them was the original bug.
 
-**6. Every write of Plex data into drift goes through `LibraryWriter`.**
+**7. Every write of Plex data into drift goes through `LibraryWriter`.**
 Three copies of that mapping existed once, and a column added to one stayed null everywhere
 else. `writeX` upserts; `ensureX` inserts only when absent, for callers that need a row to
 exist before updating it and must not flatten a richer one.
 
-**7. Compact layouts are decided by width, not platform.**
+**8. Compact layouts are decided by width, not platform.**
 `lib/shell/layout.dart` holds the single breakpoint. A narrow window on the desktop has the
 same problem a phone does, and a `Platform.isAndroid` check would miss it.
 
-**8. Recovery has one path and many triggers.**
+**9. Recovery has one path and many triggers.**
 Sync has three delivery mechanisms and the connection monitor has two triggers, but each
 feeds a *single* re-resolve or a single write path. The temptation each time is to give a
 newly discovered failure mode its own recovery route; that is how a system becomes
 untestable, and James has asked explicitly that the sync logic not grow more paths. Add a
 trigger, or make an existing path observable. Do not add a fourth mechanism.
 
-**9. Settings have one write path, and it is `SettingsController._apply`.**
+**10. Settings have one write path, and it is `SettingsController._apply`.**
 `lib/core/settings/app_settings.dart` holds all three pieces: `AppSettings` (one immutable
 value), `SettingsStore` (the `shared_preferences` keys), `SettingsController` (the only
 mutator). Adding a setting is a field, a key, and a setter — never a `setString` at a call
