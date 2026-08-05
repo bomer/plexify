@@ -54,7 +54,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 313 tests, no live server needed
+flutter test             # 316 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -292,6 +292,20 @@ would have been wrong. What works instead:
 ---
 
 ## Traps already paid for
+
+**"Loading interrupted" means two queue loads overlapped, not that anything failed.**
+`AudioPlayer.setAudioSources` aborts a load still in flight when a second starts, and the
+abandoned one throws. Startup used to hit this every time — the restore began loading and
+the connection resolved on top of it — and because both paths are fire-and-forget it
+surfaced as an unhandled exception. `PlaybackController._queued` serialises them. Anything
+new that rebuilds the queue must go through it.
+
+**`MPV: [error] lavf: Failed to create file cache` is libmpv's, not ours.** Plexify sets
+three mpv options and none of them is a cache path; the only disk cache in the app is
+artwork. mpv is failing to create its own file-backed stream cache and falling back to the
+in-memory demuxer buffer, which `audio_init.dart` sets to 8 MB. Harmless, and worth
+recording because it reads like a Plexify cache error and is the sort of thing that gets
+chased twice.
 
 Do not rediscover these.
 

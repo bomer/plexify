@@ -110,6 +110,26 @@ class PlaybackController {
     }
   }
 
+  /// Runs [work] after whatever queue rebuild is already in flight.
+  ///
+  /// `setAudioSources` aborts a load that is still running when a second one
+  /// starts, and the abandoned one completes with "Loading interrupted".
+  /// Startup hits this every time: the restore begins loading, the connection
+  /// resolves a moment later, and the rebuild lands on top of it. Both are
+  /// fire-and-forget, so the interruption surfaced as an unhandled exception.
+  Future<void> _queued(Future<void> Function() work) {
+    final next = (_rebuilding ?? Future<void>.value()).then(
+      (_) => work(),
+      // A failure in the previous rebuild is its own caller's problem; it must
+      // not poison every rebuild that follows.
+      onError: (Object _) => work(),
+    );
+    _rebuilding = next;
+    return next;
+  }
+
+  Future<void>? _rebuilding;
+
   /// Rebuilds the loaded queue against the current connection, resuming where
   /// it was.
   ///
@@ -127,7 +147,9 @@ class PlaybackController {
   ///
   /// Rebuilt from the queue's own `extras` rather than from Plex or drift, so
   /// it needs no round trip at the moment the connection is least trustworthy.
-  Future<void> resumeOnNewConnection() async {
+  Future<void> resumeOnNewConnection() => _queued(_resumeOnNewConnection);
+
+  Future<void> _resumeOnNewConnection() async {
     final items = _handler.queue.value;
     if (items.isEmpty) return;
 
@@ -148,6 +170,25 @@ class PlaybackController {
       if (next != null) rebuilt.add(next);
     }
     if (rebuilt.isEmpty) return;
+
+    // A re-resolve that lands on the same address changes nothing, and most
+    // do — the monitor re-races on every transport change, and the LAN is
+    // usually still the LAN. Reloading anyway would interrupt playback, start
+    // a fresh transcode session, and at startup would fight the restore that
+    // had only just finished.
+    if (rebuilt.length == items.length) {
+      var identical = true;
+      for (var i = 0; i < rebuilt.length; i++) {
+        if (rebuilt[i].id != items[i].id) {
+          identical = false;
+          break;
+        }
+      }
+      if (identical) {
+        _openSessions.addAll(outgoingSessions);
+        return;
+      }
+    }
 
     final resumeIndex = index.clamp(0, rebuilt.length - 1);
     final current = rebuilt[resumeIndex];
@@ -328,7 +369,9 @@ class PlaybackController {
   /// the network the app has *now*. Nothing here touches Plex or drift: the
   /// stored session carries its own facts, so it restores before the first
   /// sync and while offline.
-  Future<void> restore() async {
+  Future<void> restore() => _queued(_restore);
+
+  Future<void> _restore() async {
     final saved = _store?.read();
     if (saved == null || saved.isEmpty) return;
     // Never over the top of something already playing. A slow restore racing

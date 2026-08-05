@@ -297,4 +297,65 @@ void main() {
     ]);
     expect(handler.mediaItem.value?.title, 'Alive');
   });
+
+  group('a reconnect that changes nothing', () {
+    test('leaves the player alone when the address is the same', () async {
+      final handler = PlexifyAudioHandler();
+      addTearDown(handler.dispose);
+
+      // Re-resolved onto the address it was already using, which is what
+      // most reconnects do — the monitor re-races on every transport change
+      // and the LAN is usually still the LAN.
+      final after = await afterMovingTo(
+        lan,
+        handler: handler,
+        tracks: [track('1'), track('2')],
+        connectivity: const [ConnectivityResult.wifi],
+      );
+      final loadsBefore = audio.player.loads.length;
+
+      await after.resumeOnNewConnection();
+
+      // Reloading regardless would interrupt playback and start a fresh
+      // transcode session for no gain.
+      expect(audio.player.loads, hasLength(loadsBefore));
+    });
+
+    test('still rebuilds when the address really moved', () async {
+      final handler = PlexifyAudioHandler();
+      addTearDown(handler.dispose);
+      final after = await afterMovingTo(
+        remote,
+        handler: handler,
+        tracks: [track('1')],
+      );
+      final loadsBefore = audio.player.loads.length;
+
+      await after.resumeOnNewConnection();
+
+      expect(audio.player.loads.length, greaterThan(loadsBefore));
+    });
+  });
+
+  test('two rebuilds at once do not interrupt each other', () async {
+    final handler = PlexifyAudioHandler();
+    addTearDown(handler.dispose);
+    final after = await afterMovingTo(
+      remote,
+      handler: handler,
+      tracks: [track('1'), track('2')],
+    );
+
+    // Startup does exactly this: the restore begins loading and the
+    // connection resolves a moment later. `setAudioSources` aborts a load
+    // that is still running when a second starts, and the abandoned one
+    // completes with "Loading interrupted" — unhandled, because both are
+    // fire-and-forget.
+    await Future.wait([
+      after.resumeOnNewConnection(),
+      after.resumeOnNewConnection(),
+    ]);
+
+    expect(handler.queue.value, hasLength(2));
+  });
 }
