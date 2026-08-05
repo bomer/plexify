@@ -302,7 +302,8 @@ down with it, so the *next* skip found a dead local server and playback stopped 
 The cache is therefore `Platform.isAndroid || Platform.isIOS` only, which is where it earns
 its keep anyway: desktop listening is on the LAN. `AudioCache.enabled` is injectable so the
 keying and eviction logic is still testable on a desktop. If this is ever revisited, the
-symptom to look for is `.part` files accumulating in `AppData\Roaming\...\plexifyudio`.
+symptom to look for is `.part` files piling up under the app's support
+directory, `%APPDATA%/com.jamesotoole/plexify/audio`.
 
 **Anything that writes a file the engine is streaming must survive being read.** The same
 family of bug: eviction may not delete a file backing a loaded audio source, because the
