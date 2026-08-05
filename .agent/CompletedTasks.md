@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **36 complete**
+**Last updated:** 6 August 2026 · **37 complete**
 
 ---
 
@@ -47,6 +47,7 @@ between the next reader and paying for it twice.
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 | 42 | Sign out and switch server | One teardown, two endings. Wipes the cache eagerly and stops the writers first. Chosen server is binding, no fallback. Found and fixed a `stop()` that always threw |
 | 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
+| 44 | Now Playing navigation test | Pumps the real `AppShell`, opens an album, scrolls it, expands the overlay. Asserts both are mounted at once and that the scroll offset survives being covered |
 | 45 | Restore what was playing on launch | Queue and position persisted on change, on a 10s tick and on the way out; restored **paused**. Facts stored, never URLs, quality is decided fresh against the network at launch |
 | 46 | "Jump back in" shows albums and playlists | Client-owned `PlaybackHistory` (schema v5), stamped on playback *start*. Replaced `Albums.lastViewedAt`, which is Plex's: written only at 90%, and rewritten by every sync |
 | 47 | Rescue the queue when the connection moves | Whole queue rebuilt at the current position on a re-resolve, quality decided again. Playback failure reports to `ConnectionHealth`, which nothing could see before. A same-address reconnect now does nothing |
@@ -264,6 +265,24 @@ head, so `onUpgrade` re-ran DDL for a column that already existed. They now drop
 and pass the real head as `to` rather than an intermediate version the code never sees.
 
 ---
+
+### #44 - Now Playing navigation test *(done, 6 Aug 2026)*
+
+docs/PLAN.md calls this invariant non-retrofittable and it had no guard, while the shell was
+touched repeatedly. The test pumps the real `AppShell` rather than a stand-in, because the
+thing under test *is* the shell's structure: Now Playing as a sibling `Stack` layer instead
+of a pushed route.
+
+Two things made it awkward, both worth knowing before writing another shell test.
+`AudioPlayer` initialisation waits on locks that never resolve inside `testWidgets`'
+fake-async zone, so the handler has to be built in `tester.runAsync`. And
+`networkChangesProvider` reaches a platform channel, so it needs overriding with an empty
+stream or the shell will not build at all.
+
+Verified by regression rather than by passing: replacing the content with the overlay makes
+two of the four fail. The other two cover the nested navigators, which that particular
+sabotage leaves alone. Worth noting the first attempt at the sabotage changed the *narrow*
+layout branch while the test runs wide, so it proved nothing until it was aimed properly.
 
 ### #45 / #46 - Playback memory *(done, 6 Aug 2026)*
 

@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 36 complete · 12 open · 320 tests passing
+**Status:** 37 complete · 11 open · 324 tests passing
 
 ---
 
@@ -18,8 +18,7 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 
 | # | Task | Where it sits |
 |---|---|---|
-| 44 | Now Playing navigation test | Next. The plan's non-retrofittable invariant, still unguarded |
-| 24 | Audio disk cache | #23 landed the key to store under |
+| 24 | Audio disk cache | Next. #23 landed the key to store under |
 | 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
 | 28 | Instant local search | Indexes and columns already exist; screen is a placeholder |
 | 29 | MusicBrainz "not in your library" | Gates #30 and #33 |
@@ -42,10 +41,9 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app, and the shell has been touched repeatedly since. |
-| 2 | **#24 then #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
-| 3 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
-| 4 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 1 | **#24 then #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
+| 2 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 3 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
