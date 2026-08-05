@@ -251,6 +251,15 @@ optimistic local write needs the same guard.
 bucket lands at the top of a list while an A–Z rail shows it at the bottom — tapping it jumps
 to the wrong end. `artist_index.dart` sorts non-letters last explicitly.
 
+**The server connection is resolved once and never revisited.** `connectServerProvider` is a
+`FutureProvider` keyed on the auth token alone, so `baseUrl` is whichever connection won the
+wave race at startup. A phone that connects on the LAN and then leaves keeps aiming at the
+local address — every request, the notification socket, the poll, and any audio URL already
+handed to `just_audio`. It presents as "playback just stops when I go outside", while
+launching cold on cellular works perfectly, which makes it look like a playback bug rather
+than a connection one. Tracked as #41. **Anything that caches a resolved address needs an
+invalidation story before it is relied on.**
+
 ---
 
 ## Things only the user can do

@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 24 complete · 14 open · 133 tests passing
+**Status:** 24 complete · 18 open · 133 tests passing
 
 ---
 
@@ -58,6 +58,28 @@ All four were release-only or device-only and would have shipped:
 
 ## Open
 
+### Order
+
+Phase numbers record where a task was *designed*, not what to do next, and the two have come
+apart. This is the order. It was set with two facts about how Plexify is actually used:
+listening is split roughly evenly between LAN and cellular, and James is running Plexify and
+Plexamp side by side while moving over.
+
+| | Task | Why here |
+|---|---|---|
+| 1 | **#41** Reconnect when the network changes | The app is currently broken in the exact case that "even split" describes. Nothing else matters while carrying the phone out of the house kills playback. |
+| 2 | **#25** Timeline and scrobbling | Plays are split across two clients right now, so every Plexify play is silently missing from the history both clients read. Every day this waits is a day of history that cannot be recovered. |
+| 3 | **#8** Transcode spike | Needs James present. Gates #23 and #24, i.e. all of cellular listening — half the use. |
+| 4 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
+| 5 | **#23 → #24** Adaptive quality, then audio cache | Unblocked by #8. This is what makes the cellular half pleasant rather than merely working. |
+| 6 | **#43** Settings screen | Do not sequence this after #23/#24 — they need somewhere to expose quality and cache controls, and shipping them with hidden hardcoded policy is what forces a rewrite. |
+| 7 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
+| 8 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and far more obvious than anything above it. |
+| 9 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
+| 10 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+
+#28 was previously marked "next up". It is a feature, and it now sits behind correctness.
+
 ### Needs James present
 
 **#8 — Transcode spike.** Establish working parameters for
@@ -85,6 +107,32 @@ finishes *scanning* an item, which is why a new album appears instantly, but rat
 metadata edit that produces no such entry. The five-minute sweep catches it; the refresh
 button catches it now. Accepted rather than fixed — the alternative is watching another
 notification type, and James has asked that the sync logic not grow more paths.
+
+### Correctness — found reviewing the list, not by planning it
+
+**#41 — Reconnect when the network changes.** Carrying the phone from wifi to cellular kills
+playback; starting fresh on cellular is fine. `connectServerProvider` is a `FutureProvider`
+keyed only on the auth token, so it resolves **once per session**. On the LAN, wave 1 wins
+and `baseUrl` is pinned to the local `plex.direct` address; leaving the house does not
+re-run it. The resume hook reconnects the notification socket and the poll scheduler, but
+both then aim at the dead address, as do the audio URLs already handed to `just_audio`.
+The reverse is quieter and also wrong: coming home keeps the remote or relay connection, so
+audio transcodes over the internet while the server sits on the same wifi. Needs a
+connectivity listener and repeated-failure detection to re-race the waves, plus a decision
+about the currently-playing track — re-resolving the client does not rewrite a URL already
+inside the player.
+
+**#42 — Sign out and switch server.** `PlexAuth.signOut()` exists and nothing calls it.
+An expired token or a different server currently means clearing app data.
+
+**#43 — Settings screen.** The Sync status screen is the only settings-shaped thing that
+exists. **Sequence this before #23/#24, not after** — quality policy and cache size need
+somewhere to live, and shipping them as hidden constants is what forces the rewrite.
+Account, quality override per network, cache size and clear-cache, sign out.
+
+**#44 — Widget test: Now Playing preserves navigation state.** The plan calls this
+invariant non-retrofittable and it has no test. The overlay-not-a-route design exists
+solely to guarantee it, and it would break silently in any shell refactor.
 
 ### Phase 2 — data layer (remaining)
 
@@ -115,6 +163,13 @@ once back on the LAN.
 
 **#25 — Timeline and scrobbling.** `/:/timeline` during playback, `/:/scrobble` on
 completion. The ratingKey is already in `MediaItem.extras`.
+
+This is filed under Phase 3 but is **already a visible bug**, not a future feature. Home's
+"Jump back in" reads `Albums.lastViewedAt`, and only Plex writes that column — so playing an
+album in Plexify updates nothing, and that row goes staler the more Plexify gets used. It
+also breaks the plan's premise that Plex stays the single source of truth for history. With
+Plexamp still in use alongside, history is currently being split between a client that
+reports and one that does not, and the unreported half cannot be reconstructed later.
 
 ### Phase 5 — search (next up)
 
