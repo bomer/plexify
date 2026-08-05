@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **38 complete**
+**Last updated:** 6 August 2026 · **39 complete**
 
 ---
 
@@ -47,6 +47,7 @@ between the next reader and paying for it twice.
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 | 42 | Sign out and switch server | One teardown, two endings. Wipes the cache eagerly and stops the writers first. Chosen server is binding, no fallback. Found and fixed a `stop()` that always threw |
 | 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
+| 28 | Instant local search | drift on every keystroke against the normalised columns, merged with `/hubs/search` so an album added minutes ago is still findable. Sectioned artists / albums / tracks |
 | 24 | Audio disk cache | `LockCachingAudioSource` with an explicit cache file keyed `(ratingKey, decision)`. LRU by bytes, never evicts a file the queue holds, fills on wifi or ethernet only, refuses a URL carrying a seek offset |
 | 44 | Now Playing navigation test | Pumps the real `AppShell`, opens an album, scrolls it, expands the overlay. Asserts both are mounted at once and that the scroll offset survives being covered |
 | 45 | Restore what was playing on launch | Queue and position persisted on change, on a 10s tick and on the way out; restored **paused**. Facts stored, never URLs, quality is decided fresh against the network at launch |
@@ -266,6 +267,26 @@ head, so `onUpgrade` re-ran DDL for a column that already existed. They now drop
 and pass the real head as `to` rather than an intermediate version the code never sees.
 
 ---
+
+### #28 - Instant local search *(done, 6 Aug 2026)*
+
+The placeholder screen made the app feel unfinished, and the pieces were already there: the
+normalised columns and their indexes were added in #15 for exactly this.
+
+**Local first and independently.** drift answers on every keystroke with no round trip, which
+is what makes typing feel instant. The server is asked as well, debounced, and merged in
+behind, deduplicated on ratingKey. That is invariant 1 in practice rather than in principle:
+the cache may answer *faster* but must never be why something appears missing, and an album
+added five minutes ago has to be findable before any sync has stored it. `searchHubs` returns
+empty rather than throwing, so search still works offline for the library you have.
+
+**`contains` rather than `startsWith`**, which gives up the index for a table scan. The right
+trade at this size, and the alternative is a full-text index to maintain on every sync write.
+
+**One real limitation, recorded rather than papered over:** `Tracks` has a normalised title
+but no normalised artist, so searching an artist name returns the artist and their albums but
+not their tracks. Adding `normalisedArtist` to `Tracks` is what would change it. There is a
+test asserting the current behaviour so the next reader knows it is known.
 
 ### #24 - Audio disk cache *(done, 6 Aug 2026)*
 

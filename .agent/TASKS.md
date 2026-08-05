@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 38 complete · 10 open · 338 tests passing
+**Status:** 39 complete · 9 open · 347 tests passing
 
 ---
 
@@ -19,8 +19,7 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | # | Task | Where it sits |
 |---|---|---|
 | 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
-| 28 | Instant local search | Indexes and columns already exist; screen is a placeholder |
-| 29 | MusicBrainz "not in your library" | Gates #30 and #33 |
+| 29 | MusicBrainz "not in your library" | Gates #30 and #33. #28 left the empty-result message pointing at it |
 | 30 | De-duplicate catalog results | Needs #29 |
 | 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
 | 32 | qBittorrent client | Gates #33 |

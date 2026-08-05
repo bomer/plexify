@@ -892,3 +892,56 @@ Future<void> _revalidateAlbumTracks(
     // Cached content stays on screen; nothing to surface.
   }
 }
+
+/// What the user has typed into the search box.
+final searchQueryProvider = StateProvider<String>((ref) => '');
+
+/// Search results: the cache immediately, the server merged in behind it.
+///
+/// Local first and independently, which is what makes typing feel instant.
+/// The server read then adds anything the cache has not reached, because the
+/// cache is additive and must never be the reason something appears missing
+/// (invariant 1) - an album added five minutes ago has to be findable.
+///
+/// Deduplicated on ratingKey, so a server result already in the cache does not
+/// appear twice.
+final searchResultsProvider = FutureProvider.autoDispose
+    .family<SearchResults, String>((ref, query) async {
+      if (query.trim().isEmpty) return const SearchResults.empty();
+
+      final local = await ref.watch(databaseProvider).search(query);
+      final artists = [for (final a in local.artists) a.toDomain()];
+      final albums = [for (final a in local.albums) a.toDomain()];
+      final tracks = [for (final t in local.tracks) t.toDomain()];
+
+      final client = ref.watch(plexClientProvider);
+      if (client != null) {
+        final (liveAlbums, liveTracks) = await client.searchHubs(query);
+        final seenAlbums = {for (final a in albums) a.ratingKey};
+        final seenTracks = {for (final t in tracks) t.ratingKey};
+        albums.addAll(liveAlbums.where((a) => seenAlbums.add(a.ratingKey)));
+        tracks.addAll(liveTracks.where((t) => seenTracks.add(t.ratingKey)));
+      }
+
+      return SearchResults(artists: artists, albums: albums, tracks: tracks);
+    });
+
+/// Search results in the models the UI already speaks.
+class SearchResults {
+  const SearchResults({
+    required this.artists,
+    required this.albums,
+    required this.tracks,
+  });
+
+  const SearchResults.empty()
+    : artists = const [],
+      albums = const [],
+      tracks = const [];
+
+  final List<PlexArtist> artists;
+  final List<PlexAlbum> albums;
+  final List<PlexTrack> tracks;
+
+  bool get isEmpty => artists.isEmpty && albums.isEmpty && tracks.isEmpty;
+}

@@ -66,6 +66,42 @@ class PlexClient {
     return null;
   }
 
+  /// Asks the server directly, for things the cache has not reached.
+  ///
+  /// The cache is additive and never authoritative about absence (invariant
+  /// 1), and search is where that rule earns its keep: an album added five
+  /// minutes ago must be findable even though no sync has stored it. Local
+  /// results render first and this merges in behind them.
+  ///
+  /// Returns empty rather than throwing. A search that works offline for the
+  /// library you have is worth more than one that shows an error because
+  /// plex.tv was briefly unreachable.
+  Future<(List<PlexAlbum>, List<PlexTrack>)> searchHubs(String query) async {
+    try {
+      final container = await _getContainer(
+        '/hubs/search',
+        query: {'query': query, 'limit': '20'},
+      );
+
+      final albums = <PlexAlbum>[];
+      final tracks = <PlexTrack>[];
+      for (final hub in _listOf(container, 'Hub')) {
+        // Plex returns every media type in one response; the type says which
+        // list a hub's items belong in. 9 is album, 10 is track.
+        final type = hub['type'];
+        final items = _listOf(hub, 'Metadata');
+        if (type == 'album') {
+          albums.addAll(items.map(PlexAlbum.fromJson));
+        } else if (type == 'track') {
+          tracks.addAll(items.map(PlexTrack.fromJson));
+        }
+      }
+      return (albums, tracks);
+    } on Object {
+      return (const <PlexAlbum>[], const <PlexTrack>[]);
+    }
+  }
+
   /// Albums in a section, newest first.
   ///
   /// Paginated via Plex's container headers rather than query parameters, which

@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 
 import '../plex/plex_models.dart' show PlexRating;
+import 'normalise.dart';
 import 'tables.dart';
 
 part 'app_database.g.dart';
@@ -191,6 +192,55 @@ class AppDatabase extends _$AppDatabase {
   Future<void> setTrackRating(String ratingKey, int? rating) async {
     await (update(tracks)..where((t) => t.ratingKey.equals(ratingKey))).write(
       TracksCompanion(userRating: Value(rating)),
+    );
+  }
+
+  /// Everything matching [query], from the cache, in one pass per table.
+  ///
+  /// Matches the normalised columns, which is why they exist and are indexed:
+  /// searching "dont look back" finds "Don't Look Back In Anger" without the
+  /// caller thinking about apostrophes or case. `normalise` is applied to the
+  /// query too, so both sides are folded the same way.
+  ///
+  /// `contains` rather than `startsWith` because people search for the word
+  /// they remember, not the first one. That gives up the index for a table
+  /// scan, which is the right trade at this size: a 50k-track library is a few
+  /// milliseconds, and the alternative is a full-text index to maintain on
+  /// every sync write.
+  Future<LibraryMatches> search(String query, {int limit = 20}) async {
+    final needle = normalise(query);
+    if (needle.isEmpty) return const LibraryMatches.empty();
+    final pattern = '%$needle%';
+
+    final artistRows =
+        await (select(artists)
+              ..where((a) => a.normalisedTitle.like(pattern))
+              ..orderBy([(a) => OrderingTerm.asc(a.normalisedTitle)])
+              ..limit(limit))
+            .get();
+
+    final albumRows =
+        await (select(albums)
+              ..where(
+                (a) =>
+                    a.normalisedTitle.like(pattern) |
+                    a.normalisedArtist.like(pattern),
+              )
+              ..orderBy([(a) => OrderingTerm.asc(a.normalisedTitle)])
+              ..limit(limit))
+            .get();
+
+    final trackRows =
+        await (select(tracks)
+              ..where((t) => t.normalisedTitle.like(pattern))
+              ..orderBy([(t) => OrderingTerm.asc(t.normalisedTitle)])
+              ..limit(limit))
+            .get();
+
+    return LibraryMatches(
+      artists: artistRows,
+      albums: albumRows,
+      tracks: trackRows,
     );
   }
 
@@ -427,4 +477,27 @@ class AppDatabase extends _$AppDatabase {
       await delete(syncState).go();
     });
   }
+}
+
+/// What the cache had for a query.
+///
+/// Three lists rather than one ranked list: the sections are meaningful to
+/// look at, and an artist is not competing with a track for the same slot.
+class LibraryMatches {
+  const LibraryMatches({
+    required this.artists,
+    required this.albums,
+    required this.tracks,
+  });
+
+  const LibraryMatches.empty()
+    : artists = const [],
+      albums = const [],
+      tracks = const [];
+
+  final List<Artist> artists;
+  final List<Album> albums;
+  final List<Track> tracks;
+
+  bool get isEmpty => artists.isEmpty && albums.isEmpty && tracks.isEmpty;
 }
