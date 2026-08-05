@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/playback_handler.dart';
 import '../../core/providers.dart';
+import '../library/artist_detail_screen.dart';
+import '../library/library_screen.dart' show openAlbum;
 import '../library/artwork.dart';
 import 'player_providers.dart';
 
@@ -153,18 +155,7 @@ class _TrackInfo extends StatelessWidget {
           style: theme.textTheme.titleLarge,
         ),
         const SizedBox(height: 6),
-        Text(
-          [
-            item.artist,
-            item.album,
-          ].where((s) => s != null && s.isNotEmpty).join(' — '),
-          textAlign: TextAlign.center,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
-        ),
+        _Subtitle(item: item),
       ],
     );
   }
@@ -373,6 +364,73 @@ class _UpNext extends StatelessWidget {
           },
         );
       },
+    );
+  }
+}
+
+/// Artist and album under the title, tappable when they lead somewhere.
+///
+/// The names were already on screen and were the obvious thing to press,
+/// which made not being able to press them feel like a dead end. Rendered as
+/// plain text when the cache does not have the album, because a link that
+/// opens an empty page is worse than no link.
+class _Subtitle extends ConsumerWidget {
+  const _Subtitle({required this.item});
+
+  final MediaItem item;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final muted = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+    final linked = muted?.copyWith(color: theme.colorScheme.primary);
+
+    final key = item.extras?['albumRatingKey'] as String?;
+    final album = key == null
+        ? null
+        : ref.watch(albumByKeyProvider(key)).valueOrNull;
+
+    final artistKey = album?.artistRatingKey;
+    final artist = artistKey == null
+        ? null
+        : ref.watch(artistByKeyProvider(artistKey)).valueOrNull;
+
+    return Wrap(
+      alignment: WrapAlignment.center,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      children: [
+        if (item.artist case final name? when name.isNotEmpty)
+          artist == null
+              ? Text(name, style: muted)
+              : InkWell(
+                  onTap: () {
+                    ref.read(nowPlayingExpandedProvider.notifier).state = false;
+                    Navigator.of(context, rootNavigator: false).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => ArtistDetailScreen(artist: artist),
+                      ),
+                    );
+                  },
+                  child: Text(name, style: linked),
+                ),
+        if (item.artist != null && item.album != null)
+          Text('  ·  ', style: muted),
+        if (item.album case final name? when name.isNotEmpty)
+          album == null
+              ? Text(name, style: muted)
+              : InkWell(
+                  onTap: () {
+                    // Collapsed first: pushing a route underneath an overlay
+                    // that is still up would land you on a page you cannot
+                    // see.
+                    ref.read(nowPlayingExpandedProvider.notifier).state = false;
+                    openAlbum(context, album);
+                  },
+                  child: Text(name, style: linked),
+                ),
+      ],
     );
   }
 }

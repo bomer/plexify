@@ -28,6 +28,7 @@ class SavedTrack {
     this.partKey,
     this.sourceKbps,
     this.durationMs,
+    this.albumRatingKey,
   });
 
   final String ratingKey;
@@ -39,6 +40,9 @@ class SavedTrack {
   final int? sourceKbps;
   final int? durationMs;
 
+  /// Kept so a restored queue can still offer the album as a destination.
+  final String? albumRatingKey;
+
   Map<String, dynamic> toJson() => {
     'ratingKey': ratingKey,
     'title': title,
@@ -48,6 +52,7 @@ class SavedTrack {
     if (partKey != null) 'partKey': partKey,
     if (sourceKbps != null) 'sourceKbps': sourceKbps,
     if (durationMs != null) 'durationMs': durationMs,
+    if (albumRatingKey != null) 'albumRatingKey': albumRatingKey,
   };
 
   static SavedTrack? fromJson(Object? json) {
@@ -64,6 +69,7 @@ class SavedTrack {
       partKey: json['partKey'] as String?,
       sourceKbps: json['sourceKbps'] as int?,
       durationMs: json['durationMs'] as int?,
+      albumRatingKey: json['albumRatingKey'] as String?,
     );
   }
 }

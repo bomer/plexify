@@ -158,4 +158,51 @@ void main() {
 
     expect(handler.position, aboutSeconds(0));
   });
+
+  group('shuffle and repeat', () {
+    test('are published, not just set on the player', () async {
+      final handler = PlexifyAudioHandler();
+      addTearDown(handler.dispose);
+      await handler.setQueueAndPlay([item('1', transcoded: false)]);
+
+      await handler.setShuffleMode(AudioServiceShuffleMode.all);
+      await handler.setRepeatMode(AudioServiceRepeatMode.one);
+      // `playbackState` is fed by `pipe`, which delivers asynchronously, so
+      // the last state published has not reached the subject yet.
+      await Future<void>.delayed(Duration.zero);
+
+      // The lock screen renders whatever the state says. A control that
+      // toggles the engine but not the reported state shows the wrong icon
+      // for ever, which reads as the button not working.
+      expect(
+        handler.playbackState.value.shuffleMode,
+        AudioServiceShuffleMode.all,
+      );
+      expect(
+        handler.playbackState.value.repeatMode,
+        AudioServiceRepeatMode.one,
+      );
+    });
+
+    test('turn back off again', () async {
+      final handler = PlexifyAudioHandler();
+      addTearDown(handler.dispose);
+      await handler.setQueueAndPlay([item('1', transcoded: false)]);
+
+      await handler.setShuffleMode(AudioServiceShuffleMode.all);
+      await handler.setShuffleMode(AudioServiceShuffleMode.none);
+      await handler.setRepeatMode(AudioServiceRepeatMode.all);
+      await handler.setRepeatMode(AudioServiceRepeatMode.none);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(
+        handler.playbackState.value.shuffleMode,
+        AudioServiceShuffleMode.none,
+      );
+      expect(
+        handler.playbackState.value.repeatMode,
+        AudioServiceRepeatMode.none,
+      );
+    });
+  });
 }

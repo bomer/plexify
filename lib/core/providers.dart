@@ -945,3 +945,27 @@ class SearchResults {
 
   bool get isEmpty => artists.isEmpty && albums.isEmpty && tracks.isEmpty;
 }
+
+/// One album from the cache, for turning a name on screen into a destination.
+///
+/// Null when the cache has not reached it. The caller shows plain text rather
+/// than a link in that case, which is better than a tappable name that opens
+/// an empty page.
+final albumByKeyProvider = FutureProvider.autoDispose
+    .family<PlexAlbum?, String>((ref, ratingKey) async {
+      final db = ref.watch(databaseProvider);
+      final row = await (db.select(
+        db.albums,
+      )..where((a) => a.ratingKey.equals(ratingKey))).getSingleOrNull();
+      return row?.toDomain();
+    });
+
+/// One artist from the cache. See [albumByKeyProvider].
+final artistByKeyProvider = FutureProvider.autoDispose
+    .family<PlexArtist?, String>((ref, ratingKey) async {
+      final db = ref.watch(databaseProvider);
+      final row = await (db.select(
+        db.artists,
+      )..where((a) => a.ratingKey.equals(ratingKey))).getSingleOrNull();
+      return row?.toDomain();
+    });

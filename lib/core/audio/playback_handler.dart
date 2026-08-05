@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
@@ -21,10 +22,18 @@ class PlexifyAudioHandler extends BaseAudioHandler
     // an error reaching `playbackState` closes the subscription for good — one
     // unreachable track would leave the media session frozen for the rest of
     // the session, long after the connection came back.
+    // One writer, and it is this controller.
+    //
+    // `playbackState` is fed by `pipe`, which is `addStream`, and rxdart
+    // refuses a manual `add` while a stream is being piped in. Piping the
+    // player's events straight in therefore made the subject unwritable by
+    // anything else, which is what broke `super.stop()` and would have broken
+    // shuffle and repeat the same way. Everything that wants to publish a
+    // state now goes through here instead.
     _player.playbackEventStream
         .handleError((Object _) => onPlaybackFailed?.call())
-        .map(_toPlaybackState)
-        .pipe(playbackState);
+        .listen((event) => _publish(_toPlaybackState(event)));
+    _states.stream.pipe(playbackState);
 
     // The channel just_audio actually reports playback failures on. They ride
     // on the event's `errorCode` rather than as a stream error, so the
@@ -64,6 +73,12 @@ class PlexifyAudioHandler extends BaseAudioHandler
   }
 
   final AudioPlayer _player = AudioPlayer();
+
+  final _states = StreamController<PlaybackState>();
+
+  void _publish(PlaybackState state) {
+    if (!_states.isClosed) _states.add(state);
+  }
 
   /// Called when the queue runs dry. Phase 6 hooks sonic radio in here to keep
   /// playback going; until then it simply stops.
@@ -264,6 +279,43 @@ class PlexifyAudioHandler extends BaseAudioHandler
   static bool _isTranscode(MediaItem item) =>
       item.extras?['qualityDecision'] == 'transcode';
 
+  /// Shuffle and repeat, which `BaseAudioHandler` declares and does not
+  /// implement.
+  ///
+  /// Published back through `_toPlaybackState` as well as set on the player,
+  /// because the lock screen renders whatever the state says. A control that
+  /// toggles the engine but not the reported state shows the wrong icon
+  /// forever, which reads as the button not working.
+  @override
+  Future<void> setShuffleMode(AudioServiceShuffleMode mode) async {
+    final on = mode != AudioServiceShuffleMode.none;
+    // Ordering matters: just_audio requires a shuffle order to exist before
+    // enabling, or the first shuffled advance replays the current track.
+    if (on) await _player.shuffle();
+    await _player.setShuffleModeEnabled(on);
+    _shuffle = mode;
+    _republish();
+  }
+
+  @override
+  Future<void> setRepeatMode(AudioServiceRepeatMode repeatMode) async {
+    await _player.setLoopMode(switch (repeatMode) {
+      AudioServiceRepeatMode.one => LoopMode.one,
+      AudioServiceRepeatMode.all ||
+      AudioServiceRepeatMode.group => LoopMode.all,
+      AudioServiceRepeatMode.none => LoopMode.off,
+    });
+    _repeat = repeatMode;
+    _republish();
+  }
+
+  AudioServiceShuffleMode _shuffle = AudioServiceShuffleMode.none;
+  AudioServiceRepeatMode _repeat = AudioServiceRepeatMode.none;
+
+  /// Pushes the current state through the same mapping the player's events
+  /// use, so a mode change is visible without waiting for the next event.
+  void _republish() => _publish(_toPlaybackState(_player.playbackEvent));
+
   @override
   Future<void> skipToNext() => _player.seekToNext();
 
@@ -301,7 +353,10 @@ class PlexifyAudioHandler extends BaseAudioHandler
     mediaItem.add(null);
   }
 
-  Future<void> dispose() => _player.dispose();
+  Future<void> dispose() async {
+    await _states.close();
+    await _player.dispose();
+  }
 
   /// Translates just_audio's event model into the media session's.
   PlaybackState _toPlaybackState(PlaybackEvent event) {
@@ -330,6 +385,8 @@ class PlexifyAudioHandler extends BaseAudioHandler
       },
       // Which controls stay visible in the collapsed notification.
       androidCompactActionIndices: const [0, 1, 2],
+      shuffleMode: _shuffle,
+      repeatMode: _repeat,
       processingState: _processingState(event.processingState),
       playing: playing,
       // Track time, not stream time — see [position].

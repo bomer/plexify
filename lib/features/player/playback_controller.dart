@@ -251,6 +251,7 @@ class PlaybackController {
       partKey: extras?['partKey'] as String?,
       sourceKbps: extras?['sourceKbps'] as int?,
       thumb: extras?['thumb'] as String?,
+      albumRatingKey: extras?['albumRatingKey'] as String?,
       source: PlaybackSource.decode(extras?['source']),
       connectivity: connectivity,
     );
@@ -275,6 +276,7 @@ class PlaybackController {
       partKey: track.partKey,
       sourceKbps: track.sourceKbps,
       thumb: track.thumb,
+      albumRatingKey: track.albumRatingKey,
       source: source,
       connectivity: connectivity,
     );
@@ -293,6 +295,7 @@ class PlaybackController {
     required String? partKey,
     required int? sourceKbps,
     required String? thumb,
+    required String? albumRatingKey,
     required PlaybackSource? source,
     required List<ConnectivityResult> connectivity,
   }) {
@@ -334,6 +337,10 @@ class PlaybackController {
         // move. Same thumb as the album grid, so the two share one cached
         // file rather than fetching the same image twice.
         'thumb': ?thumb,
+        // So Now Playing can offer the album as a destination rather than
+        // just a line of text. The track knows its album; the MediaItem did
+        // not.
+        'albumRatingKey': ?albumRatingKey,
         // What the queue was started from, so "Jump back in" can offer the
         // playlist you actually put on rather than the album a track happens
         // to belong to.
@@ -470,6 +477,7 @@ class PlaybackController {
         partKey: track.partKey,
         sourceKbps: track.sourceKbps,
         thumb: track.thumb,
+        albumRatingKey: track.albumRatingKey,
         source: saved.source,
         connectivity: connectivity,
       );
@@ -508,6 +516,7 @@ class PlaybackController {
       partKey: extras?['partKey'] as String?,
       sourceKbps: extras?['sourceKbps'] as int?,
       durationMs: item.duration?.inMilliseconds,
+      albumRatingKey: extras?['albumRatingKey'] as String?,
     );
   }
 

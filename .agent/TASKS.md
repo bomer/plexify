@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 39 complete · 9 open · 347 tests passing
+**Status:** 39 complete · 9 open · 349 tests passing
 
 ---
 
@@ -18,7 +18,7 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 
 | # | Task | Where it sits |
 |---|---|---|
-| 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
+| 22 | Queue controls | Shuffle and repeat done. Reorder and remove in Up Next still to do, plus gapless by ear |
 | 29 | MusicBrainz "not in your library" | Gates #30 and #33. #28 left the empty-result message pointing at it |
 | 30 | De-duplicate catalog results | Needs #29 |
 | 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
@@ -142,10 +142,10 @@ the scroll position survived.
 
 **Subtasks**
 
-1. Shuffle and repeat: `setShuffleModeEnabled` / `setLoopMode`, exposed through
-   `AudioHandler.setShuffleMode` / `setRepeatMode`, which are **not currently overridden**.
-2. Publish both in `_toPlaybackState` so the lock screen reflects them rather than showing a
-   control that lies.
+1. ~~Shuffle and repeat~~ *(done)* - overridden, published, and the `playbackState` subject
+   now has a single writer so publishing a mode change does not fight the `pipe`.
+2. **Controls for them in Now Playing.** The handler supports both; nothing on screen calls
+   them yet, so they are reachable only from the lock screen.
 3. Queue reorder and remove, the Up Next list in Now Playing is read-only. `moveAudioSource`
    / `removeAudioSourceAt`, keeping `queue` in step.
 4. Verify gapless **by ear** on a continuous album, both platforms.
