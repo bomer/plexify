@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/platform/app_window.dart';
@@ -191,6 +192,33 @@ class _AppShellState extends ConsumerState<AppShell> {
       ],
     );
 
+    return CallbackShortcuts(
+      bindings: {const SingleActivator(LogicalKeyboardKey.space): _togglePlay},
+      child: Focus(
+        autofocus: true,
+        child: _shell(destination, expanded, content),
+      ),
+    );
+  }
+
+  /// Space toggles playback, which is the one control worth reaching for
+  /// without looking.
+  ///
+  /// `CallbackShortcuts` sits above the focused widget, and a focused
+  /// `TextField` consumes space as text before this ever sees it, so typing a
+  /// space in search does not pause the music. The explicit check below covers
+  /// anything editable that does not follow that convention.
+  void _togglePlay() {
+    final focus = FocusManager.instance.primaryFocus;
+    if (focus?.context?.widget is EditableText) return;
+    final handler = ref.read(audioHandlerProvider);
+    if (handler.mediaItem.value == null) return;
+    unawaited(
+      handler.playbackState.value.playing ? handler.pause() : handler.play(),
+    );
+  }
+
+  Widget _shell(ShellDestination destination, bool expanded, Widget content) {
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
