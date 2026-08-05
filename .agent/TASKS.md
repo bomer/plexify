@@ -1,4 +1,4 @@
-# Plexify — task list
+# Plexify, task list
 
 What is left to do, and why. A session's own task list starts empty and its numbering has
 already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md) for the design and
@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 35 complete · 12 open · 320 tests passing
+**Status:** 36 complete · 12 open · 320 tests passing
 
 ---
 
@@ -16,13 +16,10 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 The index. One line each; the reasoning is under [Detail](#detail), and the sequence is under
 [Order](#order).
 
-| #   | Task                                     | Where it sits                                                                      |
-| --- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
-| 46  | "Jump back in" should list playlists too | Small. #45 made playing one credit the playlist; the shelf still only reads albums |
-
-|
-| 44 | Now Playing navigation test | The plan's non-retrofittable invariant, currently unguarded |
-| 24 | Audio disk cache | Next. #23 landed the key to store under |
+| # | Task | Where it sits |
+|---|---|---|
+| 44 | Now Playing navigation test | Next. The plan's non-retrofittable invariant, still unguarded |
+| 24 | Audio disk cache | #23 landed the key to store under |
 | 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
 | 28 | Instant local search | Indexes and columns already exist; screen is a placeholder |
 | 29 | MusicBrainz "not in your library" | Gates #30 and #33 |
@@ -31,29 +28,28 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | 32 | qBittorrent client | Gates #33 |
 | 33 | Acquisition flow | Needs #29 and #32 |
 | 34 | Packaging and release | Real keystore, icons, first-run, size guard |
-| 43b | Settings: playback and storage | Lands with #24 — the two sections #43a left empty |
+| 43b | Settings: playback and storage | Lands with #24, the two sections #43a left empty |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 
 ---
 
 ## Order
 
-Phase numbers record where a task was _designed_, not what to do next, and the two have come
+Phase numbers record where a task was *designed*, not what to do next, and the two have come
 apart. This is the order. It was set with two facts about how Plexify is actually used:
 listening is split roughly evenly between LAN and cellular, and James is running Plexify and
 Plexamp side by side while moving over.
 
-|     | Task                                        | Why here                                                                                                                                                                           |
-| --- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | **#46** "Jump back in" lists playlists      | Finishes what #45 started. The data is right; only the shelf's query is not.                                                                                                       |
-| 2   | **#24 → #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working.   |
-| 3   | **#19** Deletion reconcile                  | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it.                                                                                                   |
-| 4   | **#44** Now Playing navigation test         | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
-| 5   | **#22** Queue controls, then Phase 5 onward | Feature work resumes here.                                                                                                                                                         |
+| | Task | Why here |
+|---|---|---|
+| 1 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app, and the shell has been touched repeatedly since. |
+| 2 | **#24 then #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
+| 3 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 4 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
-Five finished tasks still want live confirmation that no test can give — listed under
+Six finished tasks still want live confirmation that no test can give, listed under
 [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation). #23's
 entry is the one that matters most before #24 builds on it: a transcode has never been heard
 playing on either platform, only requested.
@@ -65,20 +61,20 @@ playing on either platform, only requested.
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
 
-### #24 — Audio disk cache _(unblocked by #23)_
+### #24, Audio disk cache _(unblocked by #23)_
 
 **Subtasks**
 
 1. `LockCachingAudioSource` in place of `AudioSource.uri`. Note there are now **two** sites,
    not one: `setQueueAndPlay` and the reload inside `seek`.
-2. **Key on `(ratingKey, qualityDecision)`.** Both are already on the `MediaItem` —
-   `extras['ratingKey']` and `extras['qualityDecision']` — put there by #23 for this. Keyed
+2. **Key on `(ratingKey, qualityDecision)`.** Both are already on the `MediaItem` -
+   `extras['ratingKey']` and `extras['qualityDecision']`, put there by #23 for this. Keyed
    on ratingKey alone, a transcoded copy cached on cellular is served forever once back on
    the LAN, and the fidelity the decision exists to protect silently never arrives.
 3. **A seeked transcode is a partial file that is not the track.** Its URL carries an
    `offset`, so caching it under the track's key would store the tail as though it were the
    whole. Either exclude offset reloads from the cache or key them separately.
-4. Bounded LRU — ~2GB Android, ~10GB desktop, configurable in #43b.
+4. Bounded LRU, ~2GB Android, ~10GB desktop, configurable in #43b.
 5. Fill on wifi/LAN only, so it never burns cellular in the background.
 6. Eviction must not delete a file currently being read.
 
@@ -87,14 +83,14 @@ will have moved by the time they start.
 - **Verify `LockCachingAudioSource` works under `just_audio_media_kit` on Windows.** The
   caching source is a just_audio feature and the media_kit backend is a different engine;
   this is a genuine unknown, not a formality. If it does not work, the cache is Android-only
-  — acceptable, but worth knowing before designing around it.
+ , acceptable, but worth knowing before designing around it.
 - This layer is what later becomes explicit offline downloads. Worth not painting into a
   corner, without building for it yet.
 
-### #43b — Settings: playback and storage
+### #43b, Settings: playback and storage
 
 Quality override per network, data-saver toggle, artwork and audio cache size and clear.
-Lands **with** #24, not after — that is what fills the two missing sections.
+Lands **with** #24, not after, that is what fills the two missing sections.
 
 `QualityPolicy.decide` already takes an `override` that wins over every other signal, and
 nothing passes one yet. That is the hook: a `QualityDecision?` on `AppSettings`, threaded
@@ -105,9 +101,9 @@ through `PlaybackController`.
 - Do not build settings nothing reads yet. That rule is why #43a shipped four sections and
   not six.
 - Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel or
-  — far cheaper — a manual toggle. Suggest manual.
+ , far cheaper, a manual toggle. Suggest manual.
 
-### #19 — Deletion reconcile
+### #19, Deletion reconcile
 
 Deletions do not appear in an `updatedAt` delta, so the cache accumulates ghosts that 404 on
 play. #17 catches deletions that happen while connected; this catches the rest.
@@ -123,14 +119,14 @@ play. #17 catches deletions that happen while connected; this catches the rest.
 
 - **This is the one place that deliberately breaks the "cache is additive, never
   authoritative about absence" invariant, so it needs the strongest guard in the codebase.**
-  A pass that drops halfway — network blip, server restart mid-pagination — must be discarded
+  A pass that drops halfway, network blip, server restart mid-pagination, must be discarded
   entirely. Treating a partial fetch as authoritative deletes a chunk of the library, and the
   user's first symptom is albums vanishing.
 - Test this failure directly: simulate a fetch that fails on page 3 of 5 and assert **nothing**
   is deleted. That test matters more than the happy path.
 - Plex has no keys-only projection, so the pass is not cheap. Daily is right; hourly is not.
 
-### #44 — Widget test: Now Playing preserves navigation state
+### #44, Widget test: Now Playing preserves navigation state
 
 docs/PLAN.md calls this invariant non-retrofittable and it has no test. The sibling-`Stack`
 overlay design in [app_shell.dart](../lib/shell/app_shell.dart) exists solely to guarantee it.
@@ -139,7 +135,7 @@ Navigate deep into a tab's nested `Navigator`, scroll, expand the overlay via
 `nowPlayingExpandedProvider`, assert the underlying route is still mounted, collapse, assert
 the scroll position survived.
 
-### #22 — Queue controls
+### #22, Queue controls
 
 **Subtasks**
 
@@ -147,54 +143,54 @@ the scroll position survived.
    `AudioHandler.setShuffleMode` / `setRepeatMode`, which are **not currently overridden**.
 2. Publish both in `_toPlaybackState` so the lock screen reflects them rather than showing a
    control that lies.
-3. Queue reorder and remove — the Up Next list in Now Playing is read-only. `moveAudioSource`
+3. Queue reorder and remove, the Up Next list in Now Playing is read-only. `moveAudioSource`
    / `removeAudioSourceAt`, keeping `queue` in step.
 4. Verify gapless **by ear** on a continuous album, both platforms.
 
-### Phase 5 — search
+### Phase 5, search
 
-**#28 — Instant local search.** drift-backed on every keystroke, no network round trip. The
+**#28, Instant local search.** drift-backed on every keystroke, no network round trip. The
 normalised columns and their indexes already exist (`idx_artists_norm`, `idx_albums_norm_title`,
 `idx_albums_norm_artist`, `idx_tracks_norm`). Merge with `/hubs/search` so unsynced server
 content still appears. [search_screen.dart](../lib/features/search/search_screen.dart) is a
 placeholder wired into the shell, so there is a visible "coming soon" in the app until this
 lands.
 
-**#29 — MusicBrainz "Not in your library" tier.** Free, no API key, art from Cover Art
+**#29, MusicBrainz "Not in your library" tier.** Free, no API key, art from Cover Art
 Archive. **Must**: descriptive `User-Agent` with contact info (generic agents get 503),
 debounced single-flight queue (~1 req/sec), cached results. Local results always render first
-and independently — that is what makes the rate limit invisible. **Gates #30, #33.**
+and independently, that is what makes the rate limit invisible. **Gates #30, #33.**
 
-**#30 — De-duplicate catalog results** _(needs #29)_. Match on `Albums.mbid` where present,
-falling back to `normalisedArtist` + `normalisedTitle` — the column exists and is unused so
+**#30, De-duplicate catalog results** _(needs #29)_. Match on `Albums.mbid` where present,
+falling back to `normalisedArtist` + `normalisedTitle`, the column exists and is unused so
 far. Get it wrong and every album you own appears twice.
 
-### Phase 6 — radio
+### Phase 6, radio
 
-**#31 — Sonic radio and autoplay.** `/library/metadata/{ratingKey}/nearest?limit=50`.
+**#31, Sonic radio and autoplay.** `/library/metadata/{ratingKey}/nearest?limit=50`.
 Autoplay **on by default**; the `onQueueExhausted` hook already exists at
 [playback_handler.dart:41](../lib/core/audio/playback_handler.dart:41). Surface a clear
 "sonic analysis incomplete" state rather than silently returning nothing.
-**Prerequisite: Plex sonic analysis must have been run — takes hours to days.**
+**Prerequisite: Plex sonic analysis must have been run, takes hours to days.**
 
-### Phase 7 — acquisition
+### Phase 7, acquisition
 
-**#32 — qBittorrent client.** WebUI API v2, native web form login → `SID` cookie, one layer,
+**#32, qBittorrent client.** WebUI API v2, native web form login → `SID` cookie, one layer,
 no HTTP Basic. **Two traps:** `Referer`/`Origin` must exactly match `Host` including port, or
 unexplained 403s; and 403 _also_ means "IP banned for too many failed logins", so one attempt
-then explicit backoff — a retry loop would get the phone banned by James's own server.
+then explicit backoff, a retry loop would get the phone banned by James's own server.
 **Gates #33.**
 
-**#33 — Acquisition flow** _(needs #29, #32)_. Search using **structured** MusicBrainz
+**#33, Acquisition flow** _(needs #29, #32)_. Search using **structured** MusicBrainz
 metadata (artist + album + year), not the raw typed string. Rank by seeders and format. Add
-with `category=Music` — existing automation handles routing, so no renaming or retagging.
+with `category=Music`, existing automation handles routing, so no renaming or retagging.
 Poll progress, then `/library/sections/{id}/refresh`.
 
-### Phase 8 — release
+### Phase 8, release
 
-**#34 — Packaging.** Signed APK with a real keystore — `android/app/build.gradle.kts:32` still
+**#34, Packaging.** Signed APK with a real keystore, `android/app/build.gradle.kts:32` still
 signs release with the debug key. Windows bundle: currently a 48MB folder under
-`build/windows/x64/runner/Release/`, and the whole folder is the deliverable — `plexify.exe` is
+`build/windows/x64/runner/Release/`, and the whole folder is the deliverable, `plexify.exe` is
 157KB and will not start without the sibling DLLs (`flutter_windows`, `libmpv-2`, `sqlite3`)
 and `data/`. Icons, first-run flow. Size guard: arm64 release is 21.4MB against a ~20MB
 expectation.
@@ -204,18 +200,18 @@ expectation.
 ## Known caveats
 
 **Existing Plex ratings arrive on the next launch, once.** The v2 `userRating` columns start
-empty, and a delta sync cannot fill them — Plex's `updatedAt` for a track rated months ago
+empty, and a delta sync cannot fill them, Plex's `updatedAt` for a track rated months ago
 has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
 a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
 
 **Is `updatedAt>=` actually honoured by Plex?** Check "Rows in last sync" on the Sync status
 screen after a routine sweep with nothing new. Near zero means the filter works. Anything
-near the library size means Plex is ignoring it and every sweep refetches everything —
+near the library size means Plex is ignoring it and every sweep refetches everything -
 tolerable on a LAN, ruinous on cellular. If so, lengthen `SyncScheduler.deltaInterval` and
 find a filter Plex does honour.
 
 **Repeating a track does not record a second play.** `TimelineReporter` resets its
-"already counted" mark when the media item changes, and repeat-one never changes it —
+"already counted" mark when the media item changes, and repeat-one never changes it -
 `just_audio` keeps the same index. Going back to a track manually _does_ count again, which
 is the common case. Worth revisiting alongside #22, which is where repeat gets built.
 
@@ -223,13 +219,13 @@ is the common case. Worth revisiting alongside #22, which is where repeat gets b
 change arrives the player has already moved on, so its position getter reports the _new_
 track. `TimelineReporter` projects the outgoing track's position from the last sample plus
 wall time instead. That is right for a track that ran to its end and for one that was
-skipped, and slightly wrong if playback stalled on a long buffer just before the change —
+skipped, and slightly wrong if playback stalled on a long buffer just before the change -
 which would under-count, never over-count. The safer direction of the two.
 
 **Ratings set in Plex are not pushed, only polled.** Plex emits a timeline entry when it
 finishes _scanning_ an item, which is why a new album appears instantly, but rating one is a
 metadata edit that produces no such entry. The five-minute sweep catches it; the refresh
-button catches it now. Accepted rather than fixed — the alternative is watching another
+button catches it now. Accepted rather than fixed, the alternative is watching another
 notification type, and James has asked that the sync logic not grow more paths.
 
 ---
@@ -242,7 +238,7 @@ notification type, and James has asked that the sync logic not grow more paths.
 - **Git author is `unknown`.** `user.name` is unset globally. Set it and the existing commits
   can be amended.
 - **The Windows runner builds as C++20.** C++/WinRT falls back to
-  `<experimental/coroutine>` under C++17, which current MSVC rejects outright — the same
+  `<experimental/coroutine>` under C++17, which current MSVC rejects outright, the same
   header that made `permission_handler` unbuildable. Raised for the runner target only.
 - **ColorOS battery killer.** `OplusHansManager` tracks the process. If playback dies over a
   long session, the fix is exempting Plexify from battery optimisation, not code.
@@ -254,7 +250,7 @@ notification type, and James has asked that the sync logic not grow more paths.
 - **The playing track is not rescued when the connection re-resolves.** `just_audio` holds
   URL strings and re-resolving does not rewrite them, so the track in flight fails and the
   next one uses the new address. Rebuilding the queue at the current position would save it
-  at the cost of a stutter mid-song. Left as is deliberately — revisit only if it grates in
+  at the cost of a stutter mid-song. Left as is deliberately, revisit only if it grates in
   practice.
 - **The connection never resolves to null once it has worked.** Only signing out clears it.
   A failed re-resolve keeps the stale address, because no server means no client, no client

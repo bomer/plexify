@@ -1,4 +1,4 @@
-# Plexify — working context for agents
+# Plexify, working context for agents
 
 Everything an agent needs that **isn't** in [docs/PLAN.md](../docs/PLAN.md). The plan covers
 design, decisions and phases. This covers the environment, the conventions, and the traps
@@ -30,7 +30,7 @@ Everything below is verified working. Don't re-derive it.
 | adb | `C:\Users\James\AppData\Local\Android\Sdk\platform-tools\adb.exe` |
 | JDK (for Gradle) | `C:\Program Files\Android\Android Studio\jbr` |
 | Visual Studio 2026 | Already installed with the C++ workload and ATL |
-| Test device | `3B15AJ00B2A00000` — OPPO CPH2791, Android 16 (API 36) |
+| Test device | `3B15AJ00B2A00000`, OPPO CPH2791, Android 16 (API 36) |
 
 ### Two shell traps
 
@@ -44,7 +44,7 @@ $env:PATH = "C:\Users\James\flutter-sdk\flutter\bin;$env:PATH"
 Gradle additionally needs `$env:JAVA_HOME = "C:\Program Files\Android\Android Studio\jbr"`.
 
 **The shell may reset its working directory to a WSL UNC path** (`\\wsl.localhost\...`).
-Flutter's CMD wrapper cannot operate from a UNC path at all — it prints
+Flutter's CMD wrapper cannot operate from a UNC path at all, it prints
 `UNC paths are not supported. Defaulting to Windows directory` and misbehaves. If a command
 fails oddly, `Set-Location C:\dev\plexify` first.
 
@@ -63,7 +63,7 @@ flutter run -d windows
 flutter build apk --release --target-platform android-arm64
 ```
 
-Deploying to the phone — note `flutter install` does **not** build, so build first:
+Deploying to the phone, note `flutter install` does **not** build, so build first:
 
 ```powershell
 adb -s 3B15AJ00B2A00000 install -r build\app\outputs\flutter-apk\app-release.apk
@@ -83,27 +83,27 @@ debug manifests only, so debug builds hide manifest problems that break release.
 ## How a change reaches the screen
 
 Worth reading before touching anything under `lib/core/sync/`. Three mechanisms deliver
-library changes, and they are not interchangeable — most of the debugging so far has been
+library changes, and they are not interchangeable, most of the debugging so far has been
 working out which one *should* have carried a given change.
 
 | | What it catches | Latency |
 |---|---|---|
 | `plex_notifications.dart` → `live_sync.dart` | Items Plex finishes **scanning**: new music, deletions | Sub-second |
 | `sync_scheduler.dart` 30s poll | Anything that moved the section's `updatedAt` / `scannedAt` | ≤30s |
-| `sync_scheduler.dart` 5min sweep | Metadata edits the section clocks never announced — **ratings set in Plex** | ≤5min |
+| `sync_scheduler.dart` 5min sweep | Metadata edits the section clocks never announced, **ratings set in Plex** | ≤5min |
 
 Playback history travels the other way. `timeline_reporter.dart` sends `/:/timeline` every
 ten seconds and on every state change, and `/:/scrobble` once a track passes 90%. It also
 writes `lastViewedAt` locally, because Home's "Jump back in" sorts on that column and waiting
 for a sweep to bring it back from Plex would leave the shelf showing yesterday's listening
-for minutes after a play. Everything there is best-effort and swallows its errors — the audio
+for minutes after a play. Everything there is best-effort and swallows its errors, the audio
 is the point, the bookkeeping is a courtesy.
 
 The sweep exists because the section clocks describe the library's *shape*. Rating an album
 in Plex changes no files and adds no rows, so neither clock moves and the poll alone would
 never fetch it. This was a real bug, not a hypothetical.
 
-Everything writing Plex data into drift goes through **`LibraryWriter`** — the bulk sync, the
+Everything writing Plex data into drift goes through **`LibraryWriter`**, the bulk sync, the
 push sync, and the revalidation that happens when a screen opens. There were three
 hand-maintained copies of that mapping once; a column added to one of them silently stayed
 null on the other paths.
@@ -114,7 +114,7 @@ lifecycle would run for hours down a mobile connection checking a screen nobody 
 
 All three assume the server is still where discovery left it, which is why
 `connection_monitor.dart` sits underneath them. It re-races LAN / remote / relay on two
-triggers — the OS reporting a transport change, and a run of requests reaching nothing —
+triggers, the OS reporting a transport change, and a run of requests reaching nothing -
 feeding one re-resolve rather than giving each its own recovery path. Invalidating
 `connectServerProvider` rebuilds the client, the socket and the scheduler together, so none
 of them needs to know about the network individually.
@@ -130,7 +130,7 @@ The **Sync status** screen (Settings → Sync, `lib/features/settings/`) reports
 connection and frame counts, when the poll and sync last ran, the stored
 section clocks beside what the server reports right now, cached row counts, and the last
 error from each path. It exists because three separate mechanisms failing all look identical
-from the library screen — and two rounds of diagnosis were wasted guessing before it did.
+from the library screen, and two rounds of diagnosis were wasted guessing before it did.
 
 "Rows in last sync" is the one to read for cost: near zero on a routine sweep means Plex is
 honouring the `updatedAt>=` filter.
@@ -140,7 +140,7 @@ connection monitor and playback reporting all publish counts, timestamps and the
 error. This is not documentation-by-UI; it is the difference between a five-second answer and
 an afternoon. When "plays aren't reaching Plex" was reported, one reading of "Timeline
 reports: 4" ruled out the entire client side at once. Add the counter when you add the
-mechanism — retrofitting it means the first real failure is diagnosed blind.
+mechanism, retrofitting it means the first real failure is diagnosed blind.
 
 ---
 
@@ -151,7 +151,7 @@ mechanism — retrofitting it means the first real failure is diagnosed blind.
   generated code in the project.
 - **The UI speaks domain models**, not database rows. `lib/core/db/mappers.dart` converts
   drift rows to `PlexAlbum` / `PlexTrack`. This is what let the switch from live Plex reads
-  to cache reads happen without rewriting a single screen — preserve it.
+  to cache reads happen without rewriting a single screen, preserve it.
 - **Comments explain why, not what.** Especially for platform behaviour that looks arbitrary:
   most of the non-obvious code here exists because of a specific Android or Plex quirk, and
   without the reason recorded someone will "simplify" it back into a bug.
@@ -174,21 +174,21 @@ wrong recreates "I added it to Plex and it won't show up", which is the whole re
 project exists.
 
 **2. Audio cache entries key on `(trackId, qualityDecision)`, never `trackId` alone.**
-The decision is binary — direct play or transcode, see [there is no bitrate
-control](#there-is-no-bitrate-control) — but the two are still different bytes. Key on
+The decision is binary, direct play or transcode, see [there is no bitrate
+control](#there-is-no-bitrate-control), but the two are still different bytes. Key on
 trackId alone and a transcoded copy cached on cellular is served forever once back on the
 LAN, silently defeating the whole point of deciding. `PlaybackController` writes the
 decision onto every `MediaItem` as `extras['qualityDecision']` so #24 has it to key on.
 
 **3. All artwork goes through `Artwork` → `PlexArtwork` → `ArtworkCache`.**
-`Image.network` anywhere is a bug. Three screens used it — the album header, the mini
-player and Now Playing — and each was a second download of a picture the grid had already
+`Image.network` anywhere is a bug. Three screens used it, the album header, the mini
+player and Now Playing, and each was a second download of a picture the grid had already
 cached, uncached itself, and blank while disconnected. The player surfaces reach it via
 `MediaItem.extras['thumb']`, carried for exactly this reason: `artUri` is a URL and
 therefore useless as a key. Same thumb as the grid means one cached file, not two.
 
 **4. Cache keys never contain a URL.**
-The artwork URL — and the transcode URL, and the direct-play URL — embeds the server's base
+The artwork URL, and the transcode URL, and the direct-play URL, embeds the server's base
 address and the `X-Plex-Token`, and both move: the token when it is refreshed, the address
 every time the connection re-races between LAN, remote and relay. `ArtworkKey` is
 `(thumb, size)`, and `(trackId, qualityDecision)` is the audio equivalent below. A URL-keyed
@@ -225,14 +225,14 @@ trigger, or make an existing path observable. Do not add a fourth mechanism.
 **11. Settings have one write path, and it is `SettingsController._apply`.**
 `lib/core/settings/app_settings.dart` holds all three pieces: `AppSettings` (one immutable
 value), `SettingsStore` (the `shared_preferences` keys), `SettingsController` (the only
-mutator). Adding a setting is a field, a key, and a setter — never a `setString` at a call
+mutator). Adding a setting is a field, a key, and a setter, never a `setString` at a call
 site. A setter that updates the state and forgets to persist works perfectly until the next
 launch, which is the hardest kind of bug to notice and the easiest to introduce one call site
 at a time. The store is loaded in `main()` and read **synchronously** thereafter, so the first
 frame is already correct; anything lazily loaded here paints the default and then swaps.
 
 **12. Position is asked of `PlexifyAudioHandler`, never of `player`.**
-A transcode cannot be seeked — Plex answers 200 to a ranged request and declares no length —
+A transcode cannot be seeked, Plex answers 200 to a ranged request and declares no length -
 so `seek` restarts the stream at an `offset=` instead, and the player's clock begins again
 from zero. The handler holds the difference in `_streamStartedAt` and adds it back in
 `position` and in `_toPlaybackState`. Read `player.position` directly and a track two thirds
@@ -245,9 +245,9 @@ crosses the scrobble threshold, so the play silently never reaches Plex's histor
 
 - **HTTP is tested against recorded fixtures** via `package:http/testing.dart`'s `MockClient`.
   CI never needs a live Plex server. Follow this for new API surface.
-- **Database code is tested against real in-memory SQLite** — `AppDatabase(NativeDatabase.memory())`.
+- **Database code is tested against real in-memory SQLite**, `AppDatabase(NativeDatabase.memory())`.
   Not mocks; the point is catching schema and index mistakes.
-- **The audio engine is faked in Dart** — `test/support/fake_just_audio.dart` installs a
+- **The audio engine is faked in Dart**, `test/support/fake_just_audio.dart` installs a
   `JustAudioPlatform` that records what it was asked to load. Without it anything reaching
   `AudioPlayer.load` or `.seek` throws `MissingPluginException` and the handler's own logic
   never runs at all. It found a real bug the hour it was written: reloading a stream
@@ -255,11 +255,11 @@ crosses the scrobble threshold, so the play silently never reaches Plex's histor
   had just happened.
 - **Migration tests must drop the column first.** `NativeDatabase.memory()` creates the
   schema at *head*, so running `onUpgrade` against it re-runs DDL for columns that already
-  exist. `test/migration_test.dart` drops what the migration adds before calling it —
+  exist. `test/migration_test.dart` drops what the migration adds before calling it -
   otherwise the ALTER is never genuinely exercised. Pass the real head as `to`; the branches
   test `from`, so an install arriving from v2 runs every later body in one pass.
 - Two import collisions you will hit:
-  - `import 'package:drift/drift.dart' hide isNull;` — drift and matcher both export `isNull`.
+  - `import 'package:drift/drift.dart' hide isNull;`, drift and matcher both export `isNull`.
   - `import 'package:drift/drift.dart' show Value;` when a test only needs `Value`.
 - Tests assert *behaviour that would fail silently*, not coverage for its own sake. Each one
   carries a comment explaining what breaks if it regresses.
@@ -284,7 +284,7 @@ would have been wrong. What works instead:
 
 - **Read the counters first.** That is what the Sync status screen is for, and it settled the
   fourth case in one reading.
-- **Ask one sharp question when the symptom is ambiguous** — "does the bar not move, or does
+- **Ask one sharp question when the symptom is ambiguous**, "does the bar not move, or does
   it snap back?" separates a disabled control from a latency problem, and they share no code.
 - **Prefer a question over a plausible fix.** Shipping the wrong fix costs more than asking,
   because it also removes the evidence.
@@ -297,15 +297,15 @@ would have been wrong. What works instead:
 and failed twice over: the column is rewritten by every sync, so an album Plex had stamped
 server-side kept reappearing however carefully the local write was suppressed; and it was
 only ever written at the 90% scrobble mark, so putting something on and leaving after two
-minutes recorded nothing at all — the shelf sat on an album from half an hour earlier.
+minutes recorded nothing at all, the shelf sat on an album from half an hour earlier.
 `PlaybackHistory` (schema v5) is the client-owned answer: written on playback *start*,
 never touched by the sync path. Anything else that means "what this user did" belongs
 there too, not in a Plex column.
 
 **"Loading interrupted" means two queue loads overlapped, not that anything failed.**
 `AudioPlayer.setAudioSources` aborts a load still in flight when a second starts, and the
-abandoned one throws. Startup used to hit this every time — the restore began loading and
-the connection resolved on top of it — and because both paths are fire-and-forget it
+abandoned one throws. Startup used to hit this every time, the restore began loading and
+the connection resolved on top of it, and because both paths are fire-and-forget it
 surfaced as an unhandled exception. `PlaybackController._queued` serialises them. Anything
 new that rebuilds the queue must go through it.
 
@@ -318,7 +318,7 @@ chased twice.
 
 Do not rediscover these.
 
-**Debugging on the OPPO device — filter logcat by PID, never by keyword.** ColorOS floods
+**Debugging on the OPPO device, filter logcat by PID, never by keyword.** ColorOS floods
 the log with sensor and display noise that buries real stack traces. Three attempts were
 wasted on keyword greps before this worked:
 
@@ -332,11 +332,11 @@ Some verification genuinely requires the user.
 
 **`audio_service` 0.18.19 throws on Android 13+ if you pass `MediaControl.stop`.** It
 converts it to a `CustomAction` needing a non-zero icon, resolves the icon by name against
-the *host* package, gets `0`, and throws — killing the entire notification. Don't add it back.
+the *host* package, gets `0`, and throws, killing the entire notification. Don't add it back.
 
 **Never call `super.stop()` (or otherwise `add` to `playbackState`) in `PlexifyAudioHandler`.**
 That subject is fed from the player with `pipe`, and rxdart refuses a manual `add` while a
-stream is being piped in — the call throws *"You cannot add items while items are being added
+stream is being piped in, the call throws *"You cannot add items while items are being added
 from addStream"*. `BaseAudioHandler.stop` does exactly that, so `stop()` threw every time it
 ran, reachable in production from the Windows media-key Stop button. It was redundant too:
 stopping the player emits the idle state through the pipe on its own. The same applies to
@@ -353,12 +353,12 @@ re-add the package for an Android-only permission.
 
 **Windows build failing with a missing header after toolchain changes** is usually a stale
 CMake cache, not a missing component. Delete `build\windows` and rebuild before concluding
-something needs installing — this produced one wrong diagnosis already.
+something needs installing, this produced one wrong diagnosis already.
 
 **Flutter needs Windows Developer Mode** for plugin symlinks. Already enabled.
 
 **The Windows runner builds as C++20, deliberately.** Under C++17, C++/WinRT falls back to
-`<experimental/coroutine>`, which current MSVC rejects outright rather than warning about —
+`<experimental/coroutine>`, which current MSVC rejects outright rather than warning about -
 the same header that makes `permission_handler` unbuildable. `target_compile_features(...
 cxx_std_20)` in `windows/runner/CMakeLists.txt` is load-bearing; don't "tidy" it away.
 
@@ -384,45 +384,45 @@ Favourites. `RatingController` calls `ensureAlbum` / `ensureTrack` first. Any ot
 optimistic local write needs the same guard.
 
 **Watch ordering when a list has an index.** Digits sort before letters in ASCII, so a `#`
-bucket lands at the top of a list while an A–Z rail shows it at the bottom — tapping it jumps
+bucket lands at the top of a list while an A–Z rail shows it at the bottom, tapping it jumps
 to the wrong end. `artist_index.dart` sorts non-letters last explicitly.
 
 **A resolved address goes stale, and it presents as a playback bug.** `connectServerProvider`
 picks whichever connection wins the startup wave race. A phone that connects on the LAN and
-then leaves kept aiming at the local address — every request, the notification socket, the
+then leaves kept aiming at the local address, every request, the notification socket, the
 poll, and any audio URL already handed to `just_audio`. The symptom was "playback stops when
 I go outside" while launching cold on cellular worked perfectly, which points the
 investigation at the audio layer rather than the connection. Fixed in #41 by
 `ConnectionMonitor`. **Anything that caches a resolved address needs an invalidation story
-before it is relied on** — artwork URLs (#21) are the next one.
+before it is relied on**, artwork URLs (#21) are the next one.
 
 **Plex's dashboard needs `X-Plex-Session-Identifier`, and it must be stable.** Without the
-header the server accepts timeline reports, answers 200, and lists nothing — the client looks
+header the server accepts timeline reports, answers 200, and lists nothing, the client looks
 correct and the dashboard looks broken. With a *fresh* value per launch it lists too much:
 every relaunch claims a new slot while the old one lingers until the server times it out, so
 quitting and reopening shows two copies of Plexify playing at once. It is persisted
 alongside the client identifier so a relaunch replaces the previous entry. That is also what
 makes it self-healing after a crash or a force-quit, neither of which gets to say goodbye.
 `AppLifecycleListener.onExitRequested` sends an explicit `stopped` for the clean case, and is
-bounded by a timeout — an unreachable server must never be able to stop the app closing.
+bounded by a timeout, an unreachable server must never be able to stop the app closing.
 
 **A "once only" flag guarding queued work has two wrong places to be reset.** The scrobble
 mark in `timeline_reporter.dart` must be cleared only if it still refers to the track being
 left. Cleared synchronously when the track changes, the outgoing track loses its mark before
 the queued closure evaluates it and gets counted twice. Cleared unconditionally inside that
-closure, it discards a mark the *incoming* track already earned — because a queued report can
+closure, it discards a mark the *incoming* track already earned, because a queued report can
 run between the event arriving and the closure executing. Both produce duplicate plays, and
 neither is visible without a test that counts.
 
 **A `FutureProvider` keeps serving its previous value while it re-resolves.** Verified, and
 load-bearing: it is why invalidating `connectServerProvider` on a network change does not
 flash the whole album grid to placeholders. It also means a test must `await` the rebuild
-before asserting the new value — reading straight after an invalidate returns the *old* one,
+before asserting the new value, reading straight after an invalidate returns the *old* one,
 which looks like the provider ignoring you.
 
 **Side effects in a derived provider's build body only happen if something is watching.** The
 first attempt at remembering the last-good server put the write in `plexServerProvider`,
-which worked in the app — the widget tree watches it constantly — and failed in a test that
+which worked in the app, the widget tree watches it constantly, and failed in a test that
 did not. Correctness that depends on who is subscribed is not correctness. The remembering
 moved into `connectServerProvider`, where the value is produced and the write happens
 whether anyone is listening or not.
@@ -435,13 +435,13 @@ flow there. Do not go writing a `WM_CLOSE` intercept. Note `AppExitResponse` liv
 services.
 
 **Anything on the exit path must be bounded.** The goodbye report to Plex has a two-second
-timeout, because the case where it is slowest — a server that has stopped answering — is
+timeout, because the case where it is slowest, a server that has stopped answering, is
 exactly the case where the app must still close promptly.
 
 **Turning "not connected" into a state you cannot leave.** The first cut of #41 let a failed
 re-resolve clear the server. That reads as honest and is a dead end: no server means no
 client, no client means nothing makes requests, and no requests means `ConnectionHealth` can
-never observe another failure — so nothing ever retries. Recovery depended entirely on the OS
+never observe another failure, so nothing ever retries. Recovery depended entirely on the OS
 volunteering a connectivity event. The connection is now sticky: it keeps the last address
 that worked, and only signing out clears it. Generally, **a recovery mechanism driven by
 failures must leave something running that can still fail.**
@@ -452,7 +452,7 @@ failures must leave something running that can still fail.**
 
 Measured against James's server on 5 Aug 2026 by `TranscodeProbe`, over both the LAN and the
 remote route, on Windows and Android. **The two routes behaved identically in every respect**,
-which is itself the finding — no route-specific handling is needed.
+which is itself the finding, no route-specific handling is needed.
 
 Re-run it from Sync status → Transcode probe whenever the server is upgraded. It is cheap and
 it settles arguments.
@@ -471,7 +471,7 @@ it settles arguments.
 
 **The `X-Plex-*` identity must be in the query string, and this is the whole difference
 between 200 and 400.** Without it the endpoint returns `400 Bad Request` with no explanation.
-It is easy to assume the headers `PlexClient` already sends cover this — they do not: the URL
+It is easy to assume the headers `PlexClient` already sends cover this, they do not: the URL
 is handed to the audio engine, which does its own HTTP and carries none of them. This cost two
 round trips to find, because a 400 says nothing about which parameter was missing.
 
@@ -483,12 +483,12 @@ profile), so none of it is required. `TranscodeProfile.identified` is the defaul
 
 | | |
 |---|---|
-| Progressive, not HLS | **Yes** — `audio/mpeg`, answered directly, no redirect. Retires risk #1 in the plan: transcoded playback is cacheable. |
-| Range requests | **No** — 200 for a ranged request, whole stream offered. |
-| Declared length | **No** — a live transcode has no length to declare. |
-| `offset=` | **Yes** — genuinely starts partway in. This is the *only* way to seek here. |
+| Progressive, not HLS | **Yes**, `audio/mpeg`, answered directly, no redirect. Retires risk #1 in the plan: transcoded playback is cacheable. |
+| Range requests | **No**, 200 for a ranged request, whole stream offered. |
+| Declared length | **No**, a live transcode has no length to declare. |
+| `offset=` | **Yes**, genuinely starts partway in. This is the *only* way to seek here. |
 | Bitrate cap | **No.** See below. |
-| `stop?session=` | **Yes** — 200 every time, for every session. |
+| `stop?session=` | **Yes**, 200 every time, for every session. |
 
 ### There is no bitrate control
 
@@ -496,8 +496,8 @@ profile), so none of it is required. `TranscodeProfile.identified` is the defaul
 `X-Plex-Client-Profile-Extra` were each asked for 128 kbps. All three returned the natural rate
 unchanged, byte for byte, on both routes.
 
-Plex's own `/transcode/sessions` record confirms it is not a misread request — `audioDecision:
-transcode`, `sourceAudioCodec: flac`, `container: mp3` — and carries **no bitrate field at
+Plex's own `/transcode/sessions` record confirms it is not a misread request, `audioDecision:
+transcode`, `sourceAudioCodec: flac`, `container: mp3`, and carries **no bitrate field at
 all**. The output is VBR mp3 landing around 235–242 kbps depending on the material.
 
 **So #23 is not a quality ladder.** It is one binary decision: direct-play the original, or
@@ -511,7 +511,7 @@ and keeps them apart on purpose. **Connectivity** is what *this device* is payin
 laptop on a phone's hotspot reports as wifi and is still metered. **Server locality** is
 what the request reaches the server through; a relay is bandwidth-limited by Plex on top of
 whatever the local network is doing, so it transcodes regardless. **Source rate** is
-`PlexTrack.sourceKbps`, derived from Media > Part's `size` over the duration — Plex sends no
+`PlexTrack.sourceKbps`, derived from Media > Part's `size` over the duration, Plex sends no
 bitrate of its own. A null source rate means "nothing measured yet", never "below the
 floor": treating it as a floor would pin every not-yet-synced track to direct play on
 cellular, which is the expensive direction to be wrong in.
@@ -524,26 +524,26 @@ cellular, which is the expensive direction to be wrong in.
 - **`LockCachingAudioSource` copes with all of this**, which is not obvious. It requires HTTP
   200 on its first fetch (Plex gives 200), treats a missing content-length as `null` rather
   than an error, and still renames the completed cache file. What it cannot do is seek *ahead*
-  of what it has downloaded — that path issues a ranged sub-request and throws on anything but
+  of what it has downloaded, that path issues a ranged sub-request and throws on anything but
   206. Seeking a transcode must go through `offset=` instead.
 - **Seeking a transcode reuses the session id.** A new id starts a second transcode and
   abandons the first, leaving the server encoding for nobody; Plex replaces the stream for a
   session it already knows. `PlaybackController._seekUrl` rebuilds from the `MediaItem`'s
   `extras['transcodeSession']` for that reason, and the offset is always measured from the
-  queue's canonical offset-zero URL — rebuilding from the *loaded* URL would compound
+  queue's canonical offset-zero URL, rebuilding from the *loaded* URL would compound
   offsets, so a seek to 2:00 followed by one to 0:30 would land at 2:30.
 
 ## Things only the user can do
 
-- **Approve the Plex PIN** in a browser — sign-in cannot be automated.
-- **Confirm audio actually sounds right** — gapless seams, lock-screen controls, background
+- **Approve the Plex PIN** in a browser, sign-in cannot be automated.
+- **Confirm audio actually sounds right**, gapless seams, lock-screen controls, background
   playback. Building successfully proves nothing here.
 - **Run Plex's sonic analysis** (Settings → Library → Analyze). Takes hours to days and gates
   sonic radio.
 - **Install software or change system settings.**
 - **Anything needing the real Plex library.** Tests run against fixtures, so behaviour that
-  depends on what the server actually returns — whether a filter is honoured, what a
-  notification frame really looks like — can only be confirmed on James's server.
+  depends on what the server actually returns, whether a filter is honoured, what a
+  notification frame really looks like, can only be confirmed on James's server.
 
 ### Verified against the real server
 
@@ -563,7 +563,7 @@ Two things that seemed to need a human turned out not to:
 
 Reach for that pattern before declaring something unverifiable.
 
-That second one is not a confidence ritual — it has already caught a test that passed for the
+That second one is not a confidence ritual, it has already caught a test that passed for the
 wrong reason. A test named for the single-flight guard in `ConnectionMonitor` was in fact
 being satisfied by the cooldown, because the fake clock never advanced; disabling the guard
 left all sixteen tests green. The replacement forces both attempts past the cooldown so only
@@ -575,19 +575,19 @@ first time you write it against code you have not yet seen fail.
 
 ## Git
 
-Every commit so far is authored `unknown <james@nomoss.co>` — `user.name` is unset globally.
+Every commit so far is authored `unknown <james@nomoss.co>`, `user.name` is unset globally.
 Still worth setting; the history can be rewritten afterwards if it matters.
 
 Commit messages explain *why*, and **record wrong turns explicitly**: one notes that R8
 shrinking was ruled out before the real cause was found, another that a claim about delta
 sync backfilling ratings was wrong and why. This has already prevented re-investigation more
-than once. Keep doing it — a message that only describes the final state throws away the
+than once. Keep doing it, a message that only describes the final state throws away the
 expensive part.
 
 Write the message to a file and use `git commit -F`. PowerShell here-strings mangle multi-line
 `-m` arguments; that cost one confusing failure already.
 
-Check `git status` before `git add -A` — it has already swept in a `debug.lnk` shortcut
+Check `git status` before `git add -A`, it has already swept in a `debug.lnk` shortcut
 holding an absolute path and a machine id. `*.lnk` is ignored now, but build output and
 editor droppings will keep finding new ways in.
 
