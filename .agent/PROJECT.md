@@ -4,7 +4,8 @@ Everything an agent needs that **isn't** in [docs/PLAN.md](../docs/PLAN.md). The
 design, decisions and phases. This covers the environment, the conventions, and the traps
 already paid for.
 
-Current progress lives in [TASKS.md](TASKS.md).
+What is left to do lives in [TASKS.md](TASKS.md); what is already done, and why it was done
+that way, lives in [CompletedTasks.md](CompletedTasks.md).
 
 ---
 

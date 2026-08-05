@@ -1,64 +1,36 @@
 # Plexify — task list
 
-Working state for the build, and the durable record — a session's own task list starts empty
-and its numbering has already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md)
-for the design and rationale, and [PROJECT.md](PROJECT.md) for environment, conventions and
-known traps.
+What is left to do, and why. A session's own task list starts empty and its numbering has
+already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md) for the design and
+rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps, and
+[CompletedTasks.md](CompletedTasks.md) for finished work.
 
 **Last updated:** 5 August 2026
 
-**Status:** 30 complete · 12 open · 238 tests passing
+**Status:** 31 complete · 13 open · 238 tests passing
 
 ---
 
-## Complete
+## Tasks remaining
 
-| # | Task | Notes |
+The index. One line each; the reasoning is under [Detail](#detail), and the sequence is under
+[Order](#order).
+
+| # | Task | Where it sits |
 |---|---|---|
-| 1 | Install Flutter SDK | 3.44.8 stable at `C:\Users\James\flutter-sdk\flutter` |
-| 2 | VS C++ toolchain | Already present — VS 2026, no install needed |
-| 3 | `flutter doctor` clean | Windows + Android both green |
-| 4 | Scaffold project | `C:\dev\plexify`, app id `com.jamesotoole.plexify` |
-| 5 | Plex PIN auth + discovery | Live-verified. Wave racing: LAN → remote → relay |
-| 6 | Album list from Plex | Live-verified |
-| 7 | Direct-play audio | Live-verified, Windows and Android |
-| 9 | Windows Developer Mode | Enabled |
-| 11 | Live-verify vertical slice | Auth, browsing, playback confirmed |
-| 12 | Routing so mini player is never covered | Nested `Navigator`; `PopScope` minimises instead of exiting |
-| 13 | Now Playing overlay with seek | Sibling `Stack` layer, not a route — page beneath stays mounted |
-| 14 | Android background playback | Verified on OPPO CPH2791 / Android 16. Three bugs found |
-| 15 | drift schema and codegen | Six tables, normalised search columns, sync state |
-| 16 | Paginated initial sync | Three passes plus playlists. Live-verified |
-| 17 | Websocket push sync | `dart:io` socket, backoff reconnect, reconnect on resume. Live-verified — a new album appears instantly |
-| 18 | Change-detection poll and delta sync | 30s poll on `/library/sections`, wake on resume, pull-to-refresh. Schema v3 rewinds the cursor once |
-| 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
-| 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
-| 27 | Home screen and browsing | Jump back in / recently added / favourites. Artist pages with albums *and* tracks, library toggle |
-| 35 | Star ratings and favourites | Write-through to `/:/rate`, optimistic with revert. Favourite = 4★+ |
-| 36 | Smart playlist support | `smart` flag stored and badged; contents always revalidated, never served from cache |
-| 37 | Windows media keys | SMTC in the C++ runner. Verified end to end with synthetic key presses |
-| 38 | Compact track rows | Per-track stars are desktop-only; long press opens a rating sheet on phones |
-| 39 | Sync status screen | Socket/poll/clock state, row counts, sync now and full resync. Poll pauses off screen |
-| 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
-| 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
-| 8 | Transcode spike | Answered on both routes by `TranscodeProbe`, kept in the app under Sync status. Progressive works; `offset` works; **no bitrate control exists**. Parameter set and consequences in [PROJECT.md](PROJECT.md#the-music-transcode-endpoint) |
-| 21 | Artwork disk cache | Hand-rolled over `path_provider`, keyed on `(thumb, size)` so a token refresh or a re-race is a hit. Custom `ImageProvider`, LRU-bounded, prefetch via `scrollCacheExtent` |
-| 42 | Sign out and switch server | One teardown, two endings. Wipes the cache eagerly and stops the writers first. Chosen server is binding — no fallback. Found and fixed a `stop()` that always threw |
-| 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
-| 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified — Plexify appears in the Plex dashboard |
-
-### Bugs found by device testing (#14)
-
-All four were release-only or device-only and would have shipped:
-
-1. **`INTERNET` missing from the main manifest.** Flutter only injects it into debug and
-   profile manifests, so release builds had no network at all.
-2. **`POST_NOTIFICATIONS` never requested.** `audio_service` declares it but never prompts.
-3. **`androidStopForegroundOnPause: true`** deleted the notification on pause — controls
-   vanished exactly when you'd reach for them.
-4. **`audio_service` 0.18.19 throws on Android 13+.** It converts `MediaControl.stop` into a
-   `CustomAction` requiring a non-zero icon, resolves that icon by name against *our*
-   package, gets `0`, and throws — killing the whole notification. Removed that control.
+| 23 | Transcode-or-direct-play | Next. Smaller than planned — #8 found no bitrate to adapt |
+| 24 | Audio disk cache | Needs #23's decision to key on |
+| 43b | Settings: playback and storage | Lands with #23/#24 — the two sections #43a left empty |
+| 19 | Deletion reconcile | The one place that may treat absence as authoritative |
+| 44 | Now Playing navigation test | The plan's non-retrofittable invariant, currently unguarded |
+| 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
+| 28 | Instant local search | Indexes and columns already exist; screen is a placeholder |
+| 29 | MusicBrainz "not in your library" | Gates #30 and #33 |
+| 30 | De-duplicate catalog results | Needs #29 |
+| 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
+| 32 | qBittorrent client | Gates #33 |
+| 33 | Acquisition flow | Needs #29 and #32 |
+| 34 | Packaging and release | Real keystore, icons, first-run, size guard |
 
 ---
 
@@ -76,16 +48,10 @@ Plexamp side by side while moving over.
 | 3 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
 | 4 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
-**#41 and #25 are done.** Both still want live confirmation, and neither can be confirmed
-from a test:
-
-- **#41** — walk out of the house mid-track, then read "Route" and "Reconnects" on the Sync
-  status screen. There is a Reconnect button there that exercises the same path indoors.
-- **#25** — play a track to the end, then check Plex web → Status → Now Playing shows
-  Plexify while it runs, and that the play count moved afterwards. "Plays recorded" on the
-  Sync status screen says what the app thinks it sent.
-
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
+
+Four finished tasks still want live confirmation that no test can give — listed under
+[Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation).
 
 ---
 
@@ -93,161 +59,6 @@ from a test:
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
-
-### #8 — Transcode spike *(done, 5 Aug 2026)*
-
-Answered by `TranscodeProbe`, which stays in the app under Sync status → Transcode probe
-rather than being deleted: the answers are per-server and per-route, and it is the cheapest
-way to re-check after a Plex upgrade. Full parameter set and reasoning in
-[PROJECT.md](PROJECT.md#the-music-transcode-endpoint).
-
-**The three findings that change other tasks:**
-
-1. **Progressive works.** `audio/mpeg`, no HLS. Risk #1 in the plan is retired and #24 is not
-   LAN-only.
-2. **The `X-Plex-*` identity must be in the query string**, or the endpoint answers 400 with
-   no explanation. The headers `PlexClient` already sends do not count — the URL goes to the
-   audio engine, which sends none of them.
-3. **No bitrate control exists.** Three mechanisms, both routes, no change; Plex's own session
-   record has no bitrate field. This makes #23 materially smaller than planned.
-
-**What it did not answer:** the relay route was never exercised, because discovery picked
-local then remote and never fell back. If relay ever becomes the working route, re-run there
-before trusting any of this.
-
-### #43a — Settings shell *(done, 5 Aug 2026)*
-
-A fourth [`ShellDestination`](../lib/shell/shell_destination.dart), not a pushed route, so
-Settings keeps its own navigation stack: open Sync status, switch to Library, come back, and
-you are still on Sync status. In the sidebar it is pinned below the playlists rather than
-listed with the other destinations — it is the one you reach occasionally, and putting it
-above the playlists would push the thing you reach constantly further down.
-
-**Sync status moved inside it.** It was reachable only from an `info` button beside Refresh
-in the Home app bar, which is not where anyone looks for a diagnostic. That button is gone,
-and [settings_screen.dart](../lib/features/settings/settings_screen.dart) is now the only
-route to it — which is what the test in `settings_test.dart` guards.
-
-**The persistence seam** is [app_settings.dart](../lib/core/settings/app_settings.dart):
-`AppSettings` (one immutable value), `SettingsStore` (`shared_preferences`), and
-`SettingsController`. Adding a setting is three edits and no more — a field, a key, a setter —
-and every mutation goes through `_apply`, so there is exactly one place that writes to disk.
-That matters more than it looks: a setter that changes the state and forgets to persist works
-perfectly until the next launch.
-
-Read **synchronously**. `SettingsStore.load()` is awaited in `main()` alongside the identity
-and the audio handler, and `settingsStoreProvider` is overridden the same way, so the first
-frame is already correct. Loading settings lazily would paint the default and then swap,
-which is a visible flash on every cold start.
-
-**Sections shipped: Account, Appearance, Sync, About.** Playback and Storage are *not* here,
-despite being in the original plan for this task — there is nothing yet for them to control,
-and a screen of controls that change nothing looks finished, so nobody notices the wiring is
-missing. They arrive with #43b.
-
-Theme mode is the first real setting, and deliberately so: it removes a hardcoded
-`ThemeMode.dark` from `app.dart`, so the store is exercised by something that reads it rather
-than shipping as untested infrastructure. Stored by **name**, not index — a `ThemeMode` that
-gained a value or reordered under an SDK upgrade would otherwise silently change the theme.
-
-### #43b — Settings: playback and storage
-
-Quality override per network, data-saver toggle, artwork and audio cache size and clear.
-Lands **with** #23/#24, not after — that is what fills the two missing sections.
-
-**Considerations**
-
-- Do not build settings nothing reads yet. That rule is why #43a shipped four sections and
-  not six.
-- Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel or
-  — far cheaper — a manual toggle. Suggest manual.
-
-### #42 — Sign out and switch server *(done, 5 Aug 2026)*
-
-Both live in [account_controller.dart](../lib/features/settings/account_controller.dart), and
-they are **one operation with a different last step** rather than two. Signing out ends with
-deleting the token; switching ends with recording a preferred server. Everything before that
-is shared, which is the part with an order that matters.
-
-**The teardown, in the order it has to happen:**
-
-1. `reportStopped()` to Plex, with a 2-second cap — while the client still works. Skip it and
-   the dashboard shows Plexify playing until the server times the session out.
-2. `PlexifyAudioHandler.clearQueue()`. Nothing in the provider graph does this: the audio
-   handler is a root object that outlives every connection. Without it the mini player keeps
-   showing the last track, because it hides on a null `mediaItem` and on nothing else.
-3. Stop the scheduler and the notification socket.
-4. **Then** wipe the cache.
-
-Step 3 before step 4 is not tidiness, and there is a test that fails if they swap. Either
-writer can put rows back *after* the wipe — the scheduler may be mid-pass, the socket can
-deliver a push at any moment — and nothing downstream would ever notice, because the reset in
-`LibrarySync` only fires when it sees a *different* server, and by then `syncState` is gone.
-
-**Why the wipe happens here at all.** `LibrarySync._resetIfServerChanged` already wipes on a
-server change, but only *during a sync*. Between switching and that sync finishing, the album
-grid streams the previous server's rows — and because the cache is non-empty it does not fall
-through to a live read, so you browse a library that is not there and every tap 404s. Eager
-wiping is what closes that window.
-
-**Choosing a server is binding.** `AppSettings.preferredServerId` holds a `clientIdentifier`;
-`connectServerProvider` watches it, so setting it re-resolves on its own. When it is set,
-*only* that server is tried — no fallback. Falling back would be actively harmful: two
-libraries with overlapping ratingKeys would wipe each other's cache on every swap, so a
-server that comes and goes would leave the app thrashing between full syncs. Null — the
-default, and the only state on a single-server account — keeps the original behaviour of
-taking whichever answers first.
-
-The last-good sticky address is dropped whenever it is not the chosen server, or a preferred
-server that failed to answer would be handed straight back.
-
-**Found on the way:** `PlexifyAudioHandler.stop()` threw every time it was called.
-`BaseAudioHandler.stop` pushes an idle state into `playbackState` by hand, and this handler
-feeds that same subject from the player via `pipe` — rxdart refuses a manual `add` while a
-stream is piping in. It was reachable in production from the Windows media-key **Stop**
-button. The `super.stop()` call was also redundant: stopping the player emits idle through
-the pipe anyway.
-
-### #21 — Artwork disk cache *(done, 5 Aug 2026)*
-
-**Hand-rolled**, in [artwork_cache.dart](../lib/core/artwork/artwork_cache.dart) and
-[artwork_image.dart](../lib/core/artwork/artwork_image.dart). `cached_network_image` was
-rejected on both of its own terms: it keys on the URL, which is the one thing this cache must
-not do, and it brings `flutter_cache_manager` and `sqflite` — a second SQLite binding into an
-app that already ships drift and has to work on Windows. Fetch bytes, write a file, delete
-the oldest is a small enough job to own.
-
-**The key is `(thumb, size)` and nothing else.** The artwork URL embeds the base address and
-the token, and both move — the token on refresh, the address every time the connection
-re-races. A URL-keyed cache looks perfect on a desk and misses on every visible thumbnail the
-moment you walk out of the house, which is when it is most needed. Tests cover a changed
-token and a changed address both being hits.
-
-`PlexArtwork` is an `ImageProvider` rather than bytes behind a `FutureBuilder`, which buys
-the same key in Flutter's in-memory `ImageCache`: one decode shared across every cell showing
-that album, surviving a reconnect. `Image.memory` keys on the byte list's identity and would
-re-decode on every rebuild.
-
-**The URL is not part of the key and is only consulted on a miss**, so a cached grid draws
-with no connection at all. `Artwork` passes null while disconnected instead of giving up.
-
-Bounded at 64 MB on Android and 256 MB elsewhere, evicted least-recently-**used**. The index
-is in memory, rebuilt from the directory on first use, and nothing about it is persisted:
-after a restart the order falls back to file modification time. That is close enough for
-artwork and keeps a database write out of every scroll frame.
-
-Prefetch is `scrollCacheExtent: ScrollCacheExtent.viewport(1)` on the album grid. Building a
-tile is what starts its image load, so a screen of rows built ahead *is* a screen of artwork
-already fetching — a scroll listener calling `precacheImage` would only duplicate machinery
-the framework already has.
-
-Signing out clears it too: thumb paths are server-scoped, so the same path on another server
-is different art.
-
-**Found on the way:** injecting a directory for tests skipped the index rebuild, so an
-injected cache never saw its own files. The cold-start path was the one thing tests could not
-reach, which is the path most likely to be wrong. `_override` now says *where*, not *whether
-to scan*.
 
 ### #23 — Transcode-or-direct-play *(unblocked, and smaller than planned)*
 
@@ -300,6 +111,18 @@ less. The decision is binary.
   — acceptable, but worth knowing before designing around it.
 - This layer is what later becomes explicit offline downloads. Worth not painting into a
   corner, without building for it yet.
+
+### #43b — Settings: playback and storage
+
+Quality override per network, data-saver toggle, artwork and audio cache size and clear.
+Lands **with** #23/#24, not after — that is what fills the two missing sections.
+
+**Considerations**
+
+- Do not build settings nothing reads yet. That rule is why #43a shipped four sections and
+  not six.
+- Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel or
+  — far cheaper — a manual toggle. Suggest manual.
 
 ### #19 — Deletion reconcile
 
