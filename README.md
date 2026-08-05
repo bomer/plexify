@@ -1,13 +1,21 @@
 # Plexify
 
-A fast, clean music client for a Plex library. Windows desktop and Android, one codebase.
+A fast, clean and simple music client for a Plex library. Windows desktop and Android, one codebase.
 
 The full build plan — decisions, phases, API details and known risks — is in
 [docs/PLAN.md](docs/PLAN.md). This README covers architecture and how to run things.
 
-Built because Plexamp's UI is slow to navigate — this optimises for reaching recent
-playlists, searching, and moving between "now playing" and "finding something else" without
-losing your place. Plex remains the source of truth; plays scrobble back to it.
+Built because Plexamp's UI basically just a mobile wrapped experience. I wanted something more
+akin to Spotify with playlist on the left and easily jumping between playlists, searching, and
+moving between "now playing" and "finding something else" without losing your place.
+Plex is the source of truth and your plays filter back, whilst handling transcoding on Mobile.
+
+This was built entirely with Claude (and potentially other AI Agents) to test their capability
+in building custom software for me.
+
+As a developer, I really wanted a better experience but it would have taken me weeks to learn
+dart and this weeks to build. I'm a bit worried it did too much work under the hood handling
+streams that it might make it's own issues. We'll find out.
 
 ## Requirements
 
@@ -58,7 +66,7 @@ lib/
 ```
 
 **State:** Riverpod, no code generation — providers are declared explicitly so the graph is
-readable without understanding build_runner. (Drift *does* use codegen; that's unavoidable
+readable without understanding build*runner. (Drift \_does* use codegen; that's unavoidable
 and is the only generated code in the project.)
 
 **Storage:** drift (SQLite) for the library cache. `flutter_secure_storage` for the Plex
@@ -69,9 +77,9 @@ plain SharedPreferences for secrets.
 
 **1. The cache is additive, never authoritative about absence.**
 
-Search queries the local database *and* Plex in parallel, merging results. Detail views
+Search queries the local database _and_ Plex in parallel, merging results. Detail views
 render from cache instantly, then revalidate and patch in differences. The cache can only
-ever make things appear *faster* — it must never be the reason something appears missing.
+ever make things appear _faster_ — it must never be the reason something appears missing.
 Violating this reintroduces exactly the "I added it to Plex and it won't show up" problem
 this app exists to avoid.
 
