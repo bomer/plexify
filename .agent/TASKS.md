@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 38 complete · 10 open · 335 tests passing
+**Status:** 38 complete · 10 open · 338 tests passing
 
 ---
 

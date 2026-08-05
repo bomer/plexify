@@ -54,7 +54,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 320 tests, no live server needed
+flutter test             # 338 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -174,6 +174,7 @@ wrong recreates "I added it to Plex and it won't show up", which is the whole re
 project exists.
 
 **2. Audio cache entries key on `(trackId, qualityDecision)`, never `trackId` alone.**
+(Mobile only in practice, see the Windows trap below, but the rule holds wherever it runs.)
 The decision is binary, direct play or transcode, see [there is no bitrate
 control](#there-is-no-bitrate-control), but the two are still different bytes. Key on
 trackId alone and a transcoded copy cached on cellular is served forever once back on the
@@ -292,6 +293,27 @@ would have been wrong. What works instead:
 ---
 
 ## Traps already paid for
+
+**`LockCachingAudioSource` does not work on Windows, and failing is worse than not trying.**
+It downloads to `X.part`, keeps the file open to serve bytes to the engine over a local HTTP
+server, then renames on completion. POSIX allows renaming a file with open handles; Windows
+does not. Every completed track failed with `errno 32`, and the failure took the audio source
+down with it, so the *next* skip found a dead local server and playback stopped entirely.
+The cache is therefore `Platform.isAndroid || Platform.isIOS` only, which is where it earns
+its keep anyway: desktop listening is on the LAN. `AudioCache.enabled` is injectable so the
+keying and eviction logic is still testable on a desktop. If this is ever revisited, the
+symptom to look for is `.part` files accumulating in `AppData\Roaming\...\plexifyudio`.
+
+**Anything that writes a file the engine is streaming must survive being read.** The same
+family of bug: eviction may not delete a file backing a loaded audio source, because the
+source holds the handle for the life of the queue entry. Deleting underneath it truncates the
+download and the track stops mid-play with nothing pointing at the cache as the cause.
+`AudioCache` tracks an in-use set for exactly this, cleared when the queue is replaced.
+
+**Three caches, and signing out must clear all of them.** Library (drift), artwork, audio,
+plus the saved playback session. Every one is keyed on data that belongs to a particular
+server, so leaving any behind means one library's ratingKeys pointed at another's. The list
+lives in `AccountController._leave` and is the place to add the fourth.
 
 **`lastViewedAt` belongs to Plex. Do not build client behaviour on it.** "Jump back in" did,
 and failed twice over: the column is rewritten by every sync, so an album Plex had stamped

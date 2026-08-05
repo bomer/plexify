@@ -45,9 +45,31 @@ class AudioKey {
 /// download happens while the track plays, so anything clever here would be
 /// competing with playback for the same bytes.
 class AudioCache {
-  AudioCache({Directory? directory, int? maxBytes})
+  AudioCache({Directory? directory, int? maxBytes, bool? enabled})
     : _override = directory,
-      maxBytes = maxBytes ?? defaultMaxBytes;
+      maxBytes = maxBytes ?? defaultMaxBytes,
+      enabled = enabled ?? supported;
+
+  /// Whether this instance will cache anything. Defaults to [supported];
+  /// injectable so the eviction and keying logic can be tested on a desktop,
+  /// which is the platform the cache is turned off on.
+  final bool enabled;
+
+  /// Whether caching audio works on this platform at all.
+  ///
+  /// **It does not on Windows or Linux**, and this is a measured finding
+  /// rather than caution. `LockCachingAudioSource` downloads to `X.part` and
+  /// renames it on completion, while keeping the file open to serve bytes to
+  /// the engine over a local HTTP server. POSIX permits renaming a file with
+  /// open handles; Windows does not, so every completed track failed with
+  /// `errno 32` and took its audio source down with it. The symptom on the
+  /// device was worse than no cache: skipping forward found a dead local
+  /// server and playback stopped.
+  ///
+  /// So the cache is mobile-only, which is where it matters anyway. Desktop
+  /// listening is on the LAN, streams the original, and has nothing to gain
+  /// from a copy on the same machine.
+  static final bool supported = Platform.isAndroid || Platform.isIOS;
 
   /// Generous next to the artwork cache because the unit is a whole track:
   /// a FLAC album is comfortably 300MB, so a budget in the hundreds of
@@ -97,7 +119,7 @@ class AudioCache {
   /// is what lets the audio sources be constructed in one pass rather than
   /// awaiting per track.
   Future<void> ensureReady() async {
-    if (_directory != null) return;
+    if (!enabled || _directory != null) return;
     try {
       _directory = await (_opening ??= _scan());
     } on Object catch (e) {
@@ -145,6 +167,10 @@ class AudioCache {
       await for (final entity in directory.list()) {
         if (entity is! File) continue;
         final name = _baseName(entity.path);
+        // A partial download is not a cached track. Counting one would let an
+        // interrupted listen occupy the budget, and worse, would let eviction
+        // delete a file still being written.
+        if (name.endsWith('.part')) continue;
         final stat = await entity.stat();
         _index[name] = _Entry(
           bytes: stat.size,

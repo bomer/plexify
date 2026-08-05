@@ -295,10 +295,13 @@ the writing belongs to just_audio and it reports nothing useful about partial fi
 pass runs after playback has started, deliberately: nothing about the filesystem should delay
 the first note.
 
-**Not confirmed on Windows.** The plan flagged this as a genuine unknown: the caching source
-is a just_audio feature and `just_audio_media_kit` is a different engine underneath. It
-compiles and the policy is tested, but whether libmpv actually plays through a
-`StreamAudioSource` has not been heard.
+**It does not work on Windows, which is now measured rather than suspected.** The plan
+flagged it as a genuine unknown and the answer is no. `LockCachingAudioSource` renames
+`X.part` to `X` on completion while still holding the file open to serve the engine; Windows
+forbids that, so every track failed with `errno 32` and took its audio source down with it.
+Skipping forward then found a dead local server and playback stopped, which is worse than
+having no cache at all. It is now mobile-only. Full detail in
+[PROJECT.md](PROJECT.md#traps-already-paid-for).
 
 ### #44 - Now Playing navigation test *(done, 6 Aug 2026)*
 

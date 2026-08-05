@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/audio/audio_cache.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
@@ -159,10 +160,14 @@ class SyncStatusScreen extends ConsumerWidget {
 
             _Section(
               title: 'Audio cache',
-              subtitle:
-                  'Filled while a track plays, on wifi or ethernet only. '
-                  'Evictions climbing fast means the budget is too small for '
-                  'how the library is being listened to.',
+              subtitle: AudioCache.supported
+                  ? 'Filled while a track plays, on wifi or ethernet only. '
+                        'Evictions climbing fast means the budget is too '
+                        'small for how the library is being listened to.'
+                  : 'Not available on this platform. The caching source '
+                        'cannot rename a file it still has open, which '
+                        'Windows forbids, so desktop streams instead. '
+                        'Desktop listening is on the LAN anyway.',
               rows: [
                 ('Tracks on disk', '${d.audioFiles}'),
                 (

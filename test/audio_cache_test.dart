@@ -55,7 +55,11 @@ void main() {
 
   group('eviction', () {
     test('deletes the least recently used until under budget', () async {
-      final cache = AudioCache(directory: directory, maxBytes: 250);
+      final cache = AudioCache(
+        enabled: true,
+        directory: directory,
+        maxBytes: 250,
+      );
       await cache.ensureReady();
       await seed(const AudioKey('old', QualityDecision.directPlay), 100);
       await seed(const AudioKey('mid', QualityDecision.directPlay), 100);
@@ -68,7 +72,11 @@ void main() {
     });
 
     test('never deletes a file the queue is still using', () async {
-      final cache = AudioCache(directory: directory, maxBytes: 100);
+      final cache = AudioCache(
+        enabled: true,
+        directory: directory,
+        maxBytes: 100,
+      );
       await cache.ensureReady();
       await seed(const AudioKey('a', QualityDecision.directPlay), 100);
       await seed(const AudioKey('b', QualityDecision.directPlay), 100);
@@ -87,7 +95,11 @@ void main() {
     });
 
     test('leaves everything alone while under budget', () async {
-      final cache = AudioCache(directory: directory, maxBytes: 10000);
+      final cache = AudioCache(
+        enabled: true,
+        directory: directory,
+        maxBytes: 10000,
+      );
       await cache.ensureReady();
       await seed(const AudioKey('a', QualityDecision.directPlay), 100);
 
@@ -98,7 +110,11 @@ void main() {
     });
 
     test('releasing the old queue makes its files evictable again', () async {
-      final cache = AudioCache(directory: directory, maxBytes: 100);
+      final cache = AudioCache(
+        enabled: true,
+        directory: directory,
+        maxBytes: 100,
+      );
       await cache.ensureReady();
       await seed(const AudioKey('a', QualityDecision.directPlay), 100);
       await seed(const AudioKey('b', QualityDecision.directPlay), 100);
@@ -154,7 +170,7 @@ void main() {
     }
 
     test('a track on wifi gets a cache file', () async {
-      final cache = AudioCache(directory: directory);
+      final cache = AudioCache(enabled: true, directory: directory);
       final handler = await play(
         connectivity: const [ConnectivityResult.wifi],
         cache: cache,
@@ -164,7 +180,7 @@ void main() {
     });
 
     test('a track on cellular does not', () async {
-      final cache = AudioCache(directory: directory);
+      final cache = AudioCache(enabled: true, directory: directory);
       final handler = await play(
         connectivity: const [ConnectivityResult.mobile],
         cache: cache,
@@ -177,7 +193,7 @@ void main() {
     });
 
     test('a seeked transcode is never stored as the whole track', () async {
-      final cache = AudioCache(directory: directory);
+      final cache = AudioCache(enabled: true, directory: directory);
       final handler = await play(
         connectivity: const [ConnectivityResult.wifi],
         cache: cache,
@@ -193,7 +209,7 @@ void main() {
     });
 
     test('offset=0 is the whole track and does cache', () async {
-      final cache = AudioCache(directory: directory);
+      final cache = AudioCache(enabled: true, directory: directory);
       final handler = await play(
         connectivity: const [ConnectivityResult.wifi],
         cache: cache,
@@ -210,6 +226,7 @@ void main() {
       // A path that cannot be created, standing in for a full or read-only
       // disk.
       final cache = AudioCache(
+        enabled: true,
         directory: Directory('${directory.path}/nested/deep'),
       );
       await cache.ensureReady();
@@ -222,9 +239,52 @@ void main() {
     });
 
     test('clear survives a directory that was never opened', () async {
-      final cache = AudioCache(directory: directory);
+      final cache = AudioCache(enabled: true, directory: directory);
       await cache.clear();
       expect(cache.entryCount, 0);
     });
+  });
+
+  group('platforms where it cannot work', () {
+    test('a disabled cache hands back no file at all', () async {
+      // Windows will not rename a file that still has an open handle, and
+      // `LockCachingAudioSource` keeps one open to serve bytes to the engine
+      // while it downloads. Every completed track failed at the rename and
+      // took its audio source down with it, so skipping forward found a dead
+      // local server and playback stopped. Worse than no cache.
+      final cache = AudioCache(enabled: false, directory: directory);
+      await cache.ensureReady();
+
+      expect(
+        cache.fileFor(const AudioKey('t1', QualityDecision.directPlay)),
+        isNull,
+      );
+    });
+
+    test(
+      'settle on a disabled cache does nothing rather than throwing',
+      () async {
+        final cache = AudioCache(enabled: false, directory: directory);
+        await cache.ensureReady();
+        await cache.settle();
+
+        expect(cache.entryCount, 0);
+      },
+    );
+  });
+
+  test('a partial download is not counted as a cached track', () async {
+    final cache = AudioCache(enabled: true, directory: directory);
+    await cache.ensureReady();
+    await File(
+      '${directory.path}/t1.directPlay.part',
+    ).writeAsBytes(List.filled(100, 0));
+
+    await cache.settle();
+
+    // Counting one would let an interrupted listen occupy the budget, and
+    // would let eviction delete a file still being written.
+    expect(cache.entryCount, 0);
+    expect(cache.bytesHeld, 0);
   });
 }
