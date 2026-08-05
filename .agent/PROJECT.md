@@ -305,6 +305,16 @@ keying and eviction logic is still testable on a desktop. If this is ever revisi
 symptom to look for is `.part` files piling up under the app's support
 directory, `%APPDATA%/com.jamesotoole/plexify/audio`.
 
+**`LockCachingAudioSource` needs a cleartext exemption for 127.0.0.1 on Android.** It does not
+hand the player a URL; it runs a small HTTP server on loopback and serves the bytes through
+that while writing the cache file. Android has blocked cleartext since API 28, so ExoPlayer
+refused to connect to just_audio's own proxy and every track died with
+`CleartextNotPermittedException` before a byte of music was read. `network_security_config.xml`
+permits it for `127.0.0.1` and `localhost` **only**. Never widen that to
+`usesCleartextTraffic` on the application: Plex is reached over HTTPS and the token travels in
+the query string, so a blanket opt-in would put it in plaintext on any network that downgraded
+the connection.
+
 **Anything that writes a file the engine is streaming must survive being read.** The same
 family of bug: eviction may not delete a file backing a loaded audio source, because the
 source holds the handle for the life of the queue entry. Deleting underneath it truncates the
