@@ -157,6 +157,23 @@ class SyncStatusScreen extends ConsumerWidget {
               ],
             ),
 
+            _Section(
+              title: 'Audio cache',
+              subtitle:
+                  'Filled while a track plays, on wifi or ethernet only. '
+                  'Evictions climbing fast means the budget is too small for '
+                  'how the library is being listened to.',
+              rows: [
+                ('Tracks on disk', '${d.audioFiles}'),
+                (
+                  'Size',
+                  '${(d.audioBytes / (1024 * 1024)).toStringAsFixed(0)} MB',
+                ),
+                ('Evicted', '${d.audioEvictions}'),
+                ('Last error', d.audioError ?? 'None'),
+              ],
+            ),
+
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               child: Column(

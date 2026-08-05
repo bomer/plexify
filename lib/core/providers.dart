@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import 'artwork/artwork_cache.dart';
+import 'audio/audio_cache.dart';
 import 'audio/playback_handler.dart';
 import 'audio/timeline_reporter.dart';
 import 'db/app_database.dart';
@@ -54,6 +55,12 @@ final audioHandlerProvider = Provider<PlexifyAudioHandler>(
 /// directory. Not tied to the connection: cached images render with no server
 /// at all, which is what lets a grid draw while offline.
 final artworkCacheProvider = Provider<ArtworkCache>((ref) => ArtworkCache());
+
+/// Audio on disk.
+///
+/// One instance for the app's lifetime, like the artwork cache and for the
+/// same reason: it holds the in-memory index that makes eviction possible.
+final audioCacheProvider = Provider<AudioCache>((ref) => AudioCache());
 
 /// The local library cache.
 ///
@@ -472,6 +479,10 @@ class SyncDiagnostics {
     required this.artworkFiles,
     required this.artworkBytes,
     required this.artworkError,
+    required this.audioFiles,
+    required this.audioBytes,
+    required this.audioEvictions,
+    required this.audioError,
   });
 
   final String? serverName;
@@ -530,6 +541,13 @@ class SyncDiagnostics {
   final int artworkFiles;
   final int artworkBytes;
   final String? artworkError;
+
+  /// Audio cache. Evictions climbing fast is the signal the budget is too
+  /// small for how the library is actually being listened to.
+  final int audioFiles;
+  final int audioBytes;
+  final int audioEvictions;
+  final String? audioError;
 }
 
 final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
@@ -543,6 +561,7 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
   final monitor = ref.watch(connectionMonitorProvider);
   final reporter = ref.watch(timelineReporterProvider);
   final artwork = ref.watch(artworkCacheProvider);
+  final audio = ref.watch(audioCacheProvider);
 
   // Asked live, so the stored clocks can be compared against what Plex says
   // right now — the comparison that decides whether a sync happens at all.
@@ -603,6 +622,10 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
     artworkFiles: artwork.entryCount,
     artworkBytes: artwork.bytesHeld,
     artworkError: artwork.lastError,
+    audioFiles: audio.entryCount,
+    audioBytes: audio.bytesHeld,
+    audioEvictions: audio.evictions,
+    audioError: audio.lastError,
   );
 });
 

@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 
@@ -79,6 +81,14 @@ class PlexifyAudioHandler extends BaseAudioHandler
   /// replacement's.
   Future<String?> Function(MediaItem item, Duration offset)? resolveSeekUrl;
 
+  /// Where this item's audio may be cached, or null to stream it straight
+  /// through.
+  ///
+  /// Null is the honest answer in more cases than it looks: on a metered
+  /// connection, for a URL carrying a seek offset, or when the cache could
+  /// not open. Set by whatever owns those policies, which is not this class.
+  File? Function(MediaItem item)? resolveCacheFile;
+
   /// How far into the current track the loaded stream begins.
   ///
   /// Non-zero only after a transcode seek, where the stream is restarted at an
@@ -125,11 +135,29 @@ class PlexifyAudioHandler extends BaseAudioHandler
     mediaItem.add(items[index]);
 
     await _player.setAudioSources(
-      items.map((item) => AudioSource.uri(Uri.parse(item.id))).toList(),
+      items.map(_toAudioSource).toList(),
       initialIndex: index,
       initialPosition: Duration.zero,
     );
     await _player.play();
+  }
+
+  /// Streams through a cache file when one is offered, straight from the
+  /// network when not.
+  ///
+  /// `LockCachingAudioSource` writes the file as the track plays, so this
+  /// costs nothing extra on the first listen and everything on the second.
+  AudioSource _toAudioSource(MediaItem item) {
+    final uri = Uri.parse(item.id);
+    final file = resolveCacheFile?.call(item);
+    if (file == null) return AudioSource.uri(uri);
+    // Marked experimental upstream, and the only caching source just_audio
+    // offers. #8 confirmed it copes with Plex's transcode stream: it needs a
+    // 200 on the first fetch, tolerates a missing content-length, and still
+    // renames the completed file. Pinned in pubspec, so an upstream change
+    // arrives as a deliberate upgrade rather than a surprise.
+    // ignore: experimental_member_use
+    return LockCachingAudioSource(uri, cacheFile: file);
   }
 
   /// Swaps the queue for one built against a new connection, carrying on from
@@ -166,7 +194,7 @@ class PlexifyAudioHandler extends BaseAudioHandler
     mediaItem.add(items[at]);
 
     await _player.setAudioSources(
-      items.map((item) => AudioSource.uri(Uri.parse(item.id))).toList(),
+      items.map(_toAudioSource).toList(),
       initialIndex: at,
       initialPosition: resumeAt - streamStartsAt,
     );

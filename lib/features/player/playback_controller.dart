@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:audio_service/audio_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -7,6 +8,7 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/audio/notification_permission.dart';
 import '../../core/audio/playback_handler.dart';
+import '../../core/audio/audio_cache.dart';
 import '../../core/audio/playback_source.dart';
 import '../../core/audio/playback_state_store.dart';
 import '../../core/audio/quality_policy.dart';
@@ -25,18 +27,21 @@ class PlaybackController {
     required PlexClient client,
     QualityPolicy quality = const QualityPolicy(),
     PlaybackStateStore? store,
+    AudioCache? audioCache,
     Future<List<ConnectivityResult>> Function()? checkConnectivity,
     String Function() newSession = _defaultSession,
   }) : _handler = handler,
        _client = client,
        _quality = quality,
        _store = store,
+       _audioCache = audioCache,
        _checkConnectivity =
            checkConnectivity ?? Connectivity().checkConnectivity,
        _newSession = newSession {
     // The handler knows a track is transcoded but not how to rebuild its URL,
     // which is this class's job and nobody else's.
     _handler.resolveSeekUrl = _seekUrl;
+    _handler.resolveCacheFile = _cacheFile;
   }
 
   final PlexifyAudioHandler _handler;
@@ -46,6 +51,10 @@ class PlaybackController {
   /// Null in tests that do not care about persistence, which keeps
   /// `shared_preferences` off the path of everything else.
   final PlaybackStateStore? _store;
+
+  /// Null in tests that do not care about caching, which keeps the filesystem
+  /// off the path of everything else.
+  final AudioCache? _audioCache;
   final Future<List<ConnectivityResult>> Function() _checkConnectivity;
   final String Function() _newSession;
 
@@ -90,6 +99,11 @@ class PlaybackController {
     if (playable.isEmpty) return;
 
     final connectivity = await _checkConnectivity();
+    _cacheFillAllowed = _unmetered(connectivity);
+    // The previous queue's files stop being protected the moment it is
+    // replaced; whatever is still in the new one is re-marked as it is built.
+    _audioCache?.releaseAll();
+    await _audioCache?.ensureReady();
 
     final outgoingSessions = _openSessions.toList();
     _openSessions.clear();
@@ -104,6 +118,10 @@ class PlaybackController {
 
     await _handler.setQueueAndPlay(items, initialIndex: adjustedStart);
     unawaited(save());
+    // Reads what was actually written and evicts down to budget. Deliberately
+    // after the queue is playing: this touches the filesystem and nothing
+    // about it should delay the first note.
+    unawaited(_audioCache?.settle() ?? Future.value());
 
     for (final session in outgoingSessions) {
       unawaited(_client.stopTranscodeSession(session));
@@ -158,6 +176,9 @@ class PlaybackController {
 
     final resumeAt = _handler.position;
     final connectivity = await _checkConnectivity();
+    _cacheFillAllowed = _unmetered(connectivity);
+    _audioCache?.releaseAll();
+    await _audioCache?.ensureReady();
 
     final outgoingSessions = _openSessions.toList();
     _openSessions.clear();
@@ -321,6 +342,55 @@ class PlaybackController {
     );
   }
 
+  /// Where this track may be cached, or null to stream it straight through.
+  ///
+  /// Three reasons to decline, and each is a bug if it is got wrong.
+  ///
+  /// **A URL carrying an `offset`** is the tail of a transcode, not the track.
+  /// Cached under the track's key it would be served next time as though it
+  /// were the whole thing, and the first two thirds would simply be missing.
+  ///
+  /// **A metered connection.** `LockCachingAudioSource` downloads the *whole*
+  /// file even when you skip after ten seconds, so filling the cache on
+  /// cellular spends data on music nobody heard. Playback still works there;
+  /// it just streams.
+  ///
+  /// **No key.** Without a ratingKey and a decision there is nothing safe to
+  /// name the file after, and naming it after the URL is invariant 4.
+  File? _cacheFile(MediaItem item) {
+    final cache = _audioCache;
+    if (cache == null || !_cacheFillAllowed) return null;
+
+    final extras = item.extras;
+    final ratingKey = extras?['ratingKey'] as String?;
+    final decision = extras?['qualityDecision'] as String?;
+    if (ratingKey == null || decision == null) return null;
+
+    if (Uri.parse(item.id).queryParameters['offset'] case final o?
+        when o != '0') {
+      return null;
+    }
+
+    final quality = QualityDecision.values
+        .where((q) => q.name == decision)
+        .firstOrNull;
+    if (quality == null) return null;
+
+    return cache.fileFor(AudioKey(ratingKey, quality));
+  }
+
+  /// Whether the connection this queue was built on is one worth filling the
+  /// cache over. Set alongside the quality decision, from the same reading.
+  bool _cacheFillAllowed = false;
+
+  /// Wifi or ethernet anywhere in the report. Same test the quality policy
+  /// uses, and for the same reason: Android reports several transports at
+  /// once, and either of these means the traffic is not on cellular.
+  static bool _unmetered(List<ConnectivityResult> connectivity) =>
+      connectivity.any(
+        (r) => r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet,
+      );
+
   /// The same transcode, restarted at [offset].
   ///
   /// Reuses the session the track is already playing under rather than opening
@@ -380,6 +450,9 @@ class PlaybackController {
 
     final connectivity = await _checkConnectivity();
     if (_handler.queue.value.isNotEmpty) return;
+    _cacheFillAllowed = _unmetered(connectivity);
+    _audioCache?.releaseAll();
+    await _audioCache?.ensureReady();
 
     final items = <MediaItem>[];
     for (final track in saved.tracks) {
@@ -470,6 +543,7 @@ final playbackControllerProvider = Provider<PlaybackController?>((ref) {
     handler: ref.watch(audioHandlerProvider),
     client: client,
     store: ref.watch(playbackStateStoreProvider),
+    audioCache: ref.watch(audioCacheProvider),
   );
   ref.onDispose(controller.disposeSessions);
   return controller;

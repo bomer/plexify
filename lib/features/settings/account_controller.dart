@@ -80,6 +80,7 @@ class AccountController {
     //    the same path on another server is different art entirely.
     await _ref.read(databaseProvider).clearLibrary();
     await _ref.read(artworkCacheProvider).clear();
+    await _ref.read(audioCacheProvider).clear();
     // The saved session belongs to the server being left. Restored against
     // the next one it would be ratingKeys from one library used against
     // another — the same collision `clearLibrary` exists to prevent.

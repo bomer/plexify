@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **37 complete**
+**Last updated:** 6 August 2026 · **38 complete**
 
 ---
 
@@ -47,6 +47,7 @@ between the next reader and paying for it twice.
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 | 42 | Sign out and switch server | One teardown, two endings. Wipes the cache eagerly and stops the writers first. Chosen server is binding, no fallback. Found and fixed a `stop()` that always threw |
 | 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
+| 24 | Audio disk cache | `LockCachingAudioSource` with an explicit cache file keyed `(ratingKey, decision)`. LRU by bytes, never evicts a file the queue holds, fills on wifi or ethernet only, refuses a URL carrying a seek offset |
 | 44 | Now Playing navigation test | Pumps the real `AppShell`, opens an album, scrolls it, expands the overlay. Asserts both are mounted at once and that the scroll offset survives being covered |
 | 45 | Restore what was playing on launch | Queue and position persisted on change, on a 10s tick and on the way out; restored **paused**. Facts stored, never URLs, quality is decided fresh against the network at launch |
 | 46 | "Jump back in" shows albums and playlists | Client-owned `PlaybackHistory` (schema v5), stamped on playback *start*. Replaced `Albums.lastViewedAt`, which is Plex's: written only at 90%, and rewritten by every sync |
@@ -265,6 +266,39 @@ head, so `onUpgrade` re-ran DDL for a column that already existed. They now drop
 and pass the real head as `to` rather than an intermediate version the code never sees.
 
 ---
+
+### #24 - Audio disk cache *(done, 6 Aug 2026)*
+
+`just_audio` does the downloading: `LockCachingAudioSource` streams and writes the file as
+the track plays, so a first listen costs nothing extra. What this owns is *where* each track
+goes, how much space the whole thing may take, and what gets deleted when it takes too much.
+
+**Keyed `(ratingKey, decision)`**, which is invariant 2 and was written down before the cache
+existed precisely because it is invisible once broken. A direct-played FLAC and a transcoded
+mp3 of one track are the same music and completely different bytes.
+
+**Four reasons it declines to cache**, and each is a bug if got wrong. A URL carrying an
+`offset` is the tail of a transcode rather than the track, and stored under the track's key
+it would be served next time with the first two thirds missing. A metered connection, because
+the caching source downloads the *whole* file even when you skip after ten seconds. A missing
+key, because the only other thing to name a file after is the URL, which is invariant 4. And
+a cache that could not open, which falls back to streaming exactly as playback worked before.
+
+**Eviction never touches a file the queue is holding.** `LockCachingAudioSource` keeps the
+handle for the life of the queue entry and writes to it as the track streams; deleting
+underneath it truncates the download and the track stops mid-play with nothing pointing at
+the cache as the cause. Replacing a queue releases the old claims, or every track ever played
+would be pinned for the session and the budget would mean nothing.
+
+Sizes are read off disk after the queue lands rather than tracked as bytes arrive, because
+the writing belongs to just_audio and it reports nothing useful about partial files. That
+pass runs after playback has started, deliberately: nothing about the filesystem should delay
+the first note.
+
+**Not confirmed on Windows.** The plan flagged this as a genuine unknown: the caching source
+is a just_audio feature and `just_audio_media_kit` is a different engine underneath. It
+compiles and the policy is tested, but whether libmpv actually plays through a
+`StreamAudioSource` has not been heard.
 
 ### #44 - Now Playing navigation test *(done, 6 Aug 2026)*
 
