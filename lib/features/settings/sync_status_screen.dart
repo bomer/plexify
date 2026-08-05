@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
+import 'transcode_spike_screen.dart';
 
 /// What the sync layer is actually doing.
 ///
@@ -153,9 +154,7 @@ class SyncStatusScreen extends ConsumerWidget {
                     icon: const Icon(Icons.wifi_find),
                     label: const Text('Reconnect'),
                     onPressed: () async {
-                      await ref
-                          .read(connectionMonitorProvider)
-                          .reconnectNow();
+                      await ref.read(connectionMonitorProvider).reconnectNow();
                       ref.invalidate(syncDiagnosticsProvider);
                     },
                   ),
@@ -167,6 +166,16 @@ class SyncStatusScreen extends ConsumerWidget {
                       await ref.read(syncSchedulerProvider)?.fullResync();
                       ref.invalidate(syncDiagnosticsProvider);
                     },
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.speed),
+                    label: const Text('Transcode probe'),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const TranscodeSpikeScreen(),
+                      ),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   Text(

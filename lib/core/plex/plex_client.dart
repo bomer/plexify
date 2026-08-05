@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'plex_identity.dart';
 import 'plex_models.dart';
 import 'plex_server.dart';
+import 'transcode.dart';
 
 /// One page of results, with the total the server reports.
 ///
@@ -339,6 +340,81 @@ class PlexClient {
       '${_server.baseUrl}$partKey',
     ).replace(queryParameters: {'X-Plex-Token': _server.token});
     return uri.toString();
+  }
+
+  /// Progressive transcode URL for the track [ratingKey].
+  ///
+  /// `start.mp3` rather than `start.m3u8` deliberately. Both forms exist and
+  /// both play, but `LockCachingAudioSource` caches progressive HTTP only —
+  /// choosing HLS would mean transcoded playback could never be cached, which
+  /// is precisely the listening (cellular, remote) that most needs it.
+  ///
+  /// `directPlay=0` and `directStream=0` force an actual transcode. Without
+  /// them Plex is free to decide the original is fine and hand back the source
+  /// file, so a bitrate cap can appear to work while doing nothing at all.
+  ///
+  /// [session] identifies the server-side transcode. It must be stable for the
+  /// life of one playback — a new value mid-track starts a second transcode and
+  /// abandons the first — and must be handed to [stopTranscodeSession] when
+  /// playback ends.
+  ///
+  /// [bitrateParameter] is a live question, not a preference; see
+  /// [TranscodeBitrateParameter].
+  String transcodeUrl(
+    String ratingKey, {
+    required String session,
+    required int bitrateKbps,
+    TranscodeBitrateParameter bitrateParameter =
+        TranscodeBitrateParameter.musicBitrate,
+    Duration offset = Duration.zero,
+  }) {
+    final uri =
+        Uri.parse(
+          '${_server.baseUrl}/music/:/transcode/universal/start.mp3',
+        ).replace(
+          queryParameters: {
+            'path': '/library/metadata/$ratingKey',
+            'mediaIndex': '0',
+            'partIndex': '0',
+            'protocol': 'http',
+            'offset': '${offset.inSeconds}',
+            'directPlay': '0',
+            'directStream': '0',
+            'session': session,
+            bitrateParameter.queryName: '$bitrateKbps',
+            // Credentials go in the query string because this URL is handed to
+            // the audio engine, which does its own HTTP and carries none of our
+            // headers. Same reasoning as directPlayUrl.
+            'X-Plex-Client-Identifier': _identity.clientIdentifier,
+            'X-Plex-Token': _server.token,
+          },
+        );
+    return uri.toString();
+  }
+
+  /// Tears down a server-side transcode session.
+  ///
+  /// Abandoned sessions do not stop promptly on their own: the server keeps
+  /// transcoding into a buffer nobody is reading, and several of them at once
+  /// is the difference between an idle NAS and a pegged one.
+  ///
+  /// Deliberately does not throw. This is called on the way out of playback,
+  /// where there is nothing useful to do about a failure and an exception would
+  /// only propagate into a teardown path.
+  Future<bool> stopTranscodeSession(String session) async {
+    try {
+      final uri = Uri.parse(
+        '${_server.baseUrl}/music/:/transcode/universal/stop',
+      ).replace(queryParameters: {'session': session});
+
+      final response = await _http.get(
+        uri,
+        headers: _identity.headers(token: _server.token),
+      );
+      return response.statusCode < 400;
+    } on Object {
+      return false;
+    }
   }
 
   // -------------------------------------------------------------------------
