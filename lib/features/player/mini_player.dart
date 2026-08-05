@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/playback_handler.dart';
 import '../../core/providers.dart';
+import '../library/artwork.dart';
 import 'player_providers.dart';
 
 /// Persistent transport bar.
@@ -62,20 +63,21 @@ class MiniPlayer extends ConsumerWidget {
                         child: Row(
                           children: [
                             const SizedBox(width: 12),
-                            if (item.artUri != null)
-                              ClipRRect(
-                                borderRadius: BorderRadius.circular(4),
-                                child: Image.network(
-                                  item.artUri.toString(),
-                                  width: 44,
-                                  height: 44,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, _, _) =>
-                                      const Icon(Icons.music_note),
+                            // Keyed on the thumb, so this is the *same* cache
+                            // entry the album grid already fetched rather
+                            // than a second download of the same picture.
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(4),
+                              child: SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: Artwork(
+                                  thumb: item.extras?['thumb'] as String?,
+                                  size: 300,
+                                  icon: Icons.music_note,
                                 ),
-                              )
-                            else
-                              const Icon(Icons.music_note),
+                              ),
+                            ),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Column(

@@ -174,6 +174,7 @@ class PlaybackController {
       ratingKey: ratingKey,
       partKey: extras?['partKey'] as String?,
       sourceKbps: extras?['sourceKbps'] as int?,
+      thumb: extras?['thumb'] as String?,
       connectivity: connectivity,
     );
   }
@@ -195,6 +196,7 @@ class PlaybackController {
       ratingKey: track.ratingKey,
       partKey: track.partKey,
       sourceKbps: track.sourceKbps,
+      thumb: track.thumb,
       connectivity: connectivity,
     );
   }
@@ -211,6 +213,7 @@ class PlaybackController {
     required String ratingKey,
     required String? partKey,
     required int? sourceKbps,
+    required String? thumb,
     required List<ConnectivityResult> connectivity,
   }) {
     final decision = _quality.decide(
@@ -242,9 +245,15 @@ class PlaybackController {
         // which is what keying on ratingKey alone would do.
         'qualityDecision': decision.name,
         'transcodeSession': ?session,
-        // The two facts a rebuild needs and cannot derive from a URL.
+        // The facts a rebuild needs and cannot derive from a URL.
         'partKey': ?partKey,
         'sourceKbps': ?sourceKbps,
+        // Carried so the player's own artwork can go through ArtworkCache
+        // like every grid does. `artUri` below is a URL and therefore useless
+        // as a cache key — it embeds the address and the token, both of which
+        // move. Same thumb as the album grid, so the two share one cached
+        // file rather than fetching the same image twice.
+        'thumb': ?thumb,
       },
     );
   }

@@ -124,6 +124,22 @@ class ArtworkCache {
 
   String? get lastError => _lastError;
 
+  /// How many artwork requests may be in flight at once.
+  ///
+  /// A grid does not ask for one image, it asks for a screenful plus a screen
+  /// of prefetch — thirty-odd at once, every one of them a *transcode* on the
+  /// server, not a file read. `/photo/:/transcode` is one of the more
+  /// expensive things Plex does, and a burst that size gets some of them
+  /// refused. With no retry that showed up as artwork appearing in a random
+  /// scatter: most tiles fine, a few blank, different ones each launch.
+  ///
+  /// Four is enough to keep the pipe busy and small enough that the server
+  /// answers all of them.
+  static const maxConcurrentFetches = 4;
+
+  int _activeFetches = 0;
+  final _fetchQueue = <Completer<void>>[];
+
   int _hits = 0;
   int _misses = 0;
   int _fetchFailures = 0;
@@ -172,22 +188,8 @@ class ArtworkCache {
     }
 
     _misses++;
-    final Uint8List bytes;
-    try {
-      final response = await _http.get(Uri.parse(url));
-      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
-        _fetchFailures++;
-        _lastError = response.statusCode == 200
-            ? 'Plex answered 200 with an empty body'
-            : 'Plex answered HTTP ${response.statusCode}';
-        return null;
-      }
-      bytes = response.bodyBytes;
-    } on Object catch (e) {
-      _fetchFailures++;
-      _lastError = '$e';
-      return null;
-    }
+    final bytes = await _fetch(url);
+    if (bytes == null) return null;
 
     try {
       await file.writeAsBytes(bytes, flush: false);
@@ -247,6 +249,56 @@ class ArtworkCache {
   ///
   /// Memoised on the future rather than the value, so several images racing on
   /// a cold start share one scan instead of each triggering their own.
+  /// Fetches [url], never more than [maxConcurrentFetches] at a time.
+  ///
+  /// Retried once, because the failure this guards against is the server
+  /// declining a burst rather than the image being absent — and the second
+  /// attempt happens when the queue has drained, which is exactly when it is
+  /// likely to succeed.
+  Future<Uint8List?> _fetch(String url) async {
+    await _acquire();
+    try {
+      for (var attempt = 0; attempt < 2; attempt++) {
+        try {
+          final response = await _http.get(Uri.parse(url));
+          if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
+            return response.bodyBytes;
+          }
+          _lastError = response.statusCode == 200
+              ? 'Plex answered 200 with an empty body'
+              : 'Plex answered HTTP ${response.statusCode}';
+        } on Object catch (e) {
+          _lastError = '$e';
+        }
+      }
+    } finally {
+      _release();
+    }
+    _fetchFailures++;
+    return null;
+  }
+
+  Future<void> _acquire() {
+    if (_activeFetches < maxConcurrentFetches) {
+      _activeFetches++;
+      return Future.value();
+    }
+    final waiting = Completer<void>();
+    _fetchQueue.add(waiting);
+    return waiting.future;
+  }
+
+  void _release() {
+    if (_fetchQueue.isEmpty) {
+      _activeFetches--;
+      return;
+    }
+    // Handed straight to the next waiter rather than decrementing and letting
+    // it re-check, so the slot cannot be taken by a request that arrived after
+    // it started waiting.
+    _fetchQueue.removeAt(0).complete();
+  }
+
   Future<Directory> _open() => _opening ??= _scan();
 
   Future<Directory> _scan() async {

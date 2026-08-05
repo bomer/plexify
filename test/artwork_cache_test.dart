@@ -235,4 +235,115 @@ void main() {
       expect(directory.listSync(), isEmpty);
     });
   });
+
+  group('a grid asking all at once', () {
+    test('never has more than the gate open on the server', () async {
+      var open = 0;
+      var peak = 0;
+      final cache = ArtworkCache(
+        directory: directory,
+        httpClient: MockClient((_) async {
+          open++;
+          if (open > peak) peak = open;
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          open--;
+          return http.Response.bytes([1, 2, 3], 200);
+        }),
+      );
+
+      // Thirty at once is what a grid plus its prefetch actually asks for.
+      // Every one is a transcode on the server, not a file read, and a burst
+      // that size is what got some of them refused.
+      await Future.wait([
+        for (var i = 0; i < 30; i++)
+          cache.load(ArtworkKey('/thumb/$i', 300), 'https://plex.test/$i'),
+      ]);
+
+      expect(peak, lessThanOrEqualTo(ArtworkCache.maxConcurrentFetches));
+    });
+
+    test('still fetches every one of them', () async {
+      final cache = ArtworkCache(
+        directory: directory,
+        httpClient: MockClient(
+          (_) async => http.Response.bytes([1, 2, 3], 200),
+        ),
+      );
+
+      await Future.wait([
+        for (var i = 0; i < 30; i++)
+          cache.load(ArtworkKey('/thumb/$i', 300), 'https://plex.test/$i'),
+      ]);
+
+      // Queued, not dropped. A gate that shed load would trade a random
+      // scatter of blank tiles for a predictable one.
+      expect(cache.entryCount, 30);
+    });
+
+    test(
+      'retries a refusal once, since a busy server is not a missing image',
+      () async {
+        var attempts = 0;
+        final cache = ArtworkCache(
+          directory: directory,
+          httpClient: MockClient((_) async {
+            attempts++;
+            return attempts == 1
+                ? http.Response('', 503)
+                : http.Response.bytes([1, 2, 3], 200);
+          }),
+        );
+
+        final bytes = await cache.load(
+          const ArtworkKey('/thumb/1', 300),
+          'https://plex.test/1',
+        );
+
+        expect(attempts, 2);
+        expect(bytes, isNotNull);
+        expect(cache.fetchFailures, 0);
+      },
+    );
+
+    test('gives up after the retry and says why', () async {
+      final cache = ArtworkCache(
+        directory: directory,
+        httpClient: MockClient((_) async => http.Response('', 404)),
+      );
+
+      final bytes = await cache.load(
+        const ArtworkKey('/thumb/1', 300),
+        'https://plex.test/1',
+      );
+
+      // Two attempts, then a placeholder — not an infinite retry that would
+      // hammer the server for an image that genuinely is not there.
+      expect(bytes, isNull);
+      expect(cache.fetchFailures, 1);
+      expect(cache.lastError, contains('404'));
+    });
+
+    test('a slot is released even when the fetch throws', () async {
+      var calls = 0;
+      final cache = ArtworkCache(
+        directory: directory,
+        httpClient: MockClient((_) async {
+          calls++;
+          if (calls <= 2) throw const SocketException('refused');
+          return http.Response.bytes([1, 2, 3], 200);
+        }),
+      );
+
+      // The first request fails both attempts. If its slot were not returned
+      // the gate would leak one, and after four such failures the cache would
+      // stop fetching entirely — artwork would work until it silently did not.
+      await cache.load(const ArtworkKey('/a', 300), 'https://plex.test/a');
+      final second = await cache.load(
+        const ArtworkKey('/b', 300),
+        'https://plex.test/b',
+      );
+
+      expect(second, isNotNull);
+    });
+  });
 }

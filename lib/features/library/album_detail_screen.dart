@@ -6,6 +6,7 @@ import '../../core/providers.dart';
 import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
 import 'rating_controller.dart';
+import 'artwork.dart';
 import 'star_rating.dart';
 import 'track_rating_sheet.dart';
 
@@ -140,12 +141,11 @@ class _Header extends ConsumerWidget {
             child: SizedBox(
               width: 120,
               height: 120,
-              child: artUrl == null
-                  ? Container(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.album, size: 40),
-                    )
-                  : Image.network(artUrl!, fit: BoxFit.cover),
+              // Through the cache like every other surface. `Image.network`
+              // here meant the one image most likely to be looked at twice
+              // was the one never stored, re-fetched on every open — and it
+              // could not draw at all while disconnected.
+              child: Artwork(thumb: album.thumb, size: 600),
             ),
           ),
           const SizedBox(width: 16),

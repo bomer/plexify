@@ -29,33 +29,47 @@ class StarRating extends StatelessWidget {
     final stars = PlexRating.toStars(rating);
     final interactive = onRate != null;
 
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        for (var i = 1; i <= PlexRating.maxStars; i++)
-          IconButton(
-            padding: EdgeInsets.zero,
-            visualDensity: VisualDensity.compact,
-            constraints: BoxConstraints.tightFor(
-              width: size + 8,
-              height: size + 8,
+    // Five stars are wider than they look: `IconButton` enforces a minimum
+    // tap target regardless of `iconSize`, so a row of them is ~200px however
+    // small the icons are. The album header's column is 192px on a 360dp
+    // phone, which is where the overflow banner came from.
+    //
+    // Scaled down rather than gated on a breakpoint, because the constraint
+    // that matters is the width of *this* row's parent, not the width of the
+    // window — the same widget sits in a grid tile, a list row and a header,
+    // and only one of those tracks the screen. `scaleDown` is a no-op wherever
+    // there is room.
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      alignment: AlignmentDirectional.centerStart,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (var i = 1; i <= PlexRating.maxStars; i++)
+            IconButton(
+              padding: EdgeInsets.zero,
+              visualDensity: VisualDensity.compact,
+              constraints: BoxConstraints.tightFor(
+                width: size + 8,
+                height: size + 8,
+              ),
+              iconSize: size,
+              tooltip: interactive
+                  ? (i == stars
+                        ? 'Clear rating'
+                        : '$i ${i == 1 ? 'star' : 'stars'}')
+                  : null,
+              icon: Icon(
+                i <= stars ? Icons.star : Icons.star_border,
+                color: i <= stars
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+              // Tapping the current rating again removes it.
+              onPressed: interactive ? () => onRate!(i == stars ? 0 : i) : null,
             ),
-            iconSize: size,
-            tooltip: interactive
-                ? (i == stars
-                      ? 'Clear rating'
-                      : '$i ${i == 1 ? 'star' : 'stars'}')
-                : null,
-            icon: Icon(
-              i <= stars ? Icons.star : Icons.star_border,
-              color: i <= stars
-                  ? theme.colorScheme.primary
-                  : theme.colorScheme.onSurfaceVariant,
-            ),
-            // Tapping the current rating again removes it.
-            onPressed: interactive ? () => onRate!(i == stars ? 0 : i) : null,
-          ),
-      ],
+        ],
+      ),
     );
   }
 }

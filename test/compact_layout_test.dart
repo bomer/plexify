@@ -78,4 +78,19 @@ void main() {
     expect(find.byType(BottomSheet), findsOneWidget);
     expect(find.byType(StarRating), findsNWidgets(2));
   });
+
+  testWidgets('a narrow phone album header does not overflow', (tester) async {
+    // 360dp is the common Android width; the header was only ever eyeballed
+    // at 400. An overflow is a thrown exception in tests, so this fails
+    // loudly rather than needing someone to spot a yellow banner.
+    await pumpAt(tester, const Size(360, 800));
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('a very narrow phone album header does not overflow', (
+    tester,
+  ) async {
+    await pumpAt(tester, const Size(320, 700));
+    expect(tester.takeException(), isNull);
+  });
 }

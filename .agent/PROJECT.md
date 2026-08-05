@@ -54,7 +54,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 271 tests, no live server needed
+flutter test             # 292 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -180,7 +180,14 @@ trackId alone and a transcoded copy cached on cellular is served forever once ba
 LAN, silently defeating the whole point of deciding. `PlaybackController` writes the
 decision onto every `MediaItem` as `extras['qualityDecision']` so #24 has it to key on.
 
-**3. Cache keys never contain a URL.**
+**3. All artwork goes through `Artwork` → `PlexArtwork` → `ArtworkCache`.**
+`Image.network` anywhere is a bug. Three screens used it — the album header, the mini
+player and Now Playing — and each was a second download of a picture the grid had already
+cached, uncached itself, and blank while disconnected. The player surfaces reach it via
+`MediaItem.extras['thumb']`, carried for exactly this reason: `artUri` is a URL and
+therefore useless as a key. Same thumb as the grid means one cached file, not two.
+
+**4. Cache keys never contain a URL.**
 The artwork URL — and the transcode URL, and the direct-play URL — embeds the server's base
 address and the `X-Plex-Token`, and both move: the token when it is refreshed, the address
 every time the connection re-races between LAN, remote and relay. `ArtworkKey` is
@@ -188,34 +195,34 @@ every time the connection re-races between LAN, remote and relay. `ArtworkKey` i
 cache looks perfect on a desk and misses on everything at once the moment the phone leaves
 the house, which is the exact moment it was supposed to help.
 
-**4. Plex `ratingKey`s are unique only within a server.**
+**5. Plex `ratingKey`s are unique only within a server.**
 `SyncState.serverClientIdentifier` records which server the cache belongs to, and
 `clearLibrary()` wipes on change. Never merge rows across servers.
 
-**5. Nothing blocks on sync.** The first sync of a large library takes minutes. Browsing,
+**6. Nothing blocks on sync.** The first sync of a large library takes minutes. Browsing,
 playback and search must all work while it runs.
 
-**6. Anything that must survive navigation lives outside the `Navigator`.**
+**7. Anything that must survive navigation lives outside the `Navigator`.**
 The mini player sits in the shell scaffold's bottom slot; Now Playing is a sibling `Stack`
 layer, not a pushed route. Pushing routes over them was the original bug.
 
-**7. Every write of Plex data into drift goes through `LibraryWriter`.**
+**8. Every write of Plex data into drift goes through `LibraryWriter`.**
 Three copies of that mapping existed once, and a column added to one stayed null everywhere
 else. `writeX` upserts; `ensureX` inserts only when absent, for callers that need a row to
 exist before updating it and must not flatten a richer one.
 
-**8. Compact layouts are decided by width, not platform.**
+**9. Compact layouts are decided by width, not platform.**
 `lib/shell/layout.dart` holds the single breakpoint. A narrow window on the desktop has the
 same problem a phone does, and a `Platform.isAndroid` check would miss it.
 
-**9. Recovery has one path and many triggers.**
+**10. Recovery has one path and many triggers.**
 Sync has three delivery mechanisms and the connection monitor has two triggers, but each
 feeds a *single* re-resolve or a single write path. The temptation each time is to give a
 newly discovered failure mode its own recovery route; that is how a system becomes
 untestable, and James has asked explicitly that the sync logic not grow more paths. Add a
 trigger, or make an existing path observable. Do not add a fourth mechanism.
 
-**10. Settings have one write path, and it is `SettingsController._apply`.**
+**11. Settings have one write path, and it is `SettingsController._apply`.**
 `lib/core/settings/app_settings.dart` holds all three pieces: `AppSettings` (one immutable
 value), `SettingsStore` (the `shared_preferences` keys), `SettingsController` (the only
 mutator). Adding a setting is a field, a key, and a setter — never a `setString` at a call
@@ -224,7 +231,7 @@ launch, which is the hardest kind of bug to notice and the easiest to introduce 
 at a time. The store is loaded in `main()` and read **synchronously** thereafter, so the first
 frame is already correct; anything lazily loaded here paints the default and then swaps.
 
-**11. Position is asked of `PlexifyAudioHandler`, never of `player`.**
+**12. Position is asked of `PlexifyAudioHandler`, never of `player`.**
 A transcode cannot be seeked — Plex answers 200 to a ranged request and declares no length —
 so `seek` restarts the stream at an `offset=` instead, and the player's clock begins again
 from zero. The handler holds the difference in `_streamStartedAt` and adds it back in

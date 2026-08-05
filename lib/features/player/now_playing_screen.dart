@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/playback_handler.dart';
 import '../../core/providers.dart';
+import '../library/artwork.dart';
 import 'player_providers.dart';
 
 /// The expanded player.
@@ -118,9 +119,6 @@ class _Artwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final art = item.artUri?.toString();
-
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 420),
@@ -128,19 +126,7 @@ class _Artwork extends StatelessWidget {
           aspectRatio: 1,
           child: ClipRRect(
             borderRadius: BorderRadius.circular(12),
-            child: art == null
-                ? Container(
-                    color: theme.colorScheme.surfaceContainerHighest,
-                    child: const Icon(Icons.album, size: 80),
-                  )
-                : Image.network(
-                    art,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, _, _) => Container(
-                      color: theme.colorScheme.surfaceContainerHighest,
-                      child: const Icon(Icons.album, size: 80),
-                    ),
-                  ),
+            child: Artwork(thumb: item.extras?['thumb'] as String?, size: 600),
           ),
         ),
       ),
