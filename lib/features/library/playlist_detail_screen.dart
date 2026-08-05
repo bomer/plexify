@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/audio/playback_source.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
@@ -54,7 +55,13 @@ class PlaylistDetailScreen extends ConsumerWidget {
                         label: const Text('Play'),
                         onPressed: () => ref
                             .read(playbackControllerProvider)
-                            ?.playTracks(items),
+                            ?.playTracks(
+                              items,
+                              source: PlaybackSource(
+                                PlaybackSourceKind.playlist,
+                                playlist.ratingKey,
+                              ),
+                            ),
                       ),
                     ],
                   ),
@@ -82,7 +89,14 @@ class PlaylistDetailScreen extends ConsumerWidget {
                 enabled: track.isPlayable,
                 onTap: () => ref
                     .read(playbackControllerProvider)
-                    ?.playTracks(items, startIndex: index),
+                    ?.playTracks(
+                      items,
+                      startIndex: index,
+                      source: PlaybackSource(
+                        PlaybackSourceKind.playlist,
+                        playlist.ratingKey,
+                      ),
+                    ),
               );
             },
           );

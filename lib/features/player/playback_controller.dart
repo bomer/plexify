@@ -7,6 +7,8 @@ import 'package:uuid/uuid.dart';
 
 import '../../core/audio/notification_permission.dart';
 import '../../core/audio/playback_handler.dart';
+import '../../core/audio/playback_source.dart';
+import '../../core/audio/playback_state_store.dart';
 import '../../core/audio/quality_policy.dart';
 import '../../core/plex/plex_client.dart';
 import '../../core/plex/plex_models.dart';
@@ -22,11 +24,13 @@ class PlaybackController {
     required PlexifyAudioHandler handler,
     required PlexClient client,
     QualityPolicy quality = const QualityPolicy(),
+    PlaybackStateStore? store,
     Future<List<ConnectivityResult>> Function()? checkConnectivity,
     String Function() newSession = _defaultSession,
   }) : _handler = handler,
        _client = client,
        _quality = quality,
+       _store = store,
        _checkConnectivity =
            checkConnectivity ?? Connectivity().checkConnectivity,
        _newSession = newSession {
@@ -38,6 +42,10 @@ class PlaybackController {
   final PlexifyAudioHandler _handler;
   final PlexClient _client;
   final QualityPolicy _quality;
+
+  /// Null in tests that do not care about persistence, which keeps
+  /// `shared_preferences` off the path of everything else.
+  final PlaybackStateStore? _store;
   final Future<List<ConnectivityResult>> Function() _checkConnectivity;
   final String Function() _newSession;
 
@@ -61,7 +69,11 @@ class PlaybackController {
   /// as playback advances — connectivity read here is what the entire queue
   /// plays under, and a change mid-queue takes effect on the *next* call to
   /// this method, never mid-track.
-  Future<void> playTracks(List<PlexTrack> tracks, {int startIndex = 0}) async {
+  Future<void> playTracks(
+    List<PlexTrack> tracks, {
+    int startIndex = 0,
+    PlaybackSource? source,
+  }) async {
     // Ask for notification permission at the moment its purpose is obvious.
     // Never gates playback — see NotificationPermission.
     await NotificationPermission.ensure();
@@ -84,13 +96,14 @@ class PlaybackController {
 
     final items = <MediaItem>[];
     for (final track in playable) {
-      final item = _toMediaItem(track, connectivity);
+      final item = _toMediaItem(track, connectivity, source);
       if (item != null) items.add(item);
     }
 
     if (items.isEmpty) return;
 
     await _handler.setQueueAndPlay(items, initialIndex: adjustedStart);
+    unawaited(save());
 
     for (final session in outgoingSessions) {
       unawaited(_client.stopTranscodeSession(session));
@@ -154,6 +167,7 @@ class PlaybackController {
       resumeAt: resumeAt,
       streamStartsAt: streamStartsAt,
     );
+    unawaited(save());
 
     for (final session in outgoingSessions) {
       unawaited(_client.stopTranscodeSession(session));
@@ -175,6 +189,7 @@ class PlaybackController {
       partKey: extras?['partKey'] as String?,
       sourceKbps: extras?['sourceKbps'] as int?,
       thumb: extras?['thumb'] as String?,
+      source: PlaybackSource.decode(extras?['source']),
       connectivity: connectivity,
     );
   }
@@ -182,6 +197,7 @@ class PlaybackController {
   MediaItem? _toMediaItem(
     PlexTrack track,
     List<ConnectivityResult> connectivity,
+    PlaybackSource? source,
   ) {
     final art = _client.artworkUrl(track.thumb, width: 600, height: 600);
     return _build(
@@ -197,6 +213,7 @@ class PlaybackController {
       partKey: track.partKey,
       sourceKbps: track.sourceKbps,
       thumb: track.thumb,
+      source: source,
       connectivity: connectivity,
     );
   }
@@ -214,6 +231,7 @@ class PlaybackController {
     required String? partKey,
     required int? sourceKbps,
     required String? thumb,
+    required PlaybackSource? source,
     required List<ConnectivityResult> connectivity,
   }) {
     final decision = _quality.decide(
@@ -254,6 +272,10 @@ class PlaybackController {
         // move. Same thumb as the album grid, so the two share one cached
         // file rather than fetching the same image twice.
         'thumb': ?thumb,
+        // What the queue was started from, so "Jump back in" can offer the
+        // playlist you actually put on rather than the album a track happens
+        // to belong to.
+        'source': ?source?.encode(),
       },
     );
   }
@@ -268,6 +290,109 @@ class PlaybackController {
     final session = item.extras?['transcodeSession'] as String?;
     if (ratingKey == null || session == null) return null;
     return _client.transcodeUrl(ratingKey, session: session, offset: offset);
+  }
+
+  /// Writes the current queue and position out, so the next launch can pick
+  /// it up.
+  ///
+  /// Cheap enough to call on every queue change and on a timer: a few hundred
+  /// small maps through `jsonEncode`, never on the frame path.
+  Future<void> save() async {
+    final store = _store;
+    if (store == null) return;
+
+    final items = _handler.queue.value;
+    if (items.isEmpty) return store.clear();
+
+    final index = _handler.currentIndex ?? 0;
+    await store.write(
+      SavedPlayback(
+        tracks: [for (final item in items) _toSaved(item)],
+        index: index,
+        position: _handler.position,
+        source: PlaybackSource.decode(
+          items[index.clamp(0, items.length - 1)].extras?['source'],
+        ),
+      ),
+    );
+  }
+
+  /// Loads the last session back into the queue, **paused**.
+  ///
+  /// Paused because opening an app is not the same as asking it to make a
+  /// noise — a phone unlocked in a quiet room should not start playing. The
+  /// mini player appears with the track it left on and pressing play resumes
+  /// where it stopped, which is the behaviour being copied.
+  ///
+  /// URLs are built fresh rather than restored, so quality is decided against
+  /// the network the app has *now*. Nothing here touches Plex or drift: the
+  /// stored session carries its own facts, so it restores before the first
+  /// sync and while offline.
+  Future<void> restore() async {
+    final saved = _store?.read();
+    if (saved == null || saved.isEmpty) return;
+    // Never over the top of something already playing. A slow restore racing
+    // a user who has already tapped an album must lose.
+    if (_handler.queue.value.isNotEmpty) return;
+
+    final connectivity = await _checkConnectivity();
+    if (_handler.queue.value.isNotEmpty) return;
+
+    final items = <MediaItem>[];
+    for (final track in saved.tracks) {
+      final item = _build(
+        item: MediaItem(
+          id: '',
+          title: track.title,
+          album: track.album,
+          artist: track.artist,
+          duration: track.durationMs == null
+              ? null
+              : Duration(milliseconds: track.durationMs!),
+        ),
+        ratingKey: track.ratingKey,
+        partKey: track.partKey,
+        sourceKbps: track.sourceKbps,
+        thumb: track.thumb,
+        source: saved.source,
+        connectivity: connectivity,
+      );
+      if (item != null) items.add(item);
+    }
+    if (items.isEmpty) return;
+
+    final index = saved.index.clamp(0, items.length - 1);
+    final current = items[index];
+    final streamStartsAt = _isTranscode(current)
+        ? saved.position
+        : Duration.zero;
+    if (streamStartsAt > Duration.zero) {
+      final url = await _seekUrl(current, saved.position);
+      if (url != null) items[index] = current.copyWith(id: url);
+    }
+
+    // `resumeQueue` starts playing only if it was already playing, and at
+    // startup nothing is — which is exactly the behaviour wanted here.
+    await _handler.resumeQueue(
+      items,
+      index: index,
+      resumeAt: saved.position,
+      streamStartsAt: streamStartsAt,
+    );
+  }
+
+  SavedTrack _toSaved(MediaItem item) {
+    final extras = item.extras;
+    return SavedTrack(
+      ratingKey: extras?['ratingKey'] as String? ?? '',
+      title: item.title,
+      album: item.album,
+      artist: item.artist,
+      thumb: extras?['thumb'] as String?,
+      partKey: extras?['partKey'] as String?,
+      sourceKbps: extras?['sourceKbps'] as int?,
+      durationMs: item.duration?.inMilliseconds,
+    );
   }
 
   /// Stops every transcode session this controller still has open.
@@ -286,6 +411,14 @@ class PlaybackController {
   }
 }
 
+/// Where the last session is kept. Overridden in `main()` for the same reason
+/// `settingsStoreProvider` is: it is only available asynchronously.
+final playbackStateStoreProvider = Provider<PlaybackStateStore>(
+  (ref) => throw StateError(
+    'playbackStateStoreProvider must be overridden in main()',
+  ),
+);
+
 /// Null until a server connection exists.
 final playbackControllerProvider = Provider<PlaybackController?>((ref) {
   final client = ref.watch(plexClientProvider);
@@ -293,6 +426,7 @@ final playbackControllerProvider = Provider<PlaybackController?>((ref) {
   final controller = PlaybackController(
     handler: ref.watch(audioHandlerProvider),
     client: client,
+    store: ref.watch(playbackStateStoreProvider),
   );
   ref.onDispose(controller.disposeSessions);
   return controller;
@@ -321,9 +455,26 @@ final playbackRecoveryProvider = Provider<void>((ref) {
   ref.onDispose(() => handler.onPlaybackFailed = null);
 
   // Watched, not read: this rebuilds whenever the connection re-resolves,
-  // which is precisely when the queue needs rebuilding too. The first build
-  // is startup, when there is no queue to rescue and this does nothing.
+  // which is precisely when the queue needs rebuilding too.
   final controller = ref.watch(playbackControllerProvider);
   if (controller == null) return;
-  unawaited(controller.resumeOnNewConnection());
+
+  // On the first build there is no queue to rescue, so this is where the last
+  // session comes back instead. Ordered this way round deliberately: a
+  // restore that ran unconditionally could overwrite a queue the rebuild had
+  // just repaired.
+  if (handler.queue.value.isEmpty) {
+    unawaited(controller.restore());
+  } else {
+    unawaited(controller.resumeOnNewConnection());
+  }
+
+  // Position is not worth a write per frame, and a write per track would lose
+  // most of a long one. Ten seconds costs nothing and is the resolution
+  // anyone would notice.
+  final ticker = Timer.periodic(
+    const Duration(seconds: 10),
+    (_) => unawaited(controller.save()),
+  );
+  ref.onDispose(ticker.cancel);
 });

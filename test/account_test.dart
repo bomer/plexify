@@ -10,6 +10,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:plexify/core/artwork/artwork_cache.dart';
 import 'package:plexify/core/audio/playback_handler.dart';
+import 'package:plexify/core/audio/playback_state_store.dart';
 import 'package:plexify/core/db/app_database.dart';
 import 'package:plexify/core/plex/plex_client.dart';
 import 'package:plexify/core/plex/plex_identity.dart';
@@ -17,6 +18,7 @@ import 'package:plexify/core/plex/plex_server.dart';
 import 'package:plexify/core/providers.dart';
 import 'package:plexify/core/settings/app_settings.dart';
 import 'package:plexify/core/sync/sync_scheduler.dart';
+import 'package:plexify/features/player/playback_controller.dart';
 import 'package:plexify/features/settings/account_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -101,6 +103,11 @@ void main() {
         artworkCacheProvider.overrideWithValue(artwork),
         authTokenProvider.overrideWith((ref) => token),
         audioHandlerProvider.overrideWithValue(PlexifyAudioHandler()),
+        // Signing out clears the saved session too — it belongs to the
+        // server being left.
+        playbackStateStoreProvider.overrideWithValue(
+          PlaybackStateStore(await SharedPreferences.getInstance()),
+        ),
         if (withDiscovery != null)
           plexDiscoveryProvider.overrideWithValue(withDiscovery),
         if (scheduler != null)

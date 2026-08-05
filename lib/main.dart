@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/audio/audio_init.dart';
 import 'core/plex/plex_auth.dart';
 import 'core/plex/plex_identity.dart';
+import 'core/audio/playback_state_store.dart';
 import 'core/providers.dart';
+import 'features/player/playback_controller.dart';
 import 'core/settings/app_settings.dart';
 import 'shell/app.dart';
 
@@ -25,6 +27,7 @@ Future<void> main() async {
   // Loaded before the first frame so the app never paints the default theme and
   // then corrects itself.
   final settings = await SettingsStore.load();
+  final playbackState = await PlaybackStateStore.load();
 
   runApp(
     ProviderScope(
@@ -32,6 +35,7 @@ Future<void> main() async {
         plexIdentityProvider.overrideWithValue(identity),
         audioHandlerProvider.overrideWithValue(audioHandler),
         settingsStoreProvider.overrideWithValue(settings),
+        playbackStateStoreProvider.overrideWithValue(playbackState),
         authTokenProvider.overrideWith((ref) => storedToken),
       ],
       child: const PlexifyApp(),

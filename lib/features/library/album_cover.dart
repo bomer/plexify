@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/plex/plex_models.dart';
+import '../../core/audio/playback_source.dart';
 import '../../core/providers.dart';
 import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
@@ -48,7 +49,15 @@ class _AlbumCoverState extends ConsumerState<AlbumCover> {
       tracksProvider(widget.album.ratingKey).future,
     );
     if (!mounted) return;
-    await ref.read(playbackControllerProvider)?.playTracks(tracks);
+    await ref
+        .read(playbackControllerProvider)
+        ?.playTracks(
+          tracks,
+          source: PlaybackSource(
+            PlaybackSourceKind.album,
+            widget.album.ratingKey,
+          ),
+        );
   }
 
   @override

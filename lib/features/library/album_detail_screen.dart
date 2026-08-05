@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/audio/playback_source.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
@@ -99,7 +100,14 @@ class AlbumDetailScreen extends ConsumerWidget {
               enabled: track.isPlayable,
               onTap: () {
                 final controller = ref.read(playbackControllerProvider);
-                controller?.playTracks(items, startIndex: index);
+                controller?.playTracks(
+                  items,
+                  startIndex: index,
+                  source: PlaybackSource(
+                    PlaybackSourceKind.album,
+                    album.ratingKey,
+                  ),
+                );
               },
               onLongPress: compact
                   ? () => showTrackRatingSheet(context, ref, track)
@@ -205,7 +213,15 @@ class _Header extends ConsumerWidget {
                     final items = await ref.read(
                       tracksProvider(album.ratingKey).future,
                     );
-                    ref.read(playbackControllerProvider)?.playTracks(items);
+                    ref
+                        .read(playbackControllerProvider)
+                        ?.playTracks(
+                          items,
+                          source: PlaybackSource(
+                            PlaybackSourceKind.album,
+                            album.ratingKey,
+                          ),
+                        );
                   },
                 ),
               ],

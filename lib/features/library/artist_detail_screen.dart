@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/audio/playback_source.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
@@ -127,7 +128,12 @@ class ArtistDetailScreen extends ConsumerWidget {
     for (final album in albums) {
       tracks.addAll(await ref.read(tracksProvider(album.ratingKey).future));
     }
-    if (tracks.isNotEmpty) await controller.playTracks(tracks);
+    if (tracks.isNotEmpty) {
+      await controller.playTracks(
+        tracks,
+        source: PlaybackSource(PlaybackSourceKind.artist, artist.ratingKey),
+      );
+    }
   }
 }
 
@@ -208,7 +214,14 @@ class _TrackList extends ConsumerWidget {
               // keeps going through the rest rather than stopping dead.
               onTap: () => ref
                   .read(playbackControllerProvider)
-                  ?.playTracks(tracks, startIndex: i),
+                  ?.playTracks(
+                    tracks,
+                    startIndex: i,
+                    source: PlaybackSource(
+                      PlaybackSourceKind.artist,
+                      artistRatingKey,
+                    ),
+                  ),
               onLongPress: compact
                   ? () => showTrackRatingSheet(context, ref, track)
                   : null,

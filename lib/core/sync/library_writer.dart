@@ -2,6 +2,7 @@ import 'package:drift/drift.dart';
 
 import '../db/app_database.dart';
 import '../db/normalise.dart';
+import '../audio/playback_source.dart';
 import '../plex/plex_models.dart';
 
 /// Writes Plex models into the local cache.
@@ -156,7 +157,17 @@ class LibraryWriter {
   /// Plex stores these as epoch **seconds**, so the same unit is used here —
   /// milliseconds would sort correctly among themselves and wrongly against
   /// every row the sync wrote.
-  Future<void> markPlayed(String trackRatingKey, DateTime at) async {
+  /// [source] is what the queue was *started* from, and it decides what "Jump
+  /// back in" is allowed to offer. Playing a playlist stamps the playlist and
+  /// deliberately leaves the album alone: an evening on one playlist would
+  /// otherwise fill the shelf with a dozen albums nobody chose, which is
+  /// exactly the complaint. An album source, or none at all, falls back to the
+  /// track's own album as before.
+  Future<void> markPlayed(
+    String trackRatingKey,
+    DateTime at, {
+    PlaybackSource? source,
+  }) async {
     final seconds = at.millisecondsSinceEpoch ~/ 1000;
 
     await _db.transaction(() async {
@@ -164,12 +175,20 @@ class LibraryWriter {
             ..where((t) => t.ratingKey.equals(trackRatingKey)))
           .write(TracksCompanion(lastViewedAt: Value(seconds)));
 
-      final albumKey =
-          await (_db.selectOnly(_db.tracks)
-                ..addColumns([_db.tracks.albumRatingKey])
-                ..where(_db.tracks.ratingKey.equals(trackRatingKey)))
-              .map((row) => row.read(_db.tracks.albumRatingKey))
-              .getSingleOrNull();
+      if (source?.kind == PlaybackSourceKind.playlist) {
+        await (_db.update(_db.playlists)
+              ..where((p) => p.ratingKey.equals(source!.ratingKey)))
+            .write(PlaylistsCompanion(lastViewedAt: Value(seconds)));
+        return;
+      }
+
+      final albumKey = source?.kind == PlaybackSourceKind.album
+          ? source!.ratingKey
+          : await (_db.selectOnly(_db.tracks)
+                  ..addColumns([_db.tracks.albumRatingKey])
+                  ..where(_db.tracks.ratingKey.equals(trackRatingKey)))
+                .map((row) => row.read(_db.tracks.albumRatingKey))
+                .getSingleOrNull();
 
       if (albumKey != null) {
         await (_db.update(_db.albums)

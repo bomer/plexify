@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:audio_service/audio_service.dart';
 
+import 'playback_source.dart';
+
 import '../plex/plex_client.dart';
 import '../sync/library_writer.dart';
 
@@ -64,6 +66,9 @@ class TimelineReporter {
   Future<void> _queue = Future.value();
 
   String? _key;
+
+  /// What the current track was started from. See `LibraryWriter.markPlayed`.
+  PlaybackSource? _source;
   Duration _duration = Duration.zero;
   Duration _lastPosition = Duration.zero;
   late DateTime _lastPositionAt = _now();
@@ -120,10 +125,15 @@ class TimelineReporter {
 
     final previous = _key;
     final previousDuration = _duration;
+    // The outgoing track's source, not the incoming one's — this scrobble
+    // belongs to what was playing, and skipping from a playlist into
+    // something else would otherwise credit the wrong container.
+    final previousSource = _source;
     // Worked out now, before the fields are reset out from under it.
     final previousPosition = _projectedPosition();
 
     _key = key;
+    _source = PlaybackSource.decode(item?.extras?['source']);
     _duration = item?.duration ?? Duration.zero;
     _lastPosition = Duration.zero;
     _lastPositionAt = _now();
@@ -133,7 +143,12 @@ class TimelineReporter {
       // counted — the tick that would have noticed arrives only after it has
       // been replaced. Short tracks hit this constantly.
       if (previous != null) {
-        await _maybeScrobble(previous, previousPosition, previousDuration);
+        await _maybeScrobble(
+          previous,
+          previousPosition,
+          previousDuration,
+          previousSource,
+        );
         await _reportFor(
           previous,
           'stopped',
@@ -187,7 +202,7 @@ class TimelineReporter {
 
     _lastPosition = _position();
     _lastPositionAt = _now();
-    await _maybeScrobble(key, _lastPosition, _duration);
+    await _maybeScrobble(key, _lastPosition, _duration, _source);
     await _reportFor(key, state, _lastPosition, _duration);
   }
 
@@ -216,6 +231,7 @@ class TimelineReporter {
     String key,
     Duration position,
     Duration duration,
+    PlaybackSource? source,
   ) async {
     if (key == _scrobbledKey) return;
     if (duration <= Duration.zero) return;
@@ -236,7 +252,7 @@ class TimelineReporter {
     // sync reconciles it either way, and Home showing the track you just heard
     // is worth more than agreeing with a server that was briefly unreachable.
     try {
-      await _writer.markPlayed(key, _now());
+      await _writer.markPlayed(key, _now(), source: source);
     } on Object catch (error) {
       _lastError = '$error';
     }

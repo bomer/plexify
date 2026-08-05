@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
+import '../player/playback_controller.dart';
 import '../../core/settings/app_settings.dart';
 
 /// Leaving a server — either for the login screen, or for a different one.
@@ -79,6 +80,10 @@ class AccountController {
     //    the same path on another server is different art entirely.
     await _ref.read(databaseProvider).clearLibrary();
     await _ref.read(artworkCacheProvider).clear();
+    // The saved session belongs to the server being left. Restored against
+    // the next one it would be ratingKeys from one library used against
+    // another — the same collision `clearLibrary` exists to prevent.
+    await _ref.read(playbackStateStoreProvider).clear();
   }
 }
 
