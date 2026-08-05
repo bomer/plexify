@@ -53,7 +53,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 133 tests, no live server needed
+flutter test             # 171 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -134,6 +134,13 @@ from the library screen — and two rounds of diagnosis were wasted guessing bef
 "Rows in last sync" is the one to read for cost: near zero on a routine sweep means Plex is
 honouring the `updatedAt>=` filter.
 
+**Every background mechanism ships with a counter on that screen.** Push sync, polling, the
+connection monitor and playback reporting all publish counts, timestamps and their last
+error. This is not documentation-by-UI; it is the difference between a five-second answer and
+an afternoon. When "plays aren't reaching Plex" was reported, one reading of "Timeline
+reports: 4" ruled out the entire client side at once. Add the counter when you add the
+mechanism — retrofitting it means the first real failure is diagnosed blind.
+
 ---
 
 ## Code conventions
@@ -189,6 +196,13 @@ exist before updating it and must not flatten a richer one.
 `lib/shell/layout.dart` holds the single breakpoint. A narrow window on the desktop has the
 same problem a phone does, and a `Platform.isAndroid` check would miss it.
 
+**8. Recovery has one path and many triggers.**
+Sync has three delivery mechanisms and the connection monitor has two triggers, but each
+feeds a *single* re-resolve or a single write path. The temptation each time is to give a
+newly discovered failure mode its own recovery route; that is how a system becomes
+untestable, and James has asked explicitly that the sync logic not grow more paths. Add a
+trigger, or make an existing path observable. Do not add a fourth mechanism.
+
 ---
 
 ## Testing
@@ -202,6 +216,31 @@ same problem a phone does, and a `Platform.isAndroid` check would miss it.
   - `import 'package:drift/drift.dart' show Value;` when a test only needs `Value`.
 - Tests assert *behaviour that would fail silently*, not coverage for its own sake. Each one
   carries a comment explaining what breaks if it regresses.
+
+---
+
+## Reading a bug report
+
+The single most repeated mistake on this project has been diagnosing *why* before
+establishing *where*. A reported symptom names the place it was noticed, and that is
+routinely not the place at fault:
+
+| Reported | Actually |
+|---|---|
+| "Favourites don't show up" | Not the ratings feature. Section clocks don't move for a metadata edit, so no sync was triggered. Two wrong diagnoses were published before that one |
+| "Playback stops when I go outside" | Not the audio layer. The server address resolved at startup had gone stale |
+| "I can't scrub a track" | Not the seek bar, which worked. The mini player was being used, and deliberately has no scrub control |
+| "Plays aren't reaching Plex" | Not the wiring, which was fine. A missing `X-Plex-Session-Identifier` header |
+
+In three of those four, a competent-looking fix to the named component was within reach and
+would have been wrong. What works instead:
+
+- **Read the counters first.** That is what the Sync status screen is for, and it settled the
+  fourth case in one reading.
+- **Ask one sharp question when the symptom is ambiguous** — "does the bar not move, or does
+  it snap back?" separates a disabled control from a latency problem, and they share no code.
+- **Prefer a question over a plausible fix.** Shipping the wrong fix costs more than asking,
+  because it also removes the evidence.
 
 ---
 
@@ -297,6 +336,30 @@ closure, it discards a mark the *incoming* track already earned — because a qu
 run between the event arriving and the closure executing. Both produce duplicate plays, and
 neither is visible without a test that counts.
 
+**A `FutureProvider` keeps serving its previous value while it re-resolves.** Verified, and
+load-bearing: it is why invalidating `connectServerProvider` on a network change does not
+flash the whole album grid to placeholders. It also means a test must `await` the rebuild
+before asserting the new value — reading straight after an invalidate returns the *old* one,
+which looks like the provider ignoring you.
+
+**Side effects in a derived provider's build body only happen if something is watching.** The
+first attempt at remembering the last-good server put the write in `plexServerProvider`,
+which worked in the app — the widget tree watches it constantly — and failed in a test that
+did not. Correctness that depends on who is subscribed is not correctness. The remembering
+moved into `connectServerProvider`, where the value is produced and the write happens
+whether anyone is listening or not.
+
+**Desktop exit hooks work here without touching the C++.** `AppLifecycleListener.onExitRequested`
+fires on the Windows close button because `flutter_window.cpp` already routes messages through
+`HandleTopLevelWindowProc` before its own switch, and the embedder implements the exit-request
+flow there. Do not go writing a `WM_CLOSE` intercept. Note `AppExitResponse` lives in
+`dart:ui`, not `package:flutter/services.dart`, despite the binding that uses it living in
+services.
+
+**Anything on the exit path must be bounded.** The goodbye report to Plex has a two-second
+timeout, because the case where it is slowest — a server that has stopped answering — is
+exactly the case where the app must still close promptly.
+
 **Turning "not connected" into a state you cannot leave.** The first cut of #41 let a failed
 re-resolve clear the server. That reads as honest and is a dead end: no server means no
 client, no client means nothing makes requests, and no requests means `ConnectionHealth` can
@@ -332,9 +395,18 @@ Two things that seemed to need a human turned out not to:
   (`GlobalSystemMediaTransportControlsSessionManager` from PowerShell) and synthesising
   `keybd_event` presses for play/pause, next and previous while watching the app's log.
 - **Whether a test actually discriminates**, by temporarily breaking the code it guards and
-  confirming it fails. Worth doing for any test asserting an ordering or a race.
+  confirming it fails. Do this for any test asserting an ordering, a race or a "only once"
+  rule.
 
 Reach for that pattern before declaring something unverifiable.
+
+That second one is not a confidence ritual — it has already caught a test that passed for the
+wrong reason. A test named for the single-flight guard in `ConnectionMonitor` was in fact
+being satisfied by the cooldown, because the fake clock never advanced; disabling the guard
+left all sixteen tests green. The replacement forces both attempts past the cooldown so only
+the guard can refuse the second. **A test whose name and mechanism have quietly come apart is
+worse than no test**, because it is counted as coverage. Suspect any test that passes the
+first time you write it against code you have not yet seen fail.
 
 ---
 
@@ -351,6 +423,10 @@ expensive part.
 
 Write the message to a file and use `git commit -F`. PowerShell here-strings mangle multi-line
 `-m` arguments; that cost one confusing failure already.
+
+Check `git status` before `git add -A` — it has already swept in a `debug.lnk` shortcut
+holding an absolute path and a machine id. `*.lnk` is ignored now, but build output and
+editor droppings will keep finding new ways in.
 
 Sign commits with:
 
