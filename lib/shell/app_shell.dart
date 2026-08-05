@@ -109,9 +109,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     final destination = ref.watch(shellDestinationProvider);
     final expanded = ref.watch(nowPlayingExpandedProvider);
 
-    // Watched purely to keep it alive: push sync has no UI, but without a
-    // listener the provider is never constructed and the socket never opens.
+    // Watched purely to keep them alive: neither has any UI, but without a
+    // listener the provider is never constructed — the socket never opens, and
+    // nothing notices when the server address stops working.
     ref.watch(liveSyncProvider);
+    ref.watch(connectionMonitorProvider);
 
     final content = IndexedStack(
       index: destination.index,

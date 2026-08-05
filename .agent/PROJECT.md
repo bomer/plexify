@@ -104,6 +104,18 @@ null on the other paths.
 Android keeps the isolate alive for a whole playback session, so a poll that ignored
 lifecycle would run for hours down a mobile connection checking a screen nobody can see.
 
+All three assume the server is still where discovery left it, which is why
+`connection_monitor.dart` sits underneath them. It re-races LAN / remote / relay on two
+triggers — the OS reporting a transport change, and a run of requests reaching nothing —
+feeding one re-resolve rather than giving each its own recovery path. Invalidating
+`connectServerProvider` rebuilds the client, the socket and the scheduler together, so none
+of them needs to know about the network individually.
+
+Note the division of labour: the OS signal is fast but says only that a transport appeared,
+not that anything is reachable through it. The failure count is trustworthy but slower, and
+on a desktop whose transport never changes it is the only signal there is. Neither is
+sufficient alone.
+
 ### Start here when something "didn't show up"
 
 The **Sync status** screen (ℹ️ in the Home or Library app bar, `lib/features/settings/`)
@@ -251,14 +263,22 @@ optimistic local write needs the same guard.
 bucket lands at the top of a list while an A–Z rail shows it at the bottom — tapping it jumps
 to the wrong end. `artist_index.dart` sorts non-letters last explicitly.
 
-**The server connection is resolved once and never revisited.** `connectServerProvider` is a
-`FutureProvider` keyed on the auth token alone, so `baseUrl` is whichever connection won the
-wave race at startup. A phone that connects on the LAN and then leaves keeps aiming at the
-local address — every request, the notification socket, the poll, and any audio URL already
-handed to `just_audio`. It presents as "playback just stops when I go outside", while
-launching cold on cellular works perfectly, which makes it look like a playback bug rather
-than a connection one. Tracked as #41. **Anything that caches a resolved address needs an
-invalidation story before it is relied on.**
+**A resolved address goes stale, and it presents as a playback bug.** `connectServerProvider`
+picks whichever connection wins the startup wave race. A phone that connects on the LAN and
+then leaves kept aiming at the local address — every request, the notification socket, the
+poll, and any audio URL already handed to `just_audio`. The symptom was "playback stops when
+I go outside" while launching cold on cellular worked perfectly, which points the
+investigation at the audio layer rather than the connection. Fixed in #41 by
+`ConnectionMonitor`. **Anything that caches a resolved address needs an invalidation story
+before it is relied on** — artwork URLs (#21) are the next one.
+
+**Turning "not connected" into a state you cannot leave.** The first cut of #41 let a failed
+re-resolve clear the server. That reads as honest and is a dead end: no server means no
+client, no client means nothing makes requests, and no requests means `ConnectionHealth` can
+never observe another failure — so nothing ever retries. Recovery depended entirely on the OS
+volunteering a connectivity event. The connection is now sticky: it keeps the last address
+that worked, and only signing out clears it. Generally, **a recovery mechanism driven by
+failures must leave something running that can still fail.**
 
 ---
 

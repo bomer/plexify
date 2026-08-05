@@ -1,10 +1,14 @@
 import 'dart:async';
 
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:http/http.dart' as http;
 
 import 'audio/playback_handler.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
+import 'plex/connection_health.dart';
+import 'plex/connection_monitor.dart';
 import 'plex/plex_auth.dart';
 import 'plex/plex_client.dart';
 import 'plex/plex_identity.dart';
@@ -68,19 +72,57 @@ final authTokenProvider = StateProvider<String?>((ref) => null);
 /// v1 assumes a single server; a picker comes later if that turns out to be
 /// wrong. Returns null when nothing could be reached, which the UI surfaces as
 /// a retry rather than an error — being off the LAN is normal, not exceptional.
+/// Connects to the first reachable server on the account.
+///
+/// Falling back to the last address that worked is deliberate, and the reason
+/// is not cosmetic. Resolving to null would leave no client; with no client
+/// nothing makes requests; with no requests [ConnectionHealth] can never see
+/// another failure, so nothing would ever trigger another attempt. The app
+/// would sit disconnected until the OS happened to report a network change or
+/// the user found the button in Settings. Keeping the stale address keeps the
+/// poll running, and the failures it produces are exactly what drives the next
+/// retry.
+///
+/// Nothing is lost by holding it: browsing reads from drift, and artwork
+/// already falls back to a placeholder when a request fails.
 final connectServerProvider = FutureProvider<PlexServer?>((ref) async {
+  final sticky = ref.watch(_lastGoodServerProvider);
   final token = ref.watch(authTokenProvider);
-  if (token == null) return null;
+
+  // Signing out is a real disconnection, not a failed lookup.
+  if (token == null) {
+    sticky.value = null;
+    return null;
+  }
 
   final discovery = ref.watch(plexDiscoveryProvider);
-  final servers = await discovery.listServers(token);
 
-  for (final resource in servers) {
-    final connected = await discovery.connect(resource, accountToken: token);
-    if (connected != null) return connected;
+  try {
+    for (final resource in await discovery.listServers(token)) {
+      final connected = await discovery.connect(resource, accountToken: token);
+      if (connected != null) {
+        sticky.value = connected;
+        return connected;
+      }
+    }
+  } on Object {
+    // Listing servers goes to plex.tv, which is unreachable on exactly the
+    // occasions this matters most. An error here is not a signed-out state.
   }
-  return null;
+
+  return sticky.value;
 });
+
+/// Holds a value across rebuilds of the provider that computes it.
+class _Sticky<T> {
+  T? value;
+}
+
+/// The last address that answered, kept so a failed re-resolve does not drop
+/// the app to "not connected".
+final _lastGoodServerProvider = Provider<_Sticky<PlexServer>>(
+  (ref) => _Sticky<PlexServer>(),
+);
 
 /// The connected server, or null while connecting or if nothing was reachable.
 final plexServerProvider = Provider<PlexServer?>(
@@ -93,15 +135,67 @@ final plexServerProvider = Provider<PlexServer?>(
 /// mutable state. An earlier version published the server via a microtask,
 /// which let the album list build one frame early with a null client and flash
 /// "No albums found" before correcting itself.
+///
+/// Rebuilt whenever [connectServerProvider] is invalidated, which is how a
+/// change of network reaches every caller at once: the socket, the scheduler
+/// and every screen all watch downstream of here.
 final plexClientProvider = Provider<PlexClient?>((ref) {
   final server = ref.watch(plexServerProvider);
   if (server == null) return null;
   final client = PlexClient(
     server: server,
     identity: ref.watch(plexIdentityProvider),
+    // Wrapped so every request reports whether it reached anything. This is the
+    // only way the app finds out that the address chosen at startup has stopped
+    // working.
+    httpClient: HealthReportingClient(
+      http.Client(),
+      ref.watch(connectionHealthProvider),
+    ),
   );
   ref.onDispose(client.close);
   return client;
+});
+
+/// Whether the current connection is reaching the server.
+///
+/// Lives for the life of the app, deliberately outside the client it observes —
+/// it has to survive the reconnect it triggers.
+final connectionHealthProvider = Provider<ConnectionHealth>((ref) {
+  final health = ConnectionHealth();
+  ref.onDispose(health.dispose);
+  return health;
+});
+
+/// Transport changes reported by the OS.
+///
+/// Says a network appeared or went away, not that anything is reachable
+/// through it — a wifi network with no route out still reports as connected.
+/// Useful only as a prompt to re-check.
+final networkChangesProvider = Provider<Stream<void>>(
+  (ref) => Connectivity().onConnectivityChanged.map((_) {}),
+);
+
+/// Re-resolves the server connection when the current one stops working.
+///
+/// Nothing reads its value; it exists for its side effects, so something must
+/// `watch` it for the triggers to be wired up at all. [AppShell] does.
+final connectionMonitorProvider = Provider<ConnectionMonitor>((ref) {
+  final monitor = ConnectionMonitor(
+    health: ref.watch(connectionHealthProvider),
+    networkChanges: ref.watch(networkChangesProvider),
+    reconnect: () async {
+      // Invalidating rebuilds the client, the notification socket and the sync
+      // scheduler against whichever address wins the race this time. The album
+      // grid streams from drift, so the UI does not blank while that happens —
+      // the additive-cache rule paying for itself.
+      ref.invalidate(connectServerProvider);
+      await ref.read(connectServerProvider.future);
+    },
+  );
+  monitor.start();
+  ref.onDispose(monitor.stop);
+  return monitor;
 });
 
 /// The music library section on the connected server.
@@ -259,6 +353,10 @@ class SyncDiagnostics {
     required this.serverName,
     required this.serverUrl,
     required this.route,
+    required this.failedRequests,
+    required this.reconnects,
+    required this.lastReconnectAt,
+    required this.lastReconnectReason,
     required this.socketConnected,
     required this.framesReceived,
     required this.changesSeen,
@@ -287,6 +385,13 @@ class SyncDiagnostics {
   final String? serverName;
   final String? serverUrl;
   final String route;
+
+  /// Requests in a row that reached nothing. Non-zero here while everything
+  /// else looks healthy is the signature of an address that has gone stale.
+  final int failedRequests;
+  final int reconnects;
+  final DateTime? lastReconnectAt;
+  final String? lastReconnectReason;
 
   final bool socketConnected;
   final int framesReceived;
@@ -323,6 +428,8 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
   final socket = ref.watch(plexNotificationSocketProvider);
   final scheduler = ref.watch(syncSchedulerProvider);
   final live = ref.watch(liveSyncProvider);
+  final health = ref.watch(connectionHealthProvider);
+  final monitor = ref.watch(connectionMonitorProvider);
 
   // Asked live, so the stored clocks can be compared against what Plex says
   // right now — the comparison that decides whether a sync happens at all.
@@ -346,6 +453,15 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
         : server.isLocal
         ? 'Local network'
         : 'Remote',
+    failedRequests: health.consecutiveFailures,
+    reconnects: monitor.attempts,
+    lastReconnectAt: monitor.lastAttemptAt,
+    lastReconnectReason: switch (monitor.lastReason) {
+      ReconnectReason.networkChanged => 'The network changed',
+      ReconnectReason.connectionLost => 'Requests stopped arriving',
+      ReconnectReason.manual => 'Asked for it',
+      null => null,
+    },
     socketConnected: socket?.isConnected ?? false,
     framesReceived: socket?.framesReceived ?? 0,
     changesSeen: socket?.changesSeen ?? 0,

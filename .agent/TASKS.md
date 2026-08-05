@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 24 complete · 18 open · 133 tests passing
+**Status:** 25 complete · 17 open · 155 tests passing
 
 ---
 
@@ -40,6 +40,7 @@ known traps.
 | 38 | Compact track rows | Per-track stars are desktop-only; long press opens a rating sheet on phones |
 | 39 | Sync status screen | Socket/poll/clock state, row counts, sync now and full resync. Poll pauses off screen |
 | 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
+| 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 
 ### Bugs found by device testing (#14)
 
@@ -65,16 +66,19 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#41** Reconnect when the network changes | The app is currently broken in the exact case that "even split" describes. Also builds the connectivity listener #23 needs, so it is infrastructure as well as a fix. |
-| 2 | **#25** Timeline and scrobbling | Plays are split across two clients right now, so every Plexify play is missing from the history both read. Every day this waits is history that cannot be recovered. |
-| 3 | **#8** Transcode spike | Needs James present. Gates #23 and #24, i.e. all of cellular listening — half the use. |
-| 4 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
-| 5 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
-| 6 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
-| 7 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8. This is what makes the cellular half pleasant rather than merely working. |
-| 8 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 9 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
-| 10 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#25** Timeline and scrobbling | Plays are split across two clients right now, so every Plexify play is missing from the history both read. Every day this waits is history that cannot be recovered. |
+| 2 | **#8** Transcode spike | Needs James present. Gates #23 and #24, i.e. all of cellular listening — half the use. |
+| 3 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
+| 4 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
+| 5 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
+| 6 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8. This is what makes the cellular half pleasant rather than merely working. |
+| 7 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 8 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
+| 9 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+
+**#41 is done** — it was first, and it also built the connectivity listener #23 will reuse.
+Still needs live confirmation: walk out of the house mid-track and watch "Reconnects" and
+"Route" on the Sync status screen.
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
@@ -84,59 +88,6 @@ Plexamp side by side while moving over.
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
-
-### #41 — Reconnect when the network changes
-
-**The bug.** Carrying the phone from wifi to cellular kills playback. Launching cold on
-cellular is fine, which disguises it as a playback fault.
-`connectServerProvider` ([providers.dart:71](../lib/core/providers.dart:71)) is a
-`FutureProvider` keyed on the auth token alone, so it resolves **once per session**. On the
-LAN, wave 1 wins and `baseUrl` is pinned to the local `plex.direct` address. Leaving the
-house never re-runs it, so every request, the notification socket, the poll, and any audio
-URL already inside `just_audio` all keep aiming at an unreachable host. Coming home is the
-quiet inverse: the remote or relay connection is kept, so audio transcodes over the internet
-from a server on the same wifi.
-
-**Subtasks**
-
-1. Add `connectivity_plus`. Note it reports *transport* changes, not reachability — a wifi
-   network with no route out still reads as connected, so it is a trigger to re-check, never
-   evidence that anything works.
-2. Add a failure-count trigger as well. Transport changes are not the only way a connection
-   dies (server restart, DHCP change, VPN), and on desktop the transport rarely changes at
-   all. N consecutive failures against the current `baseUrl` should re-race regardless.
-3. Make the connection re-resolvable. The cheap version is `ref.invalidate(connectServerProvider)`,
-   which rebuilds `plexClientProvider` and everything downstream. **Verify the UI does not
-   blank while it re-races** — the grid streams from drift so it should hold, and if it does,
-   that is the additive-cache invariant paying for itself.
-4. Re-race the waves. `PlexDiscovery.connect()` already contains the whole wave algorithm;
-   this calls it again rather than reimplementing.
-5. Single-flight and debounce it. A flapping connection must not start a re-race per event,
-   and being unreachable is normal (server asleep, genuinely offline) — back off rather than
-   spin.
-6. Rebuild the notification socket. Its URL is built from `baseUrl`, so a re-resolve has to
-   tear down and recreate it, not just call `reconnectNow()` on the old one.
-7. Decide what happens to the currently-playing track — see below.
-8. Surface it: connection type belongs on the Sync status screen, and a manual "reconnect"
-   button there makes the whole thing testable by hand.
-
-**Considerations**
-
-- **The in-flight track is a real decision, not an implementation detail.** `just_audio`
-  holds URL strings; re-resolving the client does not rewrite them. Either (a) let the
-  current track fail and have the next one use the new connection, or (b) rebuild the queue
-  with `setAudioSources(initialIndex:, initialPosition:)` at the current position. (b) is
-  more correct and risks a stutter mid-song; (a) is simpler and drops one track. **Suggest
-  (a) first** — it is a two-line policy, and if it feels bad in use, (b) is a contained
-  change afterwards.
-- `PlexServer.isLocal` / `isRelay` change on re-resolve, and `preferTranscode` reads them.
-  Getting this right is a precondition for #23 being correct rather than merely present.
-- **This is why #41 sits above #23 rather than beside it.** The connectivity listener is the
-  same input the quality policy needs; building it as a bug fix means #23 inherits it.
-- Windows is affected too (ethernet unplugged, VPN up) but far less visibly.
-- Test: fake `PlexDiscovery` that answers LAN-then-nothing, then remote. Assert a re-race
-  after the failure trigger, that the new `baseUrl` is remote, and that no re-race happens
-  while one is already running.
 
 ### #25 — Timeline and scrobbling
 
@@ -447,5 +398,13 @@ notification type, and James has asked that the sync logic not grow more paths.
   Prefer making the existing ones observable over adding a fourth.
 - **Artists file under their first non-article word**, so The Beatles sits under B, matching
   Plex's own `titleSort`. Reverse it and the app disagrees with the server it browses.
-- **Open: what happens to the playing track when the connection re-resolves.** #41 leans
-  toward letting it fail and fixing the next track. Revisit after using it.
+- **The playing track is not rescued when the connection re-resolves.** `just_audio` holds
+  URL strings and re-resolving does not rewrite them, so the track in flight fails and the
+  next one uses the new address. Rebuilding the queue at the current position would save it
+  at the cost of a stutter mid-song. Left as is deliberately — revisit only if it grates in
+  practice.
+- **The connection never resolves to null once it has worked.** Only signing out clears it.
+  A failed re-resolve keeps the stale address, because no server means no client, no client
+  means no requests, and no requests means nothing can ever observe the failure that would
+  trigger the next attempt. Written down because "it looks connected but isn't" reads like a
+  bug until you know what the alternative costs.

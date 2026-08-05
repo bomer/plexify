@@ -40,10 +40,22 @@ class SyncStatusScreen extends ConsumerWidget {
           children: [
             _Section(
               title: 'Server',
+              subtitle:
+                  'The address is chosen once by racing the local network '
+                  'against the remote one, and re-chosen when it stops '
+                  'answering.',
               rows: [
                 ('Name', d.serverName ?? 'Not connected'),
                 ('Address', d.serverUrl ?? '—'),
                 ('Route', d.route),
+                // Non-zero while everything else looks healthy is the
+                // signature of an address that has gone stale — usually the
+                // LAN one, after the phone has left the house.
+                ('Failed requests in a row', '${d.failedRequests}'),
+                ('Reconnects', '${d.reconnects}'),
+                ('Last reconnect', _ago(d.lastReconnectAt)),
+                if (d.lastReconnectReason != null)
+                  ('Reconnect reason', d.lastReconnectReason!),
               ],
             ),
 
@@ -122,6 +134,17 @@ class SyncStatusScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   OutlinedButton.icon(
+                    icon: const Icon(Icons.wifi_find),
+                    label: const Text('Reconnect'),
+                    onPressed: () async {
+                      await ref
+                          .read(connectionMonitorProvider)
+                          .reconnectNow();
+                      ref.invalidate(syncDiagnosticsProvider);
+                    },
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
                     icon: const Icon(Icons.restart_alt),
                     label: const Text('Full resync'),
                     onPressed: () async {
@@ -131,6 +154,8 @@ class SyncStatusScreen extends ConsumerWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
+                    'Reconnect picks the best route again — use it after '
+                    'moving between wifi and mobile data.\n\n'
                     'A full resync re-reads the whole library. Nothing is '
                     'deleted and browsing keeps working while it runs.',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
