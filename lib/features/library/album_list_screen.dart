@@ -7,7 +7,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import 'album_detail_screen.dart';
-import 'artwork.dart';
+import 'album_cover.dart';
 
 /// The album grid.
 ///
@@ -81,7 +81,10 @@ class _AlbumTile extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: Artwork(thumb: album.thumb),
+              child: LayoutBuilder(
+                builder: (context, c) =>
+                    AlbumCover(album: album, size: c.maxWidth),
+              ),
             ),
           ),
           const SizedBox(height: 8),

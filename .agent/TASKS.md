@@ -5,9 +5,9 @@ already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md) for the
 rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps, and
 [CompletedTasks.md](CompletedTasks.md) for finished work.
 
-**Last updated:** 5 August 2026
+**Last updated:** 6 August 2026
 
-**Status:** 32 complete · 12 open · 271 tests passing
+**Status:** 33 complete · 13 open · 296 tests passing
 
 ---
 
@@ -18,7 +18,8 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 
 | # | Task | Where it sits |
 |---|---|---|
-| 24 | Audio disk cache | Next. #23 landed the key to store under |
+| 45 | Restore what was playing on launch | Next. Plexamp does it; James uses it that way |
+| 24 | Audio disk cache | #23 landed the key to store under |
 | 43b | Settings: playback and storage | Lands with #24 — the two sections #43a left empty |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 | 44 | Now Playing navigation test | The plan's non-retrofittable invariant, currently unguarded |
@@ -42,10 +43,11 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#24 → #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
-| 2 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 3 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
-| 4 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#45** Restore what was playing on launch | Asked for directly, and the only thing on this list that changes how the app is opened rather than how it behaves once open. Small, and it shares the persistence seam #43a built. |
+| 2 | **#24 → #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
+| 3 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 4 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
+| 5 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
@@ -60,6 +62,31 @@ playing on either platform, only requested.
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
+
+### #45 — Restore what was playing on launch
+
+Plexamp resumes the queue and position across a restart, and that is how James uses it.
+Nothing is persisted today: the handler builds its queue in memory and closing the app loses
+it.
+
+**Subtasks**
+
+1. Persist the queue on change and the position on a debounce. The `MediaItem` already
+   carries everything needed — `ratingKey`, `partKey`, `sourceKbps`, `thumb` — alongside
+   title, album, artist and duration.
+2. Restore into the queue at startup **without autoplaying**, so the mini player shows the
+   track and pressing play resumes it.
+3. Rebuild URLs through `PlaybackController` rather than storing them.
+
+**Considerations**
+
+- **Never persist the URL.** It embeds the server address and the token, and both move — a
+  stored URL is dead by the next launch. Same trap as invariant 4, and the reason the queue
+  already carries the facts rather than the link.
+- Quality must be decided fresh on restore. The queue was built on whatever network was
+  live when the app was last open, which is not necessarily this one.
+- The restored queue should survive the cache being empty: this reads from its own store,
+  not from drift, so it works before the first sync finishes.
 
 ### #24 — Audio disk cache *(unblocked by #23)*
 

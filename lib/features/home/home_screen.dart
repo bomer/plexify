@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../../shell/horizontal_scroll.dart';
+import '../../shell/layout.dart';
 import '../settings/sync_actions.dart';
 import '../library/album_detail_screen.dart';
-import '../library/artwork.dart';
+import '../library/album_cover.dart';
 import '../library/sync_banner.dart';
 
 /// Landing screen: what you were listening to, and what's new.
@@ -95,13 +97,18 @@ class _Shelf extends ConsumerWidget {
           child: Text(title, style: theme.textTheme.titleMedium),
         ),
         SizedBox(
-          height: 208,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 20),
-            itemCount: items.length,
-            separatorBuilder: (_, _) => const SizedBox(width: 14),
-            itemBuilder: (context, i) => _ShelfTile(album: items[i]),
+          // Taller on desktop by exactly the height the scrollbar takes, so
+          // adding it does not crop the covers it sits under.
+          height: isCompactLayout(context) ? 208 : 220,
+          child: HorizontalScroll(
+            builder: (context, controller) => ListView.separated(
+              controller: controller,
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              itemCount: items.length,
+              separatorBuilder: (_, _) => const SizedBox(width: 14),
+              itemBuilder: (context, i) => _ShelfTile(album: items[i]),
+            ),
           ),
         ),
       ],
@@ -132,11 +139,7 @@ class _ShelfTile extends StatelessWidget {
           children: [
             ClipRRect(
               borderRadius: BorderRadius.circular(6),
-              child: SizedBox(
-                width: 150,
-                height: 150,
-                child: Artwork(thumb: album.thumb),
-              ),
+              child: AlbumCover(album: album, size: 150),
             ),
             const SizedBox(height: 8),
             Text(
