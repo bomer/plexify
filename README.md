@@ -17,6 +17,8 @@ As a developer, I really wanted a better experience but it would have taken me w
 dart and this weeks to build. I'm a bit worried it did too much work under the hood handling
 streams that it might make it's own issues. We'll find out.
 
+![Plexify on Windows](https://github.com/bomer/plexify/blob/main/docs/windows.png?raw=true)
+
 ## Requirements
 
 - **Flutter** 3.44+ (`C:\Users\James\flutter-sdk\flutter`)
