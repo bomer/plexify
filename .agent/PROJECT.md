@@ -370,6 +370,75 @@ failures must leave something running that can still fail.**
 
 ---
 
+## The music transcode endpoint
+
+Measured against James's server on 5 Aug 2026 by `TranscodeProbe`, over both the LAN and the
+remote route, on Windows and Android. **The two routes behaved identically in every respect**,
+which is itself the finding — no route-specific handling is needed.
+
+Re-run it from Sync status → Transcode probe whenever the server is upgraded. It is cheap and
+it settles arguments.
+
+### The working parameter set
+
+```
+{baseUrl}/music/:/transcode/universal/start.mp3
+  ?path=/library/metadata/{ratingKey}
+  &mediaIndex=0&partIndex=0&offset={seconds}
+  &directPlay=0&directStream=0&protocol=http
+  &X-Plex-Product / -Version / -Platform / -Device / -Device-Name
+  &X-Plex-Session-Identifier / -Client-Identifier / -Token
+  &session={uuid}
+```
+
+**The `X-Plex-*` identity must be in the query string, and this is the whole difference
+between 200 and 400.** Without it the endpoint returns `400 Bad Request` with no explanation.
+It is easy to assume the headers `PlexClient` already sends cover this — they do not: the URL
+is handed to the audio engine, which does its own HTTP and carries none of them. This cost two
+round trips to find, because a 400 says nothing about which parameter was missing.
+
+Everything richer also works (`directStream=1`, the full web-client set with a decode
+profile), so none of it is required. `TranscodeProfile.identified` is the default in
+`transcodeUrl` for that reason.
+
+### What it does and does not do
+
+| | |
+|---|---|
+| Progressive, not HLS | **Yes** — `audio/mpeg`, answered directly, no redirect. Retires risk #1 in the plan: transcoded playback is cacheable. |
+| Range requests | **No** — 200 for a ranged request, whole stream offered. |
+| Declared length | **No** — a live transcode has no length to declare. |
+| `offset=` | **Yes** — genuinely starts partway in. This is the *only* way to seek here. |
+| Bitrate cap | **No.** See below. |
+| `stop?session=` | **Yes** — 200 every time, for every session. |
+
+### There is no bitrate control
+
+`musicBitrate`, `maxAudioBitrate`, and an `add-limitation(...audio.bitrate...)` inside
+`X-Plex-Client-Profile-Extra` were each asked for 128 kbps. All three returned the natural rate
+unchanged, byte for byte, on both routes.
+
+Plex's own `/transcode/sessions` record confirms it is not a misread request — `audioDecision:
+transcode`, `sourceAudioCodec: flac`, `container: mp3` — and carries **no bitrate field at
+all**. The output is VBR mp3 landing around 235–242 kbps depending on the material.
+
+**So #23 is not a quality ladder.** It is one binary decision: direct-play the original, or
+transcode at whatever rate Plex picks. Against a FLAC that is still a large saving; against an
+mp3 already smaller than ~240 kbps, transcoding costs *more* data for *worse* audio, so a
+policy that transcodes everything on cellular would be actively harmful. The probe's "Is
+transcoding worth it for this track?" check measures the source rate for exactly this reason.
+
+### Two things that will mislead the next reader
+
+- **Plex issues its own transcode session key** rather than echoing the `session` parameter, so
+  a record fetched from `/transcode/sessions` cannot be matched to a request by id. The probe
+  falls back to position and says so.
+- **`LockCachingAudioSource` copes with all of this**, which is not obvious. It requires HTTP
+  200 on its first fetch (Plex gives 200), treats a missing content-length as `null` rather
+  than an error, and still renames the completed cache file. What it cannot do is seek *ahead*
+  of what it has downloaded — that path issues a ranged sub-request and throws on anything but
+  206. Seeking a transcode must go through `offset=` instead.
+
 ## Things only the user can do
 
 - **Approve the Plex PIN** in a browser — sign-in cannot be automated.

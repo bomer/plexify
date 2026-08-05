@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 26 complete · 16 open · 171 tests passing
+**Status:** 27 complete · 15 open · 201 tests passing
 
 ---
 
@@ -41,6 +41,7 @@ known traps.
 | 39 | Sync status screen | Socket/poll/clock state, row counts, sync now and full resync. Poll pauses off screen |
 | 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
+| 8 | Transcode spike | Answered on both routes by `TranscodeProbe`, kept in the app under Sync status. Progressive works; `offset` works; **no bitrate control exists**. Parameter set and consequences in [PROJECT.md](PROJECT.md#the-music-transcode-endpoint) |
 | 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified — Plexify appears in the Plex dashboard |
 
 ### Bugs found by device testing (#14)
@@ -67,14 +68,13 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#8** Transcode spike | Needs James present. Gates #23 and #24, i.e. all of cellular listening — half the use. |
-| 2 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
-| 3 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
-| 4 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
-| 5 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8. This is what makes the cellular half pleasant rather than merely working. |
-| 6 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 7 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
-| 8 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#43a** Settings shell | Small. Needed as somewhere for #42 to live, and for #23/#24 to expose policy rather than hardcode it. |
+| 2 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. |
+| 3 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
+| 4 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
+| 5 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 6 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again. |
+| 7 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
 **#41 and #25 are done.** Both still want live confirmation, and neither can be confirmed
 from a test:
@@ -94,34 +94,26 @@ from a test:
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
 
-### #8 — Transcode spike *(needs James present)*
+### #8 — Transcode spike *(done, 5 Aug 2026)*
 
-Establish working parameters for `/music/:/transcode/universal/start`. The least-documented
-part of the Plex API, and everything about cellular listening depends on it.
+Answered by `TranscodeProbe`, which stays in the app under Sync status → Transcode probe
+rather than being deleted: the answers are per-server and per-route, and it is the cheapest
+way to re-check after a Plex upgrade. Full parameter set and reasoning in
+[PROJECT.md](PROJECT.md#the-music-transcode-endpoint).
 
-**Subtasks**
+**The three findings that change other tasks:**
 
-1. Build the progressive URL: `start.mp3` with `path=/library/metadata/{ratingKey}`,
-   `mediaIndex=0`, `partIndex=0`, `protocol=http`, `offset=0`, `directPlay=0`,
-   `directStream=0`, a per-session `session` uuid, plus token and client identifier.
-2. Confirm it returns audio directly — 200 with an audio content type, not a redirect into
-   the HLS variant.
-3. Confirm it honours Range requests. Seeking and caching both depend on it.
-4. Confirm `LockCachingAudioSource` will cache it. **HLS cannot be cached** — if only the
-   HLS form works, transcoded playback cannot be cached at all and #24 shrinks to LAN-only.
-5. Work out which bitrate parameter Plex actually honours for music — `musicBitrate` and
-   `maxAudioBitrate` are both cited and they may not both apply.
-6. Check session cleanup (`/:/transcode/universal/stop?session=`) — abandoned sessions can
-   leave the server transcoding into nothing.
-7. Record the exact working parameter set in PROJECT.md. This is the deliverable; a spike
-   that works but is not written down has to be redone.
+1. **Progressive works.** `audio/mpeg`, no HLS. Risk #1 in the plan is retired and #24 is not
+   LAN-only.
+2. **The `X-Plex-*` identity must be in the query string**, or the endpoint answers 400 with
+   no explanation. The headers `PlexClient` already sends do not count — the URL goes to the
+   audio engine, which sends none of them.
+3. **No bitrate control exists.** Three mechanisms, both routes, no change; Plex's own session
+   record has no bitrate field. This makes #23 materially smaller than planned.
 
-**Considerations**
-
-- Test **off** the LAN, not just remotely-addressed on it. Relay behaves differently again.
-- If progressive cannot be made to work, escalate rather than improvise: remote falls back to
-  direct-play only, #23 becomes a much smaller task, and cellular use gets expensive. That is
-  a plan change worth making explicitly.
+**What it did not answer:** the relay route was never exercised, because discovery picked
+local then remote and never fell back. If relay ever becomes the working route, re-run there
+before trusting any of this.
 
 ### #43 — Settings screen (split)
 
@@ -189,26 +181,35 @@ refetches every visible thumbnail.
 - Test: same thumb at two sizes yields two entries; same thumb after a token change yields a
   hit, not a second entry.
 
-### #23 — Adaptive quality *(needs #8)*
+### #23 — Transcode-or-direct-play *(unblocked, and smaller than planned)*
+
+Renamed from "adaptive quality" because #8 established there is no quality to adapt: Plex
+transcodes music to VBR mp3 at ~235–242 kbps and ignores every documented way of asking for
+less. The decision is binary.
 
 **Subtasks**
 
-1. A `QualityPolicy` mapping (connectivity type, server locality, user override) → decision.
-2. Inputs already exist or arrive with #41: `PlexServer.isLocal`, `preferTranscode` for
-   relay, the connectivity listener, and the #43b override.
-3. `PlaybackController._toMediaItem` chooses direct-play or transcode URL from the decision —
-   it is already the single place that knows how to reach a playable URL, and the comment at
-   [playback_controller.dart:54](../lib/features/player/playback_controller.dart:54) marks the
-   spot.
+1. A `QualityPolicy` mapping (connectivity type, server locality, user override) → direct play
+   or transcode. No bitrate anywhere in the type — there is nothing to put there.
+2. **Compare source rate against ~240 kbps before transcoding.** Transcoding a 128k mp3 up to
+   240 spends more data for worse audio, so the policy must transcode lossless and leave
+   already-small files alone. `PlexTrack` does not currently parse the part's `size`, so this
+   needs adding — the probe reads it from a ranged request instead.
+3. `PlaybackController._toMediaItem` chooses the URL from the decision. Already the single
+   place that knows how to reach a playable URL; the comment at
+   [playback_controller.dart:54](../lib/features/player/playback_controller.dart:54) marks it.
 4. Record the decision on the `MediaItem` so #24 can key its cache on it.
 5. Apply on next track, not mid-track.
+6. Seeking a transcode must restart it at `offset=` — Range is not supported, and
+   `LockCachingAudioSource` throws if asked to seek past what it has downloaded.
 
 **Considerations**
 
-- The remote-wifi bandwidth probe can be deferred. Start with "remote wifi → direct play,
-  fall back on failure" and add the probe only if that proves wrong in use.
-- Ladder: LAN → direct play. Remote wifi → probe or direct. Cellular → 320k. Data-saver →
-  128k. Relay → always transcode.
+- The remote-wifi bandwidth probe is now pointless: there is no lower rate to fall back to.
+  The choice is transcode or don't.
+- The cache key stays `(trackId, decision)` even though the decision is binary — a direct-play
+  FLAC and a transcoded mp3 of the same track are still different bytes.
+
 
 ### #24 — Audio disk cache *(needs #23)*
 
