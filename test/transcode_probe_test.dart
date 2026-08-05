@@ -65,6 +65,7 @@ void main() {
     Set<String> honouredBitrateParameters = const {'musicBitrate'},
     Set<String> requiredParameters = const {},
     int naturalKbps = 320,
+    int sourceKbps = 900,
   }) {
     // Echoed back on /transcode/sessions, so the probe can be shown to ask
     // about the session it actually started.
@@ -104,6 +105,20 @@ void main() {
           }),
           200,
           headers: {'content-type': 'application/json'},
+        );
+      }
+
+      // The original file, served straight off disk: a real length and real
+      // Range support, unlike the transcode.
+      if (request.url.path.startsWith('/library/parts/')) {
+        final total = bytesFor(sourceKbps);
+        return http.Response.bytes(
+          Uint8List(64 * 1024),
+          206,
+          headers: {
+            'content-type': 'audio/flac',
+            'content-range': 'bytes 0-${64 * 1024 - 1}/$total',
+          },
         );
       }
 
@@ -473,6 +488,31 @@ void main() {
         transcodeRequests().where((u) => u.path.endsWith('start.mp3')),
         hasLength(TranscodeProfile.candidates.length),
       );
+    });
+  });
+
+  group('whether transcoding is worth it', () {
+    test('a lossless original makes the saving the point', () async {
+      final report = await probeAgainst(server()).run(track);
+
+      final worth = check(report, 'Is transcoding worth it');
+      expect(worth.outcome, ProbeOutcome.pass);
+      // With no cap available this is the whole of what #23 gets to decide,
+      // so the number has to be real rather than assumed.
+      expect(worth.detail, contains('~900 kbps'));
+      expect(worth.detail, contains('64% saving'));
+    });
+
+    test('an original already smaller than the transcode is a loss', () async {
+      final report = await probeAgainst(
+        server(sourceKbps: 128, naturalKbps: 320),
+      ).run(track);
+
+      final worth = check(report, 'Is transcoding worth it');
+      // Transcoding a 128k mp3 up to 320 spends more data for worse audio.
+      // A policy that transcodes everything on cellular would do exactly this.
+      expect(worth.outcome, ProbeOutcome.fail);
+      expect(worth.detail, contains('should direct-play everywhere'));
     });
   });
 

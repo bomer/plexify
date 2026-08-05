@@ -110,6 +110,7 @@ class TranscodeProbe {
         }
       }
       checks.add(_bitrateMechanism(natural, capped));
+      checks.add(await _worthTranscoding(track, natural));
       checks.add(await _plexOwnAccount(track, winner.key, log));
     } else {
       checks
@@ -355,6 +356,51 @@ class TranscodeProbe {
     );
   }
 
+  /// What transcoding actually saves against playing the original.
+  ///
+  /// The cap turned out to be unavailable, which makes this the question #23 is
+  /// really left with: not *how much* quality to ask for, but whether to
+  /// transcode at all. Against a FLAC the answer can be a large saving even
+  /// with no control over the rate — and against an mp3 that is already smaller
+  /// than the transcode, it is a loss. Only measuring says which.
+  ///
+  /// The source is a static file, so unlike the transcode it does declare a
+  /// length; one ranged request is enough.
+  Future<ProbeCheck> _worthTranscoding(PlexTrack track, _Tail natural) async {
+    final url = _client.directPlayUrl(track);
+    if (url == null) {
+      return const ProbeCheck(
+        'Is transcoding worth it for this track?',
+        ProbeOutcome.unknown,
+        'The track has no direct-play part to compare against.',
+      );
+    }
+
+    final read = await _fetch(url);
+    final source = _impliedKbps(read.totalBytes, track);
+    final transcoded = natural.kbps;
+
+    if (source == null || transcoded == null) {
+      return ProbeCheck(
+        'Is transcoding worth it for this track?',
+        ProbeOutcome.unknown,
+        'Could not measure the original: HTTP ${read.status}, '
+            '${read.totalBytes == null ? 'no declared size' : '${read.totalBytes} bytes'}.',
+      );
+    }
+
+    final saving = ((source - transcoded) / source * 100).round();
+    return ProbeCheck(
+      'Is transcoding worth it for this track?',
+      saving > 0 ? ProbeOutcome.pass : ProbeOutcome.fail,
+      'Original ${track.container ?? '?'} ~$source kbps, transcode '
+          '~$transcoded kbps — '
+          '${saving > 0 ? 'a $saving% saving, so transcoding is worth doing on '
+                    'cellular even with no cap available' : 'transcoding would cost ${-saving}% more than the '
+                    'original, so this track should direct-play everywhere'}.',
+    );
+  }
+
   /// What Plex says it decided, in its own words.
   ///
   /// Three ways of asking for 128 kbps all came back at the natural rate, which
@@ -403,18 +449,21 @@ class TranscodeProbe {
       );
     }
 
-    final mine = sessions.firstWhere(
-      (s) => '${s['key']}'.contains(session),
-      // Any session is better than none: if the key does not match, that
-      // mismatch is worth seeing rather than hiding behind "not found".
-      orElse: () => sessions.first,
-    );
+    // Plex assigns its own key rather than echoing the `session` parameter, so
+    // a miss here is expected rather than alarming — but it means the record
+    // below is only probably ours, and saying so is the difference between a
+    // measurement and an assumption.
+    final matched = sessions.where((s) => '${s['key']}'.contains(session));
+    final mine = matched.isEmpty ? sessions.first : matched.first;
 
     final lines = mine.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
     return ProbeCheck(
       'What does Plex say it is doing?',
       ProbeOutcome.pass,
-      'Asked for $_lowKbps kbps; the server describes the session as:\n$lines',
+      'Asked for $_lowKbps kbps; the server describes the session as'
+          '${matched.isEmpty ? ' (matched by position, not by key — Plex issued '
+                    'its own session id, so this is the only session running '
+                    'rather than provably ours)' : ''}:\n$lines',
     );
   }
 
