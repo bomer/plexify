@@ -1,8 +1,9 @@
 # Plexify — task list
 
-Working state for the build. Mirrors the in-session task list so progress survives
-across sessions. See [docs/PLAN.md](../docs/PLAN.md) for the design and rationale, and
-[PROJECT.md](PROJECT.md) for environment, conventions and known traps.
+Working state for the build, and the durable record — a session's own task list starts empty
+and its numbering has already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md)
+for the design and rationale, and [PROJECT.md](PROJECT.md) for environment, conventions and
+known traps.
 
 **Last updated:** 5 August 2026
 
@@ -153,8 +154,11 @@ Poll progress, then `/library/sections/{id}/refresh`.
 ### Phase 8 — release
 
 **#34 — Packaging.** Signed APK with a real keystore (currently debug signing). Windows
-bundle. Icons, first-run flow, settings screen. Size guard: arm64 release is 20.8MB against
-a ~20MB expectation.
+bundle — currently a 48MB folder under `build/windows/x64/runner/Release/`, and the whole
+folder is the deliverable: `plexify.exe` is only 157KB and will not start without the sibling
+DLLs (`flutter_windows`, `libmpv-2`, `sqlite3`) and `data/`. Icons, first-run flow, a real
+settings screen — the Sync status screen is the only settings-shaped thing that exists.
+Size guard: arm64 release is 21.4MB against a ~20MB expectation.
 
 ---
 
@@ -170,3 +174,8 @@ a ~20MB expectation.
   header that made `permission_handler` unbuildable. Raised for the runner target only.
 - **ColorOS battery killer.** `OplusHansManager` tracks the process. If playback dies over a
   long session, the fix is exempting Plexify from battery optimisation, not code.
+- **The sync logic does not grow more paths.** James asked for this explicitly after the
+  ratings-not-appearing round. Three delivery mechanisms is the ceiling: push, poll, sweep.
+  Prefer making the existing ones observable over adding a fourth.
+- **Artists file under their first non-article word**, so The Beatles sits under B, matching
+  Plex's own `titleSort`. Reverse it and the app disagrees with the server it browses.

@@ -53,7 +53,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 60 tests, no live server needed
+flutter test             # 133 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -76,6 +76,44 @@ dart run build_runner build
 
 **Test in release on Android, not debug.** Flutter injects the `INTERNET` permission into
 debug manifests only, so debug builds hide manifest problems that break release.
+
+---
+
+## How a change reaches the screen
+
+Worth reading before touching anything under `lib/core/sync/`. Three mechanisms deliver
+library changes, and they are not interchangeable — most of the debugging so far has been
+working out which one *should* have carried a given change.
+
+| | What it catches | Latency |
+|---|---|---|
+| `plex_notifications.dart` → `live_sync.dart` | Items Plex finishes **scanning**: new music, deletions | Sub-second |
+| `sync_scheduler.dart` 30s poll | Anything that moved the section's `updatedAt` / `scannedAt` | ≤30s |
+| `sync_scheduler.dart` 5min sweep | Metadata edits the section clocks never announced — **ratings set in Plex** | ≤5min |
+
+The sweep exists because the section clocks describe the library's *shape*. Rating an album
+in Plex changes no files and adds no rows, so neither clock moves and the poll alone would
+never fetch it. This was a real bug, not a hypothetical.
+
+Everything writing Plex data into drift goes through **`LibraryWriter`** — the bulk sync, the
+push sync, and the revalidation that happens when a screen opens. There were three
+hand-maintained copies of that mapping once; a column added to one of them silently stayed
+null on the other paths.
+
+**Polling stops when the app leaves the foreground** and resumes with an immediate check.
+Android keeps the isolate alive for a whole playback session, so a poll that ignored
+lifecycle would run for hours down a mobile connection checking a screen nobody can see.
+
+### Start here when something "didn't show up"
+
+The **Sync status** screen (ℹ️ in the Home or Library app bar, `lib/features/settings/`)
+reports socket connection and frame counts, when the poll and sync last ran, the stored
+section clocks beside what the server reports right now, cached row counts, and the last
+error from each path. It exists because three separate mechanisms failing all look identical
+from the library screen — and two rounds of diagnosis were wasted guessing before it did.
+
+"Rows in last sync" is the one to read for cost: near zero on a routine sweep means Plex is
+honouring the `updatedAt>=` filter.
 
 ---
 
@@ -122,6 +160,15 @@ playback and search must all work while it runs.
 **5. Anything that must survive navigation lives outside the `Navigator`.**
 The mini player sits in the shell scaffold's bottom slot; Now Playing is a sibling `Stack`
 layer, not a pushed route. Pushing routes over them was the original bug.
+
+**6. Every write of Plex data into drift goes through `LibraryWriter`.**
+Three copies of that mapping existed once, and a column added to one stayed null everywhere
+else. `writeX` upserts; `ensureX` inserts only when absent, for callers that need a row to
+exist before updating it and must not flatten a richer one.
+
+**7. Compact layouts are decided by width, not platform.**
+`lib/shell/layout.dart` holds the single breakpoint. A narrow window on the desktop has the
+same problem a phone does, and a `Platform.isAndroid` check would miss it.
 
 ---
 
@@ -174,6 +221,36 @@ something needs installing — this produced one wrong diagnosis already.
 
 **Flutter needs Windows Developer Mode** for plugin symlinks. Already enabled.
 
+**The Windows runner builds as C++20, deliberately.** Under C++17, C++/WinRT falls back to
+`<experimental/coroutine>`, which current MSVC rejects outright rather than warning about —
+the same header that makes `permission_handler` unbuildable. `target_compile_features(...
+cxx_std_20)` in `windows/runner/CMakeLists.txt` is load-bearing; don't "tidy" it away.
+
+**Media keys cannot be handled in Dart.** Windows routes them to whichever app owns a media
+session, not to the focused window, so no amount of key handling in Flutter will see them.
+`windows/runner/media_controls.cpp` registers a System Media Transport Controls session. Its
+button callback arrives on an arbitrary thread and Flutter channels are platform-thread-only,
+hence the `PostMessage` bounce through the window proc.
+
+**`RefreshIndicator` does nothing on desktop.** It needs a drag, and a mouse wheel produces
+none. Any pull-to-refresh must be paired with an explicit button, which is what
+`SyncActions` is.
+
+**A delta sync cannot backfill a column added by a migration.** It asks Plex for rows changed
+since the cursor, and a rating set months ago has not changed. The v3 migration rewinds
+`lastSyncedUpdatedAt` to 0 so one full pass runs. Any future column that must be populated
+from existing Plex data needs the same treatment, or it stays empty forever and looks like a
+broken feature.
+
+**Rating writes are `UPDATE ... WHERE ratingKey = ?`.** For an item the sync has not reached
+they match nothing, Plex accepts the rating anyway, and it silently never appears in
+Favourites. `RatingController` calls `ensureAlbum` / `ensureTrack` first. Any other
+optimistic local write needs the same guard.
+
+**Watch ordering when a list has an index.** Digits sort before letters in ASCII, so a `#`
+bucket lands at the top of a list while an A–Z rail shows it at the bottom — tapping it jumps
+to the wrong end. `artist_index.dart` sorts non-letters last explicitly.
+
 ---
 
 ## Things only the user can do
@@ -184,16 +261,42 @@ something needs installing — this produced one wrong diagnosis already.
 - **Run Plex's sonic analysis** (Settings → Library → Analyze). Takes hours to days and gates
   sonic radio.
 - **Install software or change system settings.**
+- **Anything needing the real Plex library.** Tests run against fixtures, so behaviour that
+  depends on what the server actually returns — whether a filter is honoured, what a
+  notification frame really looks like — can only be confirmed on James's server.
+
+### Verified against the real server
+
+- Push sync delivers a newly added album **instantly**.
+- Ratings set in Plex arrive by poll, not push, and need the refresh button to appear at once.
+
+### Verified without the user, where it looked impossible
+
+Two things that seemed to need a human turned out not to:
+
+- **Windows media keys**, by querying the OS for the registered media session
+  (`GlobalSystemMediaTransportControlsSessionManager` from PowerShell) and synthesising
+  `keybd_event` presses for play/pause, next and previous while watching the app's log.
+- **Whether a test actually discriminates**, by temporarily breaking the code it guards and
+  confirming it fails. Worth doing for any test asserting an ordering or a race.
+
+Reach for that pattern before declaring something unverifiable.
 
 ---
 
 ## Git
 
-Two commits currently authored `unknown <james@nomoss.co>` — `user.name` is unset globally.
+Every commit so far is authored `unknown <james@nomoss.co>` — `user.name` is unset globally.
+Still worth setting; the history can be rewritten afterwards if it matters.
 
-Commit messages explain *why*, and record wrong turns explicitly (one commit notes that R8
-shrinking was ruled out before finding the real cause). This has already prevented
-re-investigation. Keep doing it.
+Commit messages explain *why*, and **record wrong turns explicitly**: one notes that R8
+shrinking was ruled out before the real cause was found, another that a claim about delta
+sync backfilling ratings was wrong and why. This has already prevented re-investigation more
+than once. Keep doing it — a message that only describes the final state throws away the
+expensive part.
+
+Write the message to a file and use `git commit -F`. PowerShell here-strings mangle multi-line
+`-m` arguments; that cost one confusing failure already.
 
 Sign commits with:
 
