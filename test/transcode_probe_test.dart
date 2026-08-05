@@ -40,6 +40,7 @@ void main() {
     bool hls = false,
     bool redirectToHls = false,
     bool honourRange = true,
+    bool honourOffset = true,
     bool declareSize = true,
     Set<String> honouredBitrateParameters = const {'musicBitrate'},
     Set<String> requiredParameters = const {},
@@ -89,18 +90,28 @@ void main() {
       }
 
       final total = bytesFor(kbps);
-      // 256 KB of body, so a probe that ignores its own read cap would still
-      // only be reading a window — the cap is asserted separately.
-      final body = Uint8List(256 * 1024);
+      final offset = int.parse(request.url.queryParameters['offset'] ?? '0');
+
+      // A live transcode is generated from the offset onwards, so asking for
+      // the tail yields a short stream. A server that ignores offset sends the
+      // whole thing instead — far past the probe's cap.
+      final body = offset > 0 && honourOffset
+          ? Uint8List(kbps * 1000 ~/ 8 * (trackDuration.inSeconds - offset))
+          // 256 KB, so a probe that ignored its own read cap would still only
+          // be reading a window. The cap is asserted separately.
+          : Uint8List(offset > 0 ? 2 * 1024 * 1024 : 256 * 1024);
+
+      // 206 only in answer to a Range request, as a real server would.
+      final ranged = honourRange && request.headers.containsKey('Range');
 
       return http.Response.bytes(
         body,
-        honourRange ? 206 : 200,
+        ranged ? 206 : 200,
         headers: {
           'content-type': 'audio/mpeg',
-          if (honourRange && declareSize)
+          if (ranged && declareSize)
             'content-range': 'bytes 0-${body.length - 1}/$total',
-          if (!honourRange && declareSize) 'content-length': '$total',
+          if (!ranged && declareSize) 'content-length': '$total',
         },
       );
     });
@@ -260,6 +271,66 @@ void main() {
     expect(size.outcome, ProbeOutcome.fail);
     // Without it the cache cannot tell a complete file from a truncated one.
     expect(size.detail, contains('truncated'));
+  });
+
+  group('measuring by asking for the tail', () {
+    test(
+      'offset shortening the stream is reported as its own finding',
+      () async {
+        final report = await probeAgainst(server()).run(track);
+
+        final offset = check(report, 'Does offset shorten');
+        expect(offset.outcome, ProbeOutcome.pass);
+      },
+    );
+
+    test(
+      'a server that ignores offset is caught, and stops the measurement',
+      () async {
+        final report = await probeAgainst(
+          server(honourOffset: false),
+        ).run(track);
+
+        // Without Range, offset is the only way to seek — and if it does not
+        // shorten the stream, the bytes describe the start of the track rather
+        // than the window asked for, so any bitrate read off them is fiction.
+        expect(check(report, 'Does offset shorten').outcome, ProbeOutcome.fail);
+        expect(
+          check(report, 'Which bitrate parameter').outcome,
+          ProbeOutcome.unknown,
+        );
+      },
+    );
+
+    test(
+      'the tail read gives up rather than downloading a whole track',
+      () async {
+        final report = await probeAgainst(
+          server(honourOffset: false),
+        ).run(track);
+
+        // The server offers 2 MB. Reading it to the end would be the whole
+        // track over the cellular link this exists to measure.
+        expect(
+          check(report, 'Does offset shorten').detail,
+          contains('${1024 * 1024} bytes without reaching the end'),
+        );
+      },
+    );
+
+    test(
+      'a bitrate is measured even when the server declares no size',
+      () async {
+        // Which is the real case: a live transcode has no length to declare.
+        final report = await probeAgainst(
+          server(declareSize: false),
+        ).run(track);
+
+        final bitrate = check(report, 'Which bitrate parameter');
+        expect(bitrate.outcome, ProbeOutcome.pass);
+        expect(bitrate.detail, contains('Honoured: musicBitrate.'));
+      },
+    );
   });
 
   group('which bitrate parameter is honoured', () {

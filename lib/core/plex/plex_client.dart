@@ -401,10 +401,14 @@ class PlexClient {
   /// transcoding into a buffer nobody is reading, and several of them at once
   /// is the difference between an idle NAS and a pegged one.
   ///
+  /// Returns the status Plex answered with, or 0 if it could not be reached.
+  /// The code rather than a bool because a refusal and an unreachable server
+  /// are different problems, and the spike needs to tell them apart.
+  ///
   /// Deliberately does not throw. This is called on the way out of playback,
   /// where there is nothing useful to do about a failure and an exception would
   /// only propagate into a teardown path.
-  Future<bool> stopTranscodeSession(String session) async {
+  Future<int> stopTranscodeSession(String session) async {
     try {
       final uri = Uri.parse(
         '${_server.baseUrl}/music/:/transcode/universal/stop',
@@ -414,9 +418,9 @@ class PlexClient {
         uri,
         headers: _identity.headers(token: _server.token),
       );
-      return response.statusCode < 400;
+      return response.statusCode;
     } on Object {
-      return false;
+      return 0;
     }
   }
 

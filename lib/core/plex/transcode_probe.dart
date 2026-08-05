@@ -7,6 +7,19 @@ import 'plex_client.dart';
 import 'plex_models.dart';
 import 'transcode.dart';
 
+/// How much audio to fetch when measuring the delivered bitrate.
+///
+/// Long enough that per-request overhead does not distort the figure, short
+/// enough to cost a few hundred kilobytes rather than a whole track.
+const _tailSeconds = 10;
+
+/// Give-up point for the tail read.
+///
+/// Comfortably more than [_tailSeconds] of the highest rate asked for, and far
+/// less than a whole track — so hitting it means `offset` was ignored and the
+/// server is streaming from the beginning regardless.
+const _tailCapBytes = 1024 * 1024;
+
 /// Answers the questions in task #8 by measuring a real server.
 ///
 /// `/music/:/transcode/universal/start` is the least-documented endpoint this
@@ -52,7 +65,7 @@ class TranscodeProbe {
 
   Future<TranscodeProbeReport> run(PlexTrack track) async {
     final checks = <ProbeCheck>[];
-    final sessions = <String>[];
+    final log = _SessionLog();
 
     // Which parameters the endpoint requires is the first unknown, and every
     // later question is meaningless until it is settled — measuring the
@@ -64,7 +77,7 @@ class TranscodeProbe {
         profile,
         TranscodeBitrateParameter.musicBitrate,
         _highKbps,
-        sessions,
+        log,
       );
       tried[profile] = attempt;
       // Deliberately does not stop at the first success: knowing that a leaner
@@ -84,34 +97,51 @@ class TranscodeProbe {
     checks.add(_declaresLength(high, track));
 
     if (winner != null) {
-      final musicLow = await _attempt(
+      // Measured from delivered bytes rather than a declared size, because on
+      // a live transcode there is no declared size to read.
+      final tailHigh = await _measureTail(
+        track,
+        winner.key,
+        TranscodeBitrateParameter.musicBitrate,
+        _highKbps,
+        log,
+      );
+      checks.add(_offsetShortensTheStream(tailHigh));
+
+      final tailMusicLow = await _measureTail(
         track,
         winner.key,
         TranscodeBitrateParameter.musicBitrate,
         _lowKbps,
-        sessions,
+        log,
       );
-      final maxAudioLow = await _attempt(
+      final tailMaxAudioLow = await _measureTail(
         track,
         winner.key,
         TranscodeBitrateParameter.maxAudioBitrate,
         _lowKbps,
-        sessions,
+        log,
       );
-      checks.add(_bitrateParameter(track, high, musicLow, maxAudioLow));
+      checks.add(_bitrateParameter(tailHigh, tailMusicLow, tailMaxAudioLow));
     } else {
-      checks.add(
-        const ProbeCheck(
-          'Which bitrate parameter does Plex honour?',
-          ProbeOutcome.unknown,
-          'Not measured — no parameter set returned audio.',
-        ),
-      );
+      checks
+        ..add(
+          const ProbeCheck(
+            'Does offset shorten the stream?',
+            ProbeOutcome.unknown,
+            'Not measured — no parameter set returned audio.',
+          ),
+        )
+        ..add(
+          const ProbeCheck(
+            'Which bitrate parameter does Plex honour?',
+            ProbeOutcome.unknown,
+            'Not measured — no parameter set returned audio.',
+          ),
+        );
     }
 
-    checks.add(
-      await _sessionsCanBeStopped(sessions, anyStarted: winner != null),
-    );
+    checks.add(_sessionsCanBeStopped(log));
 
     return TranscodeProbeReport(
       track: track,
@@ -265,37 +295,60 @@ class TranscodeProbe {
     );
   }
 
-  ProbeCheck _bitrateParameter(
-    PlexTrack track,
-    _Attempt high,
-    _Attempt musicLow,
-    _Attempt maxAudioLow,
-  ) {
-    final baseline = _impliedKbps(high.totalBytes, track);
-    final music = _impliedKbps(musicLow.totalBytes, track);
-    final maxAudio = _impliedKbps(maxAudioLow.totalBytes, track);
+  ProbeCheck _offsetShortensTheStream(_Tail tail) {
+    if (tail.error != null) {
+      return ProbeCheck(
+        'Does offset shorten the stream?',
+        ProbeOutcome.unknown,
+        'Request failed: ${tail.error}',
+      );
+    }
+    if (!tail.completed) {
+      // The measurement below depends on this, and so does seeking: a
+      // transcode with no Range support can only be seeked by restarting it
+      // at an offset.
+      return ProbeCheck(
+        'Does offset shorten the stream?',
+        ProbeOutcome.fail,
+        'Asked for the last $_tailSeconds seconds and read ${tail.bytes} '
+            'bytes without reaching the end — offset appears to be ignored. '
+            'Without it there is no way to seek a stream that has no Range '
+            'support.',
+      );
+    }
+    return ProbeCheck(
+      'Does offset shorten the stream?',
+      ProbeOutcome.pass,
+      'The last $_tailSeconds seconds came back whole in ${tail.bytes} bytes, '
+          'so offset both works and gives seeking a route that does not need '
+          'Range.',
+    );
+  }
+
+  ProbeCheck _bitrateParameter(_Tail high, _Tail musicLow, _Tail maxAudioLow) {
+    final baseline = high.kbps;
+    final music = musicLow.kbps;
+    final maxAudio = maxAudioLow.kbps;
 
     if (baseline == null || music == null || maxAudio == null) {
       return ProbeCheck(
         'Which bitrate parameter does Plex honour?',
         ProbeOutcome.unknown,
-        'Cannot measure without a declared size. '
-            'musicBitrate=$_highKbps → ${_size(high)}, '
-            'musicBitrate=$_lowKbps → ${_size(musicLow)}, '
-            'maxAudioBitrate=$_lowKbps → ${_size(maxAudioLow)}.',
+        'Could not measure: '
+            'musicBitrate=$_highKbps → ${high.describe}, '
+            'musicBitrate=$_lowKbps → ${musicLow.describe}, '
+            'maxAudioBitrate=$_lowKbps → ${maxAudioLow.describe}.',
       );
     }
 
-    final musicHonoured = _near(music, _lowKbps);
-    final maxAudioHonoured = _near(maxAudio, _lowKbps);
+    final honoured = [
+      if (_near(music, _lowKbps)) 'musicBitrate',
+      if (_near(maxAudio, _lowKbps)) 'maxAudioBitrate',
+    ];
     final baselineHonoured = _near(baseline, _highKbps);
 
-    final honoured = [
-      if (musicHonoured) 'musicBitrate',
-      if (maxAudioHonoured) 'maxAudioBitrate',
-    ];
-
     final detail =
+        'Measured over the last $_tailSeconds seconds. '
         'musicBitrate=$_highKbps → ~$baseline kbps, '
         'musicBitrate=$_lowKbps → ~$music kbps, '
         'maxAudioBitrate=$_lowKbps → ~$maxAudio kbps. '
@@ -311,38 +364,38 @@ class TranscodeProbe {
     );
   }
 
-  Future<ProbeCheck> _sessionsCanBeStopped(
-    List<String> sessions, {
-    required bool anyStarted,
-  }) async {
-    if (sessions.isEmpty) {
+  /// Whether the server let go of the transcodes this run started.
+  ///
+  /// Only sessions that actually began are judged: a stop for one that never
+  /// started cannot succeed, and reporting that as a failure points at teardown
+  /// when the fault is upstream.
+  ProbeCheck _sessionsCanBeStopped(_SessionLog log) {
+    if (log.started.isEmpty) {
       return const ProbeCheck(
         'Can the transcode session be stopped?',
         ProbeOutcome.unknown,
-        'No sessions were opened.',
+        'No transcode ever started, so there was nothing to tear down.',
       );
-    }
-    var stopped = 0;
-    for (final session in sessions) {
-      if (await _client.stopTranscodeSession(session)) stopped++;
     }
 
-    // A session that never started cannot meaningfully be stopped, and calling
-    // that a failure points at teardown when the actual fault is upstream.
-    if (!anyStarted) {
-      return ProbeCheck(
-        'Can the transcode session be stopped?',
-        ProbeOutcome.unknown,
-        '$stopped of ${sessions.length} accepted the stop, but no transcode '
-            'ever started — there was nothing to tear down.',
-      );
+    final statuses = log.started.map((s) => log.stopStatus[s] ?? 0).toList();
+    final accepted = statuses.where((s) => s > 0 && s < 400).length;
+    final byCode = <int, int>{};
+    for (final status in statuses) {
+      byCode[status] = (byCode[status] ?? 0) + 1;
     }
+    final breakdown = byCode.entries
+        .map(
+          (e) => '${e.value}x ${e.key == 0 ? 'unreachable' : 'HTTP ${e.key}'}',
+        )
+        .join(', ');
 
     return ProbeCheck(
       'Can the transcode session be stopped?',
-      stopped == sessions.length ? ProbeOutcome.pass : ProbeOutcome.fail,
-      '$stopped of ${sessions.length} sessions accepted the stop. '
-          'Anything left over keeps the server transcoding into nothing.',
+      accepted == statuses.length ? ProbeOutcome.pass : ProbeOutcome.fail,
+      '$accepted of ${statuses.length} started sessions accepted the stop '
+          '($breakdown). Anything left over keeps the server transcoding into '
+          'a buffer nobody is reading.',
     );
   }
 
@@ -353,10 +406,9 @@ class TranscodeProbe {
     TranscodeProfile profile,
     TranscodeBitrateParameter parameter,
     int kbps,
-    List<String> sessions,
+    _SessionLog log,
   ) async {
     final session = _newSession();
-    sessions.add(session);
 
     final url = _client.transcodeUrl(
       track.ratingKey,
@@ -370,21 +422,78 @@ class TranscodeProbe {
     // Redirects are followed by hand, once, because *where* it redirects is
     // itself an answer — an automatic follow would hide a hop into HLS.
     final location = first.redirectedTo;
-    if (location == null) return first;
+    final result = location == null
+        ? first
+        : (await _fetch(
+            Uri.parse(url).resolve(location).toString(),
+          )).copyWith(url: url, redirectedTo: location);
 
-    final followed = await _fetch(Uri.parse(url).resolve(location).toString());
-    return followed.copyWith(url: url, redirectedTo: location);
+    // Torn down straight away rather than at the end of the run, so the probe
+    // never has five transcodes going at once on a machine that is also
+    // serving music.
+    await log.close(session, _client, started: result.looksLikeAudio);
+    return result;
   }
 
-  Future<_Attempt> _fetch(String url) async {
+  /// Downloads the last [_tailSeconds] of the track and counts the bytes.
+  ///
+  /// A live transcode declares no length, so the size cannot be read off a
+  /// header and the delivered bitrate cannot be inferred from one. Fetching
+  /// whole tracks to compare would cost tens of megabytes on exactly the
+  /// connection this exists to measure — but `offset` starts the transcode
+  /// partway in, so asking for the final few seconds yields a short stream of
+  /// known duration. Bytes over that duration is the bitrate, measured rather
+  /// than believed.
+  Future<_Tail> _measureTail(
+    PlexTrack track,
+    TranscodeProfile profile,
+    TranscodeBitrateParameter parameter,
+    int kbps,
+    _SessionLog log,
+  ) async {
+    final offset = track.duration - const Duration(seconds: _tailSeconds);
+    if (offset <= Duration.zero) {
+      return const _Tail(
+        bytes: 0,
+        completed: false,
+        error: 'Track is shorter than the measurement window.',
+      );
+    }
+
+    final session = _newSession();
+
+    final url = _client.transcodeUrl(
+      track.ratingKey,
+      session: session,
+      bitrateKbps: kbps,
+      bitrateParameter: parameter,
+      profile: profile,
+      offset: offset,
+    );
+
+    final read = await _fetch(url, maxBytes: _tailCapBytes, ranged: false);
+    await log.close(session, _client, started: read.looksLikeAudio);
+
+    if (read.error != null) return _Tail(bytes: 0, error: '${read.error}');
+    if (read.status >= 400) {
+      return _Tail(bytes: 0, error: 'HTTP ${read.status}');
+    }
+    return _Tail(bytes: read.receivedBytes, completed: read.completed);
+  }
+
+  Future<_Attempt> _fetch(
+    String url, {
+    int maxBytes = _windowBytes,
+    bool ranged = true,
+  }) async {
     final started = DateTime.now();
     try {
       final request = http.Request('GET', Uri.parse(url))
-        ..followRedirects = false
-        ..headers['Range'] = 'bytes=0-${_windowBytes - 1}';
+        ..followRedirects = false;
+      if (ranged) request.headers['Range'] = 'bytes=0-${maxBytes - 1}';
 
       final response = await _http.send(request);
-      final bytes = await _take(response.stream, _windowBytes);
+      final (bytes, completed) = await _take(response.stream, maxBytes);
 
       return _Attempt(
         url: url,
@@ -394,6 +503,7 @@ class TranscodeProbe {
             ? response.headers['location']
             : null,
         receivedBytes: bytes.length,
+        completed: completed,
         bodySniff: _sniff(bytes),
         elapsed: DateTime.now().difference(started),
       );
@@ -410,26 +520,28 @@ class TranscodeProbe {
     }
   }
 
-  /// Reads at most [max] bytes, then hangs up.
+  /// Reads at most [max] bytes, then hangs up. Reports whether the stream ended
+  /// on its own.
   ///
-  /// The cap is load-bearing: if Range is ignored the server offers the entire
-  /// transcode, and reading it to completion would download the whole track on
-  /// the cellular connection this is meant to be measuring.
-  static Future<List<int>> _take(Stream<List<int>> stream, int max) {
+  /// The cap is load-bearing: this server ignores Range and offers the entire
+  /// transcode, so reading to completion would download the whole track over
+  /// the cellular link being measured. Whether the cap was reached is itself a
+  /// finding — it is how an ignored `offset` shows up.
+  static Future<(List<int>, bool)> _take(Stream<List<int>> stream, int max) {
     final out = <int>[];
-    final done = Completer<List<int>>();
+    final done = Completer<(List<int>, bool)>();
     late StreamSubscription<List<int>> sub;
 
     sub = stream.listen(
       (chunk) {
         out.addAll(chunk);
         if (out.length >= max && !done.isCompleted) {
-          done.complete(out.sublist(0, max));
+          done.complete((out.sublist(0, max), false));
           unawaited(sub.cancel());
         }
       },
       onDone: () {
-        if (!done.isCompleted) done.complete(out);
+        if (!done.isCompleted) done.complete((out, true));
       },
       onError: (Object e, StackTrace s) {
         if (!done.isCompleted) done.completeError(e, s);
@@ -452,9 +564,6 @@ class TranscodeProbe {
 
   static bool _near(int measured, int requested) =>
       (measured - requested).abs() <= requested * _tolerance;
-
-  static String _size(_Attempt a) =>
-      a.totalBytes == null ? 'no declared size' : '${a.totalBytes} bytes';
 
   /// A printable prefix of the body.
   ///
@@ -545,6 +654,30 @@ class TranscodeProbeReport {
   }
 }
 
+/// A measured stretch of audio: how many bytes arrived for a known duration.
+class _Tail {
+  const _Tail({required this.bytes, this.completed = false, this.error});
+
+  final int bytes;
+
+  /// Whether the stream ended on its own rather than being cut off at the cap.
+  /// A cut-off read means `offset` was ignored, so the bytes describe the
+  /// start of the track and not the window that was asked for.
+  final bool completed;
+
+  final String? error;
+
+  int? get kbps => !completed || bytes <= 0
+      ? null
+      : (bytes * 8 / _tailSeconds / 1000).round();
+
+  String get describe => error != null
+      ? error!
+      : completed
+      ? '$bytes bytes'
+      : 'did not end within $_tailCapBytes bytes';
+}
+
 class _Attempt {
   const _Attempt({
     required this.url,
@@ -553,6 +686,7 @@ class _Attempt {
     required this.receivedBytes,
     required this.bodySniff,
     required this.elapsed,
+    this.completed = false,
     this.redirectedTo,
     this.error,
   });
@@ -562,6 +696,10 @@ class _Attempt {
   final Map<String, String> headers;
   final String? redirectedTo;
   final int receivedBytes;
+
+  /// Whether the body ended on its own rather than hitting the read cap.
+  final bool completed;
+
   final String bodySniff;
   final Duration elapsed;
   final Object? error;
@@ -604,9 +742,28 @@ class _Attempt {
     status: status,
     headers: headers,
     receivedBytes: receivedBytes,
+    completed: completed,
     bodySniff: bodySniff,
     elapsed: elapsed,
     redirectedTo: redirectedTo ?? this.redirectedTo,
     error: error,
   );
+}
+
+/// Every transcode session this run opened, and what happened when it was
+/// asked to stop.
+class _SessionLog {
+  /// Sessions where a transcode genuinely began.
+  final started = <String>[];
+
+  final stopStatus = <String, int>{};
+
+  Future<void> close(
+    String session,
+    PlexClient client, {
+    required bool started,
+  }) async {
+    if (started) this.started.add(session);
+    stopStatus[session] = await client.stopTranscodeSession(session);
+  }
 }
