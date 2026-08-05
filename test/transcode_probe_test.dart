@@ -42,6 +42,7 @@ void main() {
     bool honourRange = true,
     bool declareSize = true,
     Set<String> honouredBitrateParameters = const {'musicBitrate'},
+    Set<String> requiredParameters = const {},
     int defaultKbps = 320,
   }) {
     return MockClient((request) async {
@@ -49,6 +50,20 @@ void main() {
 
       if (request.url.path.endsWith('/stop')) {
         return http.Response('', 200);
+      }
+
+      // Plex rejects a request it cannot form a transcode decision from, and
+      // says nothing about which parameter was missing.
+      final missing = requiredParameters.where(
+        (p) => !request.url.queryParameters.containsKey(p),
+      );
+      if (missing.isNotEmpty) {
+        return http.Response(
+          '<html><head><title>Bad Request</title></head><body>'
+          '<h1>400 Bad Request</h1></body></html>',
+          400,
+          headers: {'content-type': 'text/html'},
+        );
       }
 
       if (redirectToHls) {
@@ -299,12 +314,74 @@ void main() {
         ProbeOutcome.unknown,
       );
       // Comparing the sizes of two error pages would produce a confident
-      // answer to a question that was never asked.
+      // answer to a question that was never asked: nothing beyond the
+      // candidate sweep should have been requested.
       expect(
         transcodeRequests().where((u) => u.path.endsWith('start.mp3')),
-        hasLength(1),
+        hasLength(TranscodeProfile.candidates.length),
       );
     });
+  });
+
+  group('finding the parameter set the server accepts', () {
+    test('names the leanest one that works', () async {
+      final report = await probeAgainst(server()).run(track);
+
+      final accepted = check(report, 'Which parameter set');
+      expect(accepted.outcome, ProbeOutcome.pass);
+      expect(accepted.detail, contains('Leanest that works: minimal'));
+    });
+
+    test('walks past the ones the server rejects', () async {
+      // A server that will not decide without knowing who is asking — which
+      // it cannot learn from headers, because the audio engine sends none.
+      final report = await probeAgainst(
+        server(requiredParameters: {'X-Plex-Product'}),
+      ).run(track);
+
+      final accepted = check(report, 'Which parameter set');
+      expect(accepted.outcome, ProbeOutcome.pass);
+      expect(accepted.detail, contains('Leanest that works: identified'));
+      // The rejections are the finding, not noise: each one names a parameter
+      // the server turned out to need.
+      expect(accepted.detail, contains('minimal: HTTP 400'));
+      expect(report.workingProfile, 'identified');
+    });
+
+    test('reports every candidate, not just the winner', () async {
+      final report = await probeAgainst(server()).run(track);
+
+      final accepted = check(report, 'Which parameter set');
+      for (final profile in TranscodeProfile.candidates) {
+        // A leaner profile that also worked names parameters never needed.
+        expect(accepted.detail, contains(profile.name));
+      }
+    });
+
+    test('says so plainly when nothing works', () async {
+      final report = await probeAgainst(
+        server(requiredParameters: {'nothing-sends-this'}),
+      ).run(track);
+
+      final accepted = check(report, 'Which parameter set');
+      expect(accepted.outcome, ProbeOutcome.fail);
+      expect(accepted.detail, contains('None of them'));
+      expect(report.workingProfile, isNull);
+    });
+
+    test(
+      'carries the rejection body, which is where the reason lives',
+      () async {
+        final report = await probeAgainst(
+          server(requiredParameters: {'nothing-sends-this'}),
+        ).run(track);
+
+        expect(
+          check(report, 'Does the progressive endpoint answer').detail,
+          contains('400 Bad Request'),
+        );
+      },
+    );
   });
 
   group('transcode sessions', () {

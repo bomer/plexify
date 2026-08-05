@@ -54,29 +54,46 @@ class TranscodeProbe {
     final checks = <ProbeCheck>[];
     final sessions = <String>[];
 
-    final high = await _attempt(
-      track,
-      TranscodeBitrateParameter.musicBitrate,
-      _highKbps,
-      sessions,
-    );
+    // Which parameters the endpoint requires is the first unknown, and every
+    // later question is meaningless until it is settled — measuring the
+    // bitrate of a 400 page proves nothing.
+    final tried = <TranscodeProfile, _Attempt>{};
+    for (final profile in TranscodeProfile.candidates) {
+      final attempt = await _attempt(
+        track,
+        profile,
+        TranscodeBitrateParameter.musicBitrate,
+        _highKbps,
+        sessions,
+      );
+      tried[profile] = attempt;
+      // Deliberately does not stop at the first success: knowing that a leaner
+      // profile also works is what says which parameters were never needed.
+    }
 
+    final winner = tried.entries
+        .where((e) => e.value.looksLikeAudio)
+        .firstOrNull;
+
+    checks.add(_acceptedProfile(tried));
+
+    final high = winner?.value ?? tried.values.first;
     checks.add(_answersWithAudio(high));
     checks.add(_staysProgressive(high));
     checks.add(_honoursRange(high));
     checks.add(_declaresLength(high, track));
 
-    // Only worth measuring bitrates once the endpoint is known to return
-    // audio — comparing the sizes of two error pages proves nothing.
-    if (high.looksLikeAudio) {
+    if (winner != null) {
       final musicLow = await _attempt(
         track,
+        winner.key,
         TranscodeBitrateParameter.musicBitrate,
         _lowKbps,
         sessions,
       );
       final maxAudioLow = await _attempt(
         track,
+        winner.key,
         TranscodeBitrateParameter.maxAudioBitrate,
         _lowKbps,
         sessions,
@@ -87,12 +104,14 @@ class TranscodeProbe {
         const ProbeCheck(
           'Which bitrate parameter does Plex honour?',
           ProbeOutcome.unknown,
-          'Not measured — the endpoint did not return audio.',
+          'Not measured — no parameter set returned audio.',
         ),
       );
     }
 
-    checks.add(await _sessionsCanBeStopped(sessions));
+    checks.add(
+      await _sessionsCanBeStopped(sessions, anyStarted: winner != null),
+    );
 
     return TranscodeProbeReport(
       track: track,
@@ -103,7 +122,38 @@ class TranscodeProbe {
           : 'Remote',
       serverUrl: _client.server.baseUrl,
       exampleUrl: _redact(high.url),
+      workingProfile: winner?.key.name,
       checks: checks,
+    );
+  }
+
+  /// The finding the rest of the spike depends on.
+  ///
+  /// Reports every candidate rather than only the winner: a profile that was
+  /// rejected names a parameter the server needed, and a leaner one that
+  /// worked names parameters it never did.
+  ProbeCheck _acceptedProfile(Map<TranscodeProfile, _Attempt> tried) {
+    final lines = <String>[];
+    for (final entry in tried.entries) {
+      final a = entry.value;
+      final verdict = a.looksLikeAudio
+          ? 'accepted'
+          : a.error != null
+          ? 'unreachable (${a.error})'
+          : 'HTTP ${a.status}${a.isHls ? ', HLS' : ''}';
+      lines.add('  ${entry.key.name}: $verdict — ${entry.key.why}');
+    }
+
+    final accepted = tried.entries
+        .where((e) => e.value.looksLikeAudio)
+        .map((e) => e.key.name)
+        .toList();
+
+    return ProbeCheck(
+      'Which parameter set does the server accept?',
+      accepted.isEmpty ? ProbeOutcome.fail : ProbeOutcome.pass,
+      '${accepted.isEmpty ? 'None of them.' : 'Leanest that works: ${accepted.first}.'}'
+          '\n${lines.join('\n')}',
     );
   }
 
@@ -261,7 +311,10 @@ class TranscodeProbe {
     );
   }
 
-  Future<ProbeCheck> _sessionsCanBeStopped(List<String> sessions) async {
+  Future<ProbeCheck> _sessionsCanBeStopped(
+    List<String> sessions, {
+    required bool anyStarted,
+  }) async {
     if (sessions.isEmpty) {
       return const ProbeCheck(
         'Can the transcode session be stopped?',
@@ -273,6 +326,18 @@ class TranscodeProbe {
     for (final session in sessions) {
       if (await _client.stopTranscodeSession(session)) stopped++;
     }
+
+    // A session that never started cannot meaningfully be stopped, and calling
+    // that a failure points at teardown when the actual fault is upstream.
+    if (!anyStarted) {
+      return ProbeCheck(
+        'Can the transcode session be stopped?',
+        ProbeOutcome.unknown,
+        '$stopped of ${sessions.length} accepted the stop, but no transcode '
+            'ever started — there was nothing to tear down.',
+      );
+    }
+
     return ProbeCheck(
       'Can the transcode session be stopped?',
       stopped == sessions.length ? ProbeOutcome.pass : ProbeOutcome.fail,
@@ -285,6 +350,7 @@ class TranscodeProbe {
 
   Future<_Attempt> _attempt(
     PlexTrack track,
+    TranscodeProfile profile,
     TranscodeBitrateParameter parameter,
     int kbps,
     List<String> sessions,
@@ -297,6 +363,7 @@ class TranscodeProbe {
       session: session,
       bitrateKbps: kbps,
       bitrateParameter: parameter,
+      profile: profile,
     );
 
     final first = await _fetch(url);
@@ -389,9 +456,14 @@ class TranscodeProbe {
   static String _size(_Attempt a) =>
       a.totalBytes == null ? 'no declared size' : '${a.totalBytes} bytes';
 
+  /// A printable prefix of the body.
+  ///
+  /// Long enough to carry the reason out of an error page — the whole value of
+  /// a rejection is *why* — and short enough not to paste a stylesheet into
+  /// the report.
   static String _sniff(List<int> bytes) {
     final head = bytes
-        .take(64)
+        .take(200)
         .map((b) => b >= 32 && b < 127 ? b : 46)
         .toList();
     return String.fromCharCodes(head);
@@ -422,11 +494,16 @@ class TranscodeProbeReport {
     required this.serverUrl,
     required this.exampleUrl,
     required this.checks,
+    this.workingProfile,
   });
 
   final PlexTrack track;
   final String route;
   final String serverUrl;
+
+  /// Name of the leanest [TranscodeProfile] the server accepted, or null if
+  /// none did. This is the headline finding of the spike.
+  final String? workingProfile;
 
   /// Token-free, so the report can be pasted anywhere.
   final String exampleUrl;
@@ -448,6 +525,7 @@ class TranscodeProbeReport {
         '[${track.container ?? 'unknown container'}, '
         '${(track.durationMs / 1000).round()}s]',
       )
+      ..writeln('Profile:  ${workingProfile ?? 'none accepted'}')
       ..writeln('URL:      $exampleUrl')
       ..writeln();
 

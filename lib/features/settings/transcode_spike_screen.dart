@@ -109,7 +109,8 @@ class _TranscodeSpikeScreenState extends ConsumerState<TranscodeSpikeScreen> {
           Padding(
             padding: const EdgeInsets.only(top: 8),
             child: Text(
-              'Downloads about 256 KB in total and stops every transcode '
+              'Tries several parameter sets to find which the server accepts. '
+              'Downloads under half a megabyte and stops every transcode '
               'session it opens.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,

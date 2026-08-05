@@ -358,14 +358,15 @@ class PlexClient {
   /// abandons the first — and must be handed to [stopTranscodeSession] when
   /// playback ends.
   ///
-  /// [bitrateParameter] is a live question, not a preference; see
-  /// [TranscodeBitrateParameter].
+  /// [bitrateParameter] and [profile] are both live questions rather than
+  /// preferences; see [TranscodeBitrateParameter] and [TranscodeProfile].
   String transcodeUrl(
     String ratingKey, {
     required String session,
     required int bitrateKbps,
     TranscodeBitrateParameter bitrateParameter =
         TranscodeBitrateParameter.musicBitrate,
+    TranscodeProfile? profile,
     Duration offset = Duration.zero,
   }) {
     final uri =
@@ -376,10 +377,12 @@ class PlexClient {
             'path': '/library/metadata/$ratingKey',
             'mediaIndex': '0',
             'partIndex': '0',
-            'protocol': 'http',
             'offset': '${offset.inSeconds}',
             'directPlay': '0',
             'directStream': '0',
+            // Layered over the base so a profile can override the decision
+            // flags as well as add to them.
+            ...(profile ?? TranscodeProfile.identified).build(_identity),
             'session': session,
             bitrateParameter.queryName: '$bitrateKbps',
             // Credentials go in the query string because this URL is handed to
