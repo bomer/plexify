@@ -9,6 +9,7 @@ import 'audio/playback_handler.dart';
 import 'audio/timeline_reporter.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
+import 'db/recently_played.dart';
 import 'plex/connection_health.dart';
 import 'plex/connection_monitor.dart';
 import 'plex/plex_auth.dart';
@@ -681,12 +682,52 @@ final recentPlaylistsProvider = Provider<AsyncValue<List<PlexPlaylist>>>((ref) {
   return ref.watch(playlistsProvider).whenData((all) => all.take(8).toList());
 });
 
-/// Albums played most recently, for Home.
-final recentlyPlayedProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
+/// Albums played most recently.
+final recentlyPlayedAlbumsProvider = StreamProvider<List<PlexAlbum>>((
+  ref,
+) async* {
   final db = ref.watch(databaseProvider);
   await for (final rows in db.watchRecentlyPlayedAlbums()) {
     yield rows.map((r) => r.toDomain()).toList();
   }
+});
+
+/// Playlists played most recently.
+final recentlyPlayedPlaylistsProvider = StreamProvider<List<PlexPlaylist>>((
+  ref,
+) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchRecentlyPlayedPlaylists()) {
+    yield rows.map((r) => r.toDomain()).toList();
+  }
+});
+
+/// What was listened to, of either kind, newest first — Home's "Jump back in".
+///
+/// Merged here rather than in SQL because the two live in different tables
+/// with no sensible join, and the lists are twenty rows each: sorting them in
+/// Dart costs nothing and keeps both queries simple and separately testable.
+///
+/// Loading only while *both* are, so the shelf does not flash a half-list on
+/// the way in.
+final recentlyPlayedProvider = Provider<AsyncValue<List<RecentlyPlayed>>>((
+  ref,
+) {
+  final albums = ref.watch(recentlyPlayedAlbumsProvider);
+  final playlists = ref.watch(recentlyPlayedPlaylistsProvider);
+
+  if (albums.isLoading && playlists.isLoading) {
+    return const AsyncValue<List<RecentlyPlayed>>.loading();
+  }
+
+  final merged = <RecentlyPlayed>[
+    for (final album in albums.valueOrNull ?? const <PlexAlbum>[])
+      RecentlyPlayed.album(album),
+    for (final playlist in playlists.valueOrNull ?? const <PlexPlaylist>[])
+      RecentlyPlayed.playlist(playlist),
+  ]..sort((a, b) => b.lastViewedAt.compareTo(a.lastViewedAt));
+
+  return AsyncValue.data(merged.take(20).toList());
 });
 
 /// Albums added most recently, for Home.

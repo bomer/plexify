@@ -54,7 +54,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 307 tests, no live server needed
+flutter test             # 313 tests, no live server needed
 dart format lib test     # run before committing
 ```
 

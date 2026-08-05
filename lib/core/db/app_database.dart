@@ -262,6 +262,19 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
+  /// Playlists most recently played, for the Home screen.
+  ///
+  /// Unlike [watchPlaylists], which lists everything for the sidebar, this
+  /// excludes the never-played — "Jump back in" is about what you did, not
+  /// what exists.
+  Stream<List<Playlist>> watchRecentlyPlayedPlaylists({int limit = 20}) {
+    final query = select(playlists)
+      ..where((p) => p.lastViewedAt.isNotNull())
+      ..orderBy([(p) => OrderingTerm.desc(p.lastViewedAt)])
+      ..limit(limit);
+    return query.watch();
+  }
+
   /// Albums most recently added, for the Home screen.
   Stream<List<Album>> watchRecentlyAddedAlbums({int limit = 20}) {
     final query = select(albums)

@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 34 complete · 13 open · 307 tests passing
+**Status:** 35 complete · 12 open · 313 tests passing
 
 ---
 
@@ -16,13 +16,13 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 The index. One line each; the reasoning is under [Detail](#detail), and the sequence is under
 [Order](#order).
 
-| # | Task | Where it sits |
-|---|---|---|
-| 46 | "Jump back in" should list playlists too | Small. #45 made playing one credit the playlist; the shelf still only reads albums |
-| 24 | Audio disk cache | Next. #23 landed the key to store under |
-| 43b | Settings: playback and storage | Lands with #24 — the two sections #43a left empty |
-| 19 | Deletion reconcile | The one place that may treat absence as authoritative |
+| #   | Task                                     | Where it sits                                                                      |
+| --- | ---------------------------------------- | ---------------------------------------------------------------------------------- |
+| 46  | "Jump back in" should list playlists too | Small. #45 made playing one credit the playlist; the shelf still only reads albums |
+
+|
 | 44 | Now Playing navigation test | The plan's non-retrofittable invariant, currently unguarded |
+| 24 | Audio disk cache | Next. #23 landed the key to store under |
 | 22 | Queue controls | Shuffle, repeat, reorder; gapless verified by ear |
 | 28 | Instant local search | Indexes and columns already exist; screen is a placeholder |
 | 29 | MusicBrainz "not in your library" | Gates #30 and #33 |
@@ -31,23 +31,25 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | 32 | qBittorrent client | Gates #33 |
 | 33 | Acquisition flow | Needs #29 and #32 |
 | 34 | Packaging and release | Real keystore, icons, first-run, size guard |
+| 43b | Settings: playback and storage | Lands with #24 — the two sections #43a left empty |
+| 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 
 ---
 
 ## Order
 
-Phase numbers record where a task was *designed*, not what to do next, and the two have come
+Phase numbers record where a task was _designed_, not what to do next, and the two have come
 apart. This is the order. It was set with two facts about how Plexify is actually used:
 listening is split roughly evenly between LAN and cellular, and James is running Plexify and
 Plexamp side by side while moving over.
 
-| | Task | Why here |
-|---|---|---|
-| 1 | **#46** "Jump back in" lists playlists | Finishes what #45 started. The data is right; only the shelf's query is not. |
-| 2 | **#24 → #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working. |
-| 3 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 4 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
-| 5 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+|     | Task                                        | Why here                                                                                                                                                                           |
+| --- | ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **#46** "Jump back in" lists playlists      | Finishes what #45 started. The data is right; only the shelf's query is not.                                                                                                       |
+| 2   | **#24 → #43b** Audio cache and its settings | #23 landed the decision and writes it onto every `MediaItem`; #24 is what stores against it. Together they are what makes the cellular half pleasant rather than merely working.   |
+| 3   | **#19** Deletion reconcile                  | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it.                                                                                                   |
+| 4   | **#44** Now Playing navigation test         | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
+| 5   | **#22** Queue controls, then Phase 5 onward | Feature work resumes here.                                                                                                                                                         |
 
 #28 was previously marked "next up". It is a feature, and it now sits behind correctness.
 
@@ -63,24 +65,7 @@ playing on either platform, only requested.
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
 
-### #46 — "Jump back in" should list playlists too
-
-#45 fixed the half that was actively wrong: playing a playlist now stamps the *playlist*
-and deliberately leaves the album alone, so the shelf no longer fills with albums nobody
-chose. A played playlist surfaces in the sidebar's recent playlists, which reads
-`lastViewedAt` already.
-
-What is left is the shelf itself, which queries `watchRecentlyPlayedAlbums` and so can only
-ever show albums. It needs to merge albums and playlists on `lastViewedAt` and render both,
-which means `_Shelf` taking something more general than `List<PlexAlbum>`.
-
-**Considerations**
-
-- Plex's own `lastViewedAt` for the album is authoritative and synced, so a sweep may put
-  the album back on the shelf anyway. Worth checking against the real server before
-  deciding whether more is needed — the local suppression may not be enough on its own.
-
-### #24 — Audio disk cache *(unblocked by #23)*
+### #24 — Audio disk cache _(unblocked by #23)_
 
 **Subtasks**
 
@@ -180,7 +165,7 @@ Archive. **Must**: descriptive `User-Agent` with contact info (generic agents ge
 debounced single-flight queue (~1 req/sec), cached results. Local results always render first
 and independently — that is what makes the rate limit invisible. **Gates #30, #33.**
 
-**#30 — De-duplicate catalog results** *(needs #29)*. Match on `Albums.mbid` where present,
+**#30 — De-duplicate catalog results** _(needs #29)_. Match on `Albums.mbid` where present,
 falling back to `normalisedArtist` + `normalisedTitle` — the column exists and is unused so
 far. Get it wrong and every album you own appears twice.
 
@@ -196,11 +181,11 @@ Autoplay **on by default**; the `onQueueExhausted` hook already exists at
 
 **#32 — qBittorrent client.** WebUI API v2, native web form login → `SID` cookie, one layer,
 no HTTP Basic. **Two traps:** `Referer`/`Origin` must exactly match `Host` including port, or
-unexplained 403s; and 403 *also* means "IP banned for too many failed logins", so one attempt
+unexplained 403s; and 403 _also_ means "IP banned for too many failed logins", so one attempt
 then explicit backoff — a retry loop would get the phone banned by James's own server.
 **Gates #33.**
 
-**#33 — Acquisition flow** *(needs #29, #32)*. Search using **structured** MusicBrainz
+**#33 — Acquisition flow** _(needs #29, #32)_. Search using **structured** MusicBrainz
 metadata (artist + album + year), not the raw typed string. Rank by seeders and format. Add
 with `category=Music` — existing automation handles routing, so no renaming or retagging.
 Poll progress, then `/library/sections/{id}/refresh`.
@@ -231,18 +216,18 @@ find a filter Plex does honour.
 
 **Repeating a track does not record a second play.** `TimelineReporter` resets its
 "already counted" mark when the media item changes, and repeat-one never changes it —
-`just_audio` keeps the same index. Going back to a track manually *does* count again, which
+`just_audio` keeps the same index. Going back to a track manually _does_ count again, which
 is the common case. Worth revisiting alongside #22, which is where repeat gets built.
 
 **A play is judged by elapsed time, not by the player's position.** At the moment a track
-change arrives the player has already moved on, so its position getter reports the *new*
+change arrives the player has already moved on, so its position getter reports the _new_
 track. `TimelineReporter` projects the outgoing track's position from the last sample plus
 wall time instead. That is right for a track that ran to its end and for one that was
 skipped, and slightly wrong if playback stalled on a long buffer just before the change —
 which would under-count, never over-count. The safer direction of the two.
 
 **Ratings set in Plex are not pushed, only polled.** Plex emits a timeline entry when it
-finishes *scanning* an item, which is why a new album appears instantly, but rating one is a
+finishes _scanning_ an item, which is why a new album appears instantly, but rating one is a
 metadata edit that produces no such entry. The five-minute sweep catches it; the refresh
 button catches it now. Accepted rather than fixed — the alternative is watching another
 notification type, and James has asked that the sync logic not grow more paths.
@@ -251,7 +236,7 @@ notification type, and James has asked that the sync logic not grow more paths.
 
 ## Open decisions
 
-- **Riverpod stays at 2.6.1.** 3.4.2 declares `test ^1.0.0` as a *runtime* dependency, which
+- **Riverpod stays at 2.6.1.** 3.4.2 declares `test ^1.0.0` as a _runtime_ dependency, which
   transitively pins `analyzer <13`, while `drift_dev` 2.34.x requires `analyzer ^13`.
   Mutually exclusive on Flutter 3.44. Revisit when upstream resolves.
 - **Git author is `unknown`.** `user.name` is unset globally. Set it and the existing commits
