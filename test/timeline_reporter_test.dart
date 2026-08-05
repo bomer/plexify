@@ -165,6 +165,20 @@ void main() {
       expect(stopped, hasLength(1));
     });
 
+    test('the session is closed explicitly on the way out', () async {
+      states.add(PlaybackState(playing: true));
+      items.add(track('t1'));
+      await settle();
+
+      await reporter.reportStopped();
+
+      // Left to time out, the entry sits in Plex's dashboard claiming to play
+      // for minutes after the app has gone — and the next launch looks like a
+      // second copy running alongside it.
+      expect(timelines().last.queryParameters['state'], 'stopped');
+      expect(timelines().last.queryParameters['ratingKey'], 't1');
+    });
+
     test('a server that refuses does not throw', () async {
       failWithStatus = 500;
 

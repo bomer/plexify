@@ -97,10 +97,21 @@ class TimelineReporter {
     await _stateSubscription?.cancel();
     _itemSubscription = null;
     _stateSubscription = null;
+    await reportStopped();
+  }
 
-    // Tell the server the session is over rather than leaving it to time out.
+  /// Tells the server this session is over.
+  ///
+  /// Worth sending explicitly on the way out: left to time out, the entry sits
+  /// in Plex's dashboard claiming to be playing for minutes after the app has
+  /// gone. Safe to call more than once — a second `stopped` for a session
+  /// already closed is ignored.
+  ///
+  /// The caller is expected to bound this. It makes a network request, and an
+  /// unreachable server must never be able to stop the app from closing.
+  Future<void> reportStopped() {
     _enqueue(() => _report('stopped'));
-    await _queue;
+    return _queue;
   }
 
   void _onItem(MediaItem? item) {

@@ -279,6 +279,16 @@ investigation at the audio layer rather than the connection. Fixed in #41 by
 `ConnectionMonitor`. **Anything that caches a resolved address needs an invalidation story
 before it is relied on** — artwork URLs (#21) are the next one.
 
+**Plex's dashboard needs `X-Plex-Session-Identifier`, and it must be stable.** Without the
+header the server accepts timeline reports, answers 200, and lists nothing — the client looks
+correct and the dashboard looks broken. With a *fresh* value per launch it lists too much:
+every relaunch claims a new slot while the old one lingers until the server times it out, so
+quitting and reopening shows two copies of Plexify playing at once. It is persisted
+alongside the client identifier so a relaunch replaces the previous entry. That is also what
+makes it self-healing after a crash or a force-quit, neither of which gets to say goodbye.
+`AppLifecycleListener.onExitRequested` sends an explicit `stopped` for the clean case, and is
+bounded by a timeout — an unreachable server must never be able to stop the app closing.
+
 **A "once only" flag guarding queued work has two wrong places to be reset.** The scrobble
 mark in `timeline_reporter.dart` must be cleared only if it still refers to the track being
 left. Cleared synchronously when the track changes, the outgoing track loses its mark before

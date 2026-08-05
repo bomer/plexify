@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -60,6 +61,14 @@ class _AppShellState extends ConsumerState<AppShell> {
       // the isolate alive for hours on Android, and there is nothing to gain
       // from checking for library changes nobody can see.
       onInactive: () => ref.read(syncSchedulerProvider)?.pause(),
+      // Closing the window is the last chance to tell Plex the session ended.
+      // Without it the dashboard shows Plexify still playing for minutes after
+      // it has gone, and a relaunch appears to be a second copy.
+      onExitRequested: _sayGoodbye,
+      // Android's equivalent, and best-effort by nature: the process is often
+      // killed outright, which is why the session slot is reused across
+      // launches rather than relying on a clean exit.
+      onDetach: () => unawaited(_flushSession()),
     );
   }
 
@@ -67,6 +76,28 @@ class _AppShellState extends ConsumerState<AppShell> {
   void dispose() {
     _lifecycle?.dispose();
     super.dispose();
+  }
+
+  /// How long the app will wait on the goodbye before closing anyway.
+  ///
+  /// Quitting must never hang on a server that has stopped answering, which is
+  /// the exact situation where the request is slowest.
+  static const _goodbyeTimeout = Duration(seconds: 2);
+
+  Future<AppExitResponse> _sayGoodbye() async {
+    await _flushSession();
+    return AppExitResponse.exit;
+  }
+
+  Future<void> _flushSession() async {
+    try {
+      await ref
+          .read(timelineReporterProvider)
+          ?.reportStopped()
+          .timeout(_goodbyeTimeout);
+    } on Object {
+      // Nothing useful to do on the way out.
+    }
   }
 
   NavigatorState? get _activeNavigator =>
