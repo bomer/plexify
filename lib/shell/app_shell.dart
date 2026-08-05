@@ -62,7 +62,14 @@ class _AppShellState extends ConsumerState<AppShell> {
       // Polling stops the moment the app is no longer on screen. Playback keeps
       // the isolate alive for hours on Android, and there is nothing to gain
       // from checking for library changes nobody can see.
-      onInactive: () => ref.read(syncSchedulerProvider)?.pause(),
+      onInactive: () {
+        ref.read(syncSchedulerProvider)?.pause();
+        // Android routinely kills the process without ever calling onDetach,
+        // so leaving the screen is the last moment guaranteed to happen.
+        unawaited(
+          ref.read(playbackControllerProvider)?.save() ?? Future.value(),
+        );
+      },
       // Closing the window is the last chance to tell Plex the session ended.
       // Without it the dashboard shows Plexify still playing for minutes after
       // it has gone, and a relaunch appears to be a second copy.
@@ -92,6 +99,17 @@ class _AppShellState extends ConsumerState<AppShell> {
   }
 
   Future<void> _flushSession() async {
+    // Written before the goodbye, not after: the goodbye talks to a server
+    // that may have stopped answering and is capped at two seconds, and
+    // losing the resume position to a slow network would be the wrong thing
+    // to sacrifice. The periodic save only runs every ten seconds, so without
+    // this, quitting three seconds into a track resumes from the start of it.
+    try {
+      await ref.read(playbackControllerProvider)?.save();
+    } on Object {
+      // Nothing useful to do on the way out.
+    }
+
     try {
       await ref
           .read(timelineReporterProvider)

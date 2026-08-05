@@ -54,7 +54,7 @@ fails oddly, `Set-Location C:\dev\plexify` first.
 
 ```powershell
 flutter analyze          # must be clean before committing
-flutter test             # 316 tests, no live server needed
+flutter test             # 320 tests, no live server needed
 dart format lib test     # run before committing
 ```
 
@@ -292,6 +292,15 @@ would have been wrong. What works instead:
 ---
 
 ## Traps already paid for
+
+**`lastViewedAt` belongs to Plex. Do not build client behaviour on it.** "Jump back in" did,
+and failed twice over: the column is rewritten by every sync, so an album Plex had stamped
+server-side kept reappearing however carefully the local write was suppressed; and it was
+only ever written at the 90% scrobble mark, so putting something on and leaving after two
+minutes recorded nothing at all — the shelf sat on an album from half an hour earlier.
+`PlaybackHistory` (schema v5) is the client-owned answer: written on playback *start*,
+never touched by the sync path. Anything else that means "what this user did" belongs
+there too, not in a Plex column.
 
 **"Loading interrupted" means two queue loads overlapped, not that anything failed.**
 `AudioPlayer.setAudioSources` aborts a load still in flight when a second starts, and the

@@ -71,7 +71,11 @@ class HomeScreen extends ConsumerWidget {
 /// definition, and giving them their own widget would mean two copies of the
 /// tile to keep in step.
 AsyncValue<List<RecentlyPlayed>> _albums(AsyncValue<List<PlexAlbum>> albums) =>
-    albums.whenData((list) => list.map(RecentlyPlayed.album).toList());
+    albums.whenData(
+      // Zero for the timestamp: these shelves have their own order — added
+      // date, rating — and never sort on it.
+      (list) => [for (final a in list) RecentlyPlayed.album(a, 0)],
+    );
 
 /// A horizontally scrolling row of albums and playlists.
 class _Shelf extends ConsumerWidget {

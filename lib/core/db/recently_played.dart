@@ -14,8 +14,14 @@ import '../plex/plex_models.dart';
 /// shelf only needs four things off the front of either.
 @immutable
 class RecentlyPlayed {
-  const RecentlyPlayed.album(PlexAlbum this.album) : playlist = null;
-  const RecentlyPlayed.playlist(PlexPlaylist this.playlist) : album = null;
+  const RecentlyPlayed.album(PlexAlbum this.album, this.startedAt)
+    : playlist = null;
+  const RecentlyPlayed.playlist(PlexPlaylist this.playlist, this.startedAt)
+    : album = null;
+
+  /// When *this device* started it, from `PlaybackHistory`. Not Plex's
+  /// `lastViewedAt`, which every sync rewrites.
+  final int startedAt;
 
   final PlexAlbum? album;
   final PlexPlaylist? playlist;
@@ -27,10 +33,6 @@ class RecentlyPlayed {
   String get title => album?.title ?? playlist!.title;
 
   String? get thumb => album?.thumb ?? playlist!.thumb;
-
-  /// Zero rather than null for a playlist Plex has never recorded a play for,
-  /// so it sorts last instead of throwing off the comparison.
-  int get lastViewedAt => album?.lastViewedAt ?? playlist?.lastViewedAt ?? 0;
 
   /// The second line on a tile. An album says who made it; a playlist has no
   /// artist to name, so it says what it is — which also tells the two apart

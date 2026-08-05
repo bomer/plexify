@@ -6,6 +6,7 @@ import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:plexify/core/audio/playback_source.dart';
 import 'package:plexify/core/audio/timeline_reporter.dart';
 import 'package:plexify/core/db/app_database.dart';
 import 'package:plexify/core/plex/plex_client.dart';
@@ -73,11 +74,12 @@ void main() {
   MediaItem track(
     String key, {
     Duration duration = const Duration(minutes: 4),
+    PlaybackSource? source,
   }) => MediaItem(
     id: 'https://tower.example:32400/parts/$key',
     title: 'Track $key',
     duration: duration,
-    extras: {'ratingKey': key},
+    extras: {'ratingKey': key, 'source': ?source?.encode()},
   );
 
   List<Uri> timelines() =>
@@ -360,6 +362,53 @@ void main() {
       // The play happened. Showing it beats agreeing with a server that was
       // briefly unreachable, and the next sync reconciles either way.
       expect(row.lastViewedAt, isNotNull);
+    });
+  });
+
+  group('what was put on', () {
+    test('is recorded as soon as a track starts', () async {
+      items.add(
+        track(
+          't1',
+          source: const PlaybackSource(PlaybackSourceKind.playlist, 'pl'),
+        ),
+      );
+      await pumpEventQueue();
+
+      // Not at the 90% scrobble mark, which is where the local play history
+      // is written. Putting a playlist on and quitting two minutes later
+      // recorded nothing at all, so Home's shelf sat on whatever was last
+      // listened to the whole way through — for half an hour, in the report
+      // that prompted this.
+      final rows = await db.select(db.playbackHistory).get();
+      expect(rows.single.kind, 'playlist');
+      expect(rows.single.ratingKey, 'pl');
+      expect(scrobbles(), isEmpty);
+    });
+
+    test('a track with no source records nothing', () async {
+      items.add(track('t1'));
+      await pumpEventQueue();
+
+      // Nothing in the app plays a track without a source today, but a null
+      // must not become a row with an empty key that the shelf then tries to
+      // render.
+      expect(await db.select(db.playbackHistory).get(), isEmpty);
+    });
+
+    test('moving through a playlist keeps crediting the playlist', () async {
+      const source = PlaybackSource(PlaybackSourceKind.playlist, 'pl');
+      items.add(track('t1', source: source));
+      await pumpEventQueue();
+      clock = clock.add(const Duration(minutes: 4));
+      items.add(track('t2', source: source));
+      await pumpEventQueue();
+
+      // One row, moved forward — an hour of one playlist is one thing you
+      // listened to, not fifteen.
+      final rows = await db.select(db.playbackHistory).get();
+      expect(rows, hasLength(1));
+      expect(rows.single.startedAt, clock.millisecondsSinceEpoch ~/ 1000);
     });
   });
 }

@@ -157,17 +157,10 @@ class LibraryWriter {
   /// Plex stores these as epoch **seconds**, so the same unit is used here —
   /// milliseconds would sort correctly among themselves and wrongly against
   /// every row the sync wrote.
-  /// [source] is what the queue was *started* from, and it decides what "Jump
-  /// back in" is allowed to offer. Playing a playlist stamps the playlist and
-  /// deliberately leaves the album alone: an evening on one playlist would
-  /// otherwise fill the shelf with a dozen albums nobody chose, which is
-  /// exactly the complaint. An album source, or none at all, falls back to the
-  /// track's own album as before.
-  Future<void> markPlayed(
-    String trackRatingKey,
-    DateTime at, {
-    PlaybackSource? source,
-  }) async {
+  /// These mirror what Plex records, so they stay Plex-shaped: the track and
+  /// its album, at the scrobble mark. What the shelf reads is
+  /// [markStarted], which is a different question with a different answer.
+  Future<void> markPlayed(String trackRatingKey, DateTime at) async {
     final seconds = at.millisecondsSinceEpoch ~/ 1000;
 
     await _db.transaction(() async {
@@ -175,20 +168,12 @@ class LibraryWriter {
             ..where((t) => t.ratingKey.equals(trackRatingKey)))
           .write(TracksCompanion(lastViewedAt: Value(seconds)));
 
-      if (source?.kind == PlaybackSourceKind.playlist) {
-        await (_db.update(_db.playlists)
-              ..where((p) => p.ratingKey.equals(source!.ratingKey)))
-            .write(PlaylistsCompanion(lastViewedAt: Value(seconds)));
-        return;
-      }
-
-      final albumKey = source?.kind == PlaybackSourceKind.album
-          ? source!.ratingKey
-          : await (_db.selectOnly(_db.tracks)
-                  ..addColumns([_db.tracks.albumRatingKey])
-                  ..where(_db.tracks.ratingKey.equals(trackRatingKey)))
-                .map((row) => row.read(_db.tracks.albumRatingKey))
-                .getSingleOrNull();
+      final albumKey =
+          await (_db.selectOnly(_db.tracks)
+                ..addColumns([_db.tracks.albumRatingKey])
+                ..where(_db.tracks.ratingKey.equals(trackRatingKey)))
+              .map((row) => row.read(_db.tracks.albumRatingKey))
+              .getSingleOrNull();
 
       if (albumKey != null) {
         await (_db.update(_db.albums)
@@ -196,6 +181,29 @@ class LibraryWriter {
             .write(AlbumsCompanion(lastViewedAt: Value(seconds)));
       }
     });
+  }
+
+  /// Records that [source] was *started*, which is what "Jump back in" means.
+  ///
+  /// Two things this does that stamping `lastViewedAt` could not. It happens
+  /// when playback begins rather than at the 90% scrobble mark, so putting
+  /// something on and leaving after two minutes still counts — the old
+  /// behaviour recorded nothing at all, which is why the shelf sat on an album
+  /// from half an hour earlier. And it writes a table no sync touches, so an
+  /// album Plex stamped server-side can no longer reappear over the top of it.
+  ///
+  /// Upserted on the primary key, so putting the same album on twice moves it
+  /// up the shelf rather than listing it twice.
+  Future<void> markStarted(PlaybackSource source, DateTime at) async {
+    await _db
+        .into(_db.playbackHistory)
+        .insertOnConflictUpdate(
+          PlaybackHistoryCompanion.insert(
+            kind: source.kind.name,
+            ratingKey: source.ratingKey,
+            startedAt: at.millisecondsSinceEpoch ~/ 1000,
+          ),
+        );
   }
 
   /// Removes an item and anything beneath it.

@@ -195,66 +195,60 @@ void main() {
     late AppDatabase db;
     late LibraryWriter writer;
 
-    setUp(() async {
-      db = AppDatabase(NativeDatabase.memory());
-      writer = LibraryWriter(db);
-      await writer.writeAlbums([
-        const PlexAlbum(ratingKey: 'alb', title: 'Kid A', artist: 'Radiohead'),
-      ]);
-      await writer.writeTracks([
-        PlexTrack(
-          ratingKey: 'trk',
-          title: 'Idioteque',
-          index: 1,
-          durationMs: 1000,
-          album: 'Kid A',
-          artist: 'Radiohead',
-          albumRatingKey: 'alb',
-        ),
-      ]);
-      await writer.writePlaylists([
-        const PlexPlaylist(ratingKey: 'pl', title: 'Evening'),
-      ]);
-    });
+    setUp(() => db = AppDatabase(NativeDatabase.memory()));
     tearDown(() => db.close());
 
-    Future<int?> albumViewedAt() async => (await (db.select(
-      db.albums,
-    )..where((a) => a.ratingKey.equals('alb'))).getSingle()).lastViewedAt;
-
-    Future<int?> playlistViewedAt() async => (await (db.select(
-      db.playlists,
-    )..where((p) => p.ratingKey.equals('pl'))).getSingle()).lastViewedAt;
-
-    test('a playlist play credits the playlist, not the album', () async {
-      await writer.markPlayed(
-        'trk',
+    test('is recorded the moment playback starts', () async {
+      writer = LibraryWriter(db);
+      await writer.markStarted(
+        const PlaybackSource(PlaybackSourceKind.playlist, 'pl'),
         DateTime.utc(2026, 8, 6),
-        source: const PlaybackSource(PlaybackSourceKind.playlist, 'pl'),
       );
 
-      // The whole complaint: an evening on one playlist filled "Jump back in"
-      // with a dozen albums nobody chose.
-      expect(await playlistViewedAt(), isNotNull);
-      expect(await albumViewedAt(), isNull);
+      // Not at the 90% scrobble mark, which is what `markPlayed` waits for.
+      // Putting a playlist on and quitting two minutes later used to record
+      // nothing at all, which is why the shelf sat on an album from half an
+      // hour earlier.
+      final rows = await db.select(db.playbackHistory).get();
+      expect(rows.single.kind, 'playlist');
+      expect(rows.single.ratingKey, 'pl');
     });
 
-    test('an album play still credits the album', () async {
-      await writer.markPlayed(
-        'trk',
-        DateTime.utc(2026, 8, 6),
-        source: const PlaybackSource(PlaybackSourceKind.album, 'alb'),
-      );
+    test(
+      'the same thing twice moves it up rather than listing it twice',
+      () async {
+        writer = LibraryWriter(db);
+        const source = PlaybackSource(PlaybackSourceKind.album, 'alb');
+        await writer.markStarted(source, DateTime.utc(2026, 8, 6));
+        await writer.markStarted(source, DateTime.utc(2026, 8, 7));
 
-      expect(await albumViewedAt(), isNotNull);
-      expect(await playlistViewedAt(), isNull);
-    });
+        final rows = await db.select(db.playbackHistory).get();
+        expect(rows, hasLength(1));
+        expect(
+          rows.single.startedAt,
+          DateTime.utc(2026, 8, 7).millisecondsSinceEpoch ~/ 1000,
+        );
+      },
+    );
 
-    test('no source falls back to the track\'s own album', () async {
-      await writer.markPlayed('trk', DateTime.utc(2026, 8, 6));
+    test(
+      'an album and a playlist with the same key are different rows',
+      () async {
+        writer = LibraryWriter(db);
+        await writer.markStarted(
+          const PlaybackSource(PlaybackSourceKind.album, '7'),
+          DateTime.utc(2026, 8, 6),
+        );
+        await writer.markStarted(
+          const PlaybackSource(PlaybackSourceKind.playlist, '7'),
+          DateTime.utc(2026, 8, 6),
+        );
 
-      expect(await albumViewedAt(), isNotNull);
-    });
+        // Plex numbers albums and playlists in the same space, so the kind has
+        // to be part of the key or one would silently replace the other.
+        expect(await db.select(db.playbackHistory).get(), hasLength(2));
+      },
+    );
   });
 
   group('PlaybackSource encoding', () {

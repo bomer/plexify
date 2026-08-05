@@ -1,6 +1,7 @@
 import 'package:drift/native.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plexify/core/audio/playback_source.dart';
 import 'package:plexify/core/db/app_database.dart';
 import 'package:plexify/core/db/recently_played.dart';
 import 'package:plexify/core/plex/plex_models.dart';
@@ -28,31 +29,38 @@ void main() {
     await db.close();
   });
 
-  /// Plex stores these as epoch seconds.
-  int at(int day) => DateTime.utc(2026, 8, day).millisecondsSinceEpoch ~/ 1000;
+  DateTime at(int day) => DateTime.utc(2026, 8, day);
 
+  /// The library rows exist either way; the second element is when this device
+  /// *started* the thing, or null for something it never played.
   Future<void> seed({
-    List<(String, int?)> albums = const [],
-    List<(String, int?)> playlists = const [],
+    List<(String, DateTime?)> albums = const [],
+    List<(String, DateTime?)> playlists = const [],
   }) async {
     await writer.writeAlbums([
-      for (final (key, viewed) in albums)
-        PlexAlbum(
-          ratingKey: key,
-          title: 'Album $key',
-          artist: 'Artist',
-          lastViewedAt: viewed,
-        ),
+      for (final (key, _) in albums)
+        PlexAlbum(ratingKey: key, title: 'Album $key', artist: 'Artist'),
     ]);
     await writer.writePlaylists([
-      for (final (key, viewed) in playlists)
-        PlexPlaylist(
-          ratingKey: key,
-          title: 'Playlist $key',
-          itemCount: 12,
-          lastViewedAt: viewed,
-        ),
+      for (final (key, _) in playlists)
+        PlexPlaylist(ratingKey: key, title: 'Playlist $key', itemCount: 12),
     ]);
+    for (final (key, started) in albums) {
+      if (started != null) {
+        await writer.markStarted(
+          PlaybackSource(PlaybackSourceKind.album, key),
+          started,
+        );
+      }
+    }
+    for (final (key, started) in playlists) {
+      if (started != null) {
+        await writer.markStarted(
+          PlaybackSource(PlaybackSourceKind.playlist, key),
+          started,
+        );
+      }
+    }
   }
 
   Future<List<RecentlyPlayed>> recent() async {
@@ -78,6 +86,25 @@ void main() {
     );
 
     expect((await recent()).map((i) => i.ratingKey), ['a2', 'p1', 'p2', 'a1']);
+  });
+
+  test('a sync cannot put an album back on the shelf', () async {
+    await seed(albums: [('a1', at(1))]);
+
+    // Plex stamps its own lastViewedAt server-side and every sync writes it
+    // back. Reading that column was why the same album kept reappearing
+    // however carefully the local write was suppressed — this table is
+    // client-owned and the sync path never touches it.
+    await writer.writeAlbums([
+      const PlexAlbum(
+        ratingKey: 'a2',
+        title: 'Album a2',
+        artist: 'Artist',
+        lastViewedAt: 9999999999,
+      ),
+    ]);
+
+    expect((await recent()).map((i) => i.ratingKey), ['a1']);
   });
 
   test('things never played stay off the shelf', () async {

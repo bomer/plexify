@@ -17,14 +17,22 @@ enum AlbumSort { recentlyAdded, title, artist }
 /// database to answer *faster*, but absence from it never means absence from
 /// the library. See `docs/PLAN.md`.
 @DriftDatabase(
-  tables: [Artists, Albums, Tracks, Playlists, PlaylistItems, SyncState],
+  tables: [
+    Artists,
+    Albums,
+    Tracks,
+    Playlists,
+    PlaylistItems,
+    SyncState,
+    PlaybackHistory,
+  ],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase([QueryExecutor? executor])
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 4;
+  int get schemaVersion => 5;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -71,6 +79,16 @@ class AppDatabase extends _$AppDatabase {
       // sync that touches a track backfills it.
       if (from < 4) {
         await m.addColumn(tracks, tracks.partSizeBytes);
+      }
+
+      // v5 gives "jump back in" a column of its own.
+      //
+      // It read `Albums.lastViewedAt`, which is Plex's and is rewritten by
+      // every sync — so an album the server had stamped kept coming back on
+      // the shelf no matter what was suppressed locally. Nothing to migrate:
+      // the table starts empty and fills from the next thing played.
+      if (from < 5) {
+        await m.createTable(playbackHistory);
       }
     },
     beforeOpen: (details) async {
@@ -253,26 +271,58 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
-  /// Albums most recently played, for the Home screen.
-  Stream<List<Album>> watchRecentlyPlayedAlbums({int limit = 20}) {
-    final query = select(albums)
-      ..where((a) => a.lastViewedAt.isNotNull())
-      ..orderBy([(a) => OrderingTerm.desc(a.lastViewedAt)])
-      ..limit(limit);
-    return query.watch();
+  /// Albums this device started playing, newest first.
+  ///
+  /// Driven by [PlaybackHistory] rather than `Albums.lastViewedAt`, which is
+  /// Plex's column: it is rewritten by every sync, so an album the server had
+  /// stamped kept reappearing on the shelf, and it only moves at the 90%
+  /// scrobble mark, so a short listen recorded nothing at all.
+  ///
+  /// Returned with the time started, because the shelf merges these with
+  /// playlists and needs one clock to sort both on.
+  Stream<List<(Album, int)>> watchRecentlyPlayedAlbums({int limit = 20}) {
+    final query =
+        select(playbackHistory).join([
+            innerJoin(
+              albums,
+              albums.ratingKey.equalsExp(playbackHistory.ratingKey),
+            ),
+          ])
+          ..where(playbackHistory.kind.equals('album'))
+          ..orderBy([OrderingTerm.desc(playbackHistory.startedAt)])
+          ..limit(limit);
+
+    return query.watch().map(
+      (rows) => [
+        for (final row in rows)
+          (row.readTable(albums), row.readTable(playbackHistory).startedAt),
+      ],
+    );
   }
 
-  /// Playlists most recently played, for the Home screen.
+  /// Playlists this device started playing, newest first.
   ///
   /// Unlike [watchPlaylists], which lists everything for the sidebar, this
-  /// excludes the never-played — "Jump back in" is about what you did, not
-  /// what exists.
-  Stream<List<Playlist>> watchRecentlyPlayedPlaylists({int limit = 20}) {
-    final query = select(playlists)
-      ..where((p) => p.lastViewedAt.isNotNull())
-      ..orderBy([(p) => OrderingTerm.desc(p.lastViewedAt)])
-      ..limit(limit);
-    return query.watch();
+  /// shows only what was actually put on — "Jump back in" is about what you
+  /// did, not what exists.
+  Stream<List<(Playlist, int)>> watchRecentlyPlayedPlaylists({int limit = 20}) {
+    final query =
+        select(playbackHistory).join([
+            innerJoin(
+              playlists,
+              playlists.ratingKey.equalsExp(playbackHistory.ratingKey),
+            ),
+          ])
+          ..where(playbackHistory.kind.equals('playlist'))
+          ..orderBy([OrderingTerm.desc(playbackHistory.startedAt)])
+          ..limit(limit);
+
+    return query.watch().map(
+      (rows) => [
+        for (final row in rows)
+          (row.readTable(playlists), row.readTable(playbackHistory).startedAt),
+      ],
+    );
   }
 
   /// Albums most recently added, for the Home screen.

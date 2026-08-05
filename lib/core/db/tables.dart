@@ -178,3 +178,31 @@ class SyncState extends Table {
   @override
   Set<Column> get primaryKey => {sectionKey};
 }
+
+/// What *this user on this device* started playing, and when.
+///
+/// Deliberately not `Albums.lastViewedAt`, which was the first attempt and
+/// failed twice over. That column belongs to Plex: it is written by every
+/// sync, so an album Plex stamped server-side reappeared on the shelf however
+/// carefully the local write was suppressed — and it was only ever written at
+/// the 90% scrobble mark, so putting a playlist on and leaving recorded
+/// nothing at all.
+///
+/// This table is client-owned. Nothing in the sync path writes it, so nothing
+/// can overwrite it, and it is stamped the moment playback *starts* — which is
+/// what "jump back in" actually means.
+@TableIndex(name: 'idx_playback_history_started', columns: {#startedAt})
+class PlaybackHistory extends Table {
+  /// `PlaybackSourceKind.name` — album, playlist or artist.
+  TextColumn get kind => text()();
+
+  TextColumn get ratingKey => text()();
+
+  /// Epoch seconds, matching every other time column in this schema.
+  IntColumn get startedAt => integer()();
+
+  /// One row per thing, updated in place, so putting the same album on twice
+  /// moves it up the shelf rather than appearing on it twice.
+  @override
+  Set<Column> get primaryKey => {kind, ratingKey};
+}

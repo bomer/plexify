@@ -3621,6 +3621,277 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
   }
 }
 
+class $PlaybackHistoryTable extends PlaybackHistory
+    with TableInfo<$PlaybackHistoryTable, PlaybackHistoryData> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $PlaybackHistoryTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _ratingKeyMeta = const VerificationMeta(
+    'ratingKey',
+  );
+  @override
+  late final GeneratedColumn<String> ratingKey = GeneratedColumn<String>(
+    'rating_key',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _startedAtMeta = const VerificationMeta(
+    'startedAt',
+  );
+  @override
+  late final GeneratedColumn<int> startedAt = GeneratedColumn<int>(
+    'started_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [kind, ratingKey, startedAt];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'playback_history';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<PlaybackHistoryData> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_kindMeta);
+    }
+    if (data.containsKey('rating_key')) {
+      context.handle(
+        _ratingKeyMeta,
+        ratingKey.isAcceptableOrUnknown(data['rating_key']!, _ratingKeyMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_ratingKeyMeta);
+    }
+    if (data.containsKey('started_at')) {
+      context.handle(
+        _startedAtMeta,
+        startedAt.isAcceptableOrUnknown(data['started_at']!, _startedAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_startedAtMeta);
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {kind, ratingKey};
+  @override
+  PlaybackHistoryData map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return PlaybackHistoryData(
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      ratingKey: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}rating_key'],
+      )!,
+      startedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}started_at'],
+      )!,
+    );
+  }
+
+  @override
+  $PlaybackHistoryTable createAlias(String alias) {
+    return $PlaybackHistoryTable(attachedDatabase, alias);
+  }
+}
+
+class PlaybackHistoryData extends DataClass
+    implements Insertable<PlaybackHistoryData> {
+  /// `PlaybackSourceKind.name` — album, playlist or artist.
+  final String kind;
+  final String ratingKey;
+
+  /// Epoch seconds, matching every other time column in this schema.
+  final int startedAt;
+  const PlaybackHistoryData({
+    required this.kind,
+    required this.ratingKey,
+    required this.startedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['kind'] = Variable<String>(kind);
+    map['rating_key'] = Variable<String>(ratingKey);
+    map['started_at'] = Variable<int>(startedAt);
+    return map;
+  }
+
+  PlaybackHistoryCompanion toCompanion(bool nullToAbsent) {
+    return PlaybackHistoryCompanion(
+      kind: Value(kind),
+      ratingKey: Value(ratingKey),
+      startedAt: Value(startedAt),
+    );
+  }
+
+  factory PlaybackHistoryData.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return PlaybackHistoryData(
+      kind: serializer.fromJson<String>(json['kind']),
+      ratingKey: serializer.fromJson<String>(json['ratingKey']),
+      startedAt: serializer.fromJson<int>(json['startedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'kind': serializer.toJson<String>(kind),
+      'ratingKey': serializer.toJson<String>(ratingKey),
+      'startedAt': serializer.toJson<int>(startedAt),
+    };
+  }
+
+  PlaybackHistoryData copyWith({
+    String? kind,
+    String? ratingKey,
+    int? startedAt,
+  }) => PlaybackHistoryData(
+    kind: kind ?? this.kind,
+    ratingKey: ratingKey ?? this.ratingKey,
+    startedAt: startedAt ?? this.startedAt,
+  );
+  PlaybackHistoryData copyWithCompanion(PlaybackHistoryCompanion data) {
+    return PlaybackHistoryData(
+      kind: data.kind.present ? data.kind.value : this.kind,
+      ratingKey: data.ratingKey.present ? data.ratingKey.value : this.ratingKey,
+      startedAt: data.startedAt.present ? data.startedAt.value : this.startedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlaybackHistoryData(')
+          ..write('kind: $kind, ')
+          ..write('ratingKey: $ratingKey, ')
+          ..write('startedAt: $startedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(kind, ratingKey, startedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is PlaybackHistoryData &&
+          other.kind == this.kind &&
+          other.ratingKey == this.ratingKey &&
+          other.startedAt == this.startedAt);
+}
+
+class PlaybackHistoryCompanion extends UpdateCompanion<PlaybackHistoryData> {
+  final Value<String> kind;
+  final Value<String> ratingKey;
+  final Value<int> startedAt;
+  final Value<int> rowid;
+  const PlaybackHistoryCompanion({
+    this.kind = const Value.absent(),
+    this.ratingKey = const Value.absent(),
+    this.startedAt = const Value.absent(),
+    this.rowid = const Value.absent(),
+  });
+  PlaybackHistoryCompanion.insert({
+    required String kind,
+    required String ratingKey,
+    required int startedAt,
+    this.rowid = const Value.absent(),
+  }) : kind = Value(kind),
+       ratingKey = Value(ratingKey),
+       startedAt = Value(startedAt);
+  static Insertable<PlaybackHistoryData> custom({
+    Expression<String>? kind,
+    Expression<String>? ratingKey,
+    Expression<int>? startedAt,
+    Expression<int>? rowid,
+  }) {
+    return RawValuesInsertable({
+      if (kind != null) 'kind': kind,
+      if (ratingKey != null) 'rating_key': ratingKey,
+      if (startedAt != null) 'started_at': startedAt,
+      if (rowid != null) 'rowid': rowid,
+    });
+  }
+
+  PlaybackHistoryCompanion copyWith({
+    Value<String>? kind,
+    Value<String>? ratingKey,
+    Value<int>? startedAt,
+    Value<int>? rowid,
+  }) {
+    return PlaybackHistoryCompanion(
+      kind: kind ?? this.kind,
+      ratingKey: ratingKey ?? this.ratingKey,
+      startedAt: startedAt ?? this.startedAt,
+      rowid: rowid ?? this.rowid,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (ratingKey.present) {
+      map['rating_key'] = Variable<String>(ratingKey.value);
+    }
+    if (startedAt.present) {
+      map['started_at'] = Variable<int>(startedAt.value);
+    }
+    if (rowid.present) {
+      map['rowid'] = Variable<int>(rowid.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('PlaybackHistoryCompanion(')
+          ..write('kind: $kind, ')
+          ..write('ratingKey: $ratingKey, ')
+          ..write('startedAt: $startedAt, ')
+          ..write('rowid: $rowid')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3630,6 +3901,9 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $PlaylistsTable playlists = $PlaylistsTable(this);
   late final $PlaylistItemsTable playlistItems = $PlaylistItemsTable(this);
   late final $SyncStateTable syncState = $SyncStateTable(this);
+  late final $PlaybackHistoryTable playbackHistory = $PlaybackHistoryTable(
+    this,
+  );
   late final Index idxArtistsNorm = Index(
     'idx_artists_norm',
     'CREATE INDEX idx_artists_norm ON artists (normalised_title)',
@@ -3670,6 +3944,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'idx_playlist_items_playlist',
     'CREATE INDEX idx_playlist_items_playlist ON playlist_items (playlist_rating_key)',
   );
+  late final Index idxPlaybackHistoryStarted = Index(
+    'idx_playback_history_started',
+    'CREATE INDEX idx_playback_history_started ON playback_history (started_at)',
+  );
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3681,6 +3959,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     playlists,
     playlistItems,
     syncState,
+    playbackHistory,
     idxArtistsNorm,
     idxAlbumsNormTitle,
     idxAlbumsNormArtist,
@@ -3691,6 +3970,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     idxTracksAlbum,
     idxPlaylistsViewed,
     idxPlaylistItemsPlaylist,
+    idxPlaybackHistoryStarted,
   ];
 }
 
@@ -5401,6 +5681,178 @@ typedef $$SyncStateTableProcessedTableManager =
       SyncStateData,
       PrefetchHooks Function()
     >;
+typedef $$PlaybackHistoryTableCreateCompanionBuilder =
+    PlaybackHistoryCompanion Function({
+      required String kind,
+      required String ratingKey,
+      required int startedAt,
+      Value<int> rowid,
+    });
+typedef $$PlaybackHistoryTableUpdateCompanionBuilder =
+    PlaybackHistoryCompanion Function({
+      Value<String> kind,
+      Value<String> ratingKey,
+      Value<int> startedAt,
+      Value<int> rowid,
+    });
+
+class $$PlaybackHistoryTableFilterComposer
+    extends Composer<_$AppDatabase, $PlaybackHistoryTable> {
+  $$PlaybackHistoryTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get ratingKey => $composableBuilder(
+    column: $table.ratingKey,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get startedAt => $composableBuilder(
+    column: $table.startedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$PlaybackHistoryTableOrderingComposer
+    extends Composer<_$AppDatabase, $PlaybackHistoryTable> {
+  $$PlaybackHistoryTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get ratingKey => $composableBuilder(
+    column: $table.ratingKey,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get startedAt => $composableBuilder(
+    column: $table.startedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$PlaybackHistoryTableAnnotationComposer
+    extends Composer<_$AppDatabase, $PlaybackHistoryTable> {
+  $$PlaybackHistoryTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<String> get ratingKey =>
+      $composableBuilder(column: $table.ratingKey, builder: (column) => column);
+
+  GeneratedColumn<int> get startedAt =>
+      $composableBuilder(column: $table.startedAt, builder: (column) => column);
+}
+
+class $$PlaybackHistoryTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $PlaybackHistoryTable,
+          PlaybackHistoryData,
+          $$PlaybackHistoryTableFilterComposer,
+          $$PlaybackHistoryTableOrderingComposer,
+          $$PlaybackHistoryTableAnnotationComposer,
+          $$PlaybackHistoryTableCreateCompanionBuilder,
+          $$PlaybackHistoryTableUpdateCompanionBuilder,
+          (
+            PlaybackHistoryData,
+            BaseReferences<
+              _$AppDatabase,
+              $PlaybackHistoryTable,
+              PlaybackHistoryData
+            >,
+          ),
+          PlaybackHistoryData,
+          PrefetchHooks Function()
+        > {
+  $$PlaybackHistoryTableTableManager(
+    _$AppDatabase db,
+    $PlaybackHistoryTable table,
+  ) : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$PlaybackHistoryTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$PlaybackHistoryTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$PlaybackHistoryTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<String> kind = const Value.absent(),
+                Value<String> ratingKey = const Value.absent(),
+                Value<int> startedAt = const Value.absent(),
+                Value<int> rowid = const Value.absent(),
+              }) => PlaybackHistoryCompanion(
+                kind: kind,
+                ratingKey: ratingKey,
+                startedAt: startedAt,
+                rowid: rowid,
+              ),
+          createCompanionCallback:
+              ({
+                required String kind,
+                required String ratingKey,
+                required int startedAt,
+                Value<int> rowid = const Value.absent(),
+              }) => PlaybackHistoryCompanion.insert(
+                kind: kind,
+                ratingKey: ratingKey,
+                startedAt: startedAt,
+                rowid: rowid,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$PlaybackHistoryTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $PlaybackHistoryTable,
+      PlaybackHistoryData,
+      $$PlaybackHistoryTableFilterComposer,
+      $$PlaybackHistoryTableOrderingComposer,
+      $$PlaybackHistoryTableAnnotationComposer,
+      $$PlaybackHistoryTableCreateCompanionBuilder,
+      $$PlaybackHistoryTableUpdateCompanionBuilder,
+      (
+        PlaybackHistoryData,
+        BaseReferences<
+          _$AppDatabase,
+          $PlaybackHistoryTable,
+          PlaybackHistoryData
+        >,
+      ),
+      PlaybackHistoryData,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -5417,4 +5869,6 @@ class $AppDatabaseManager {
       $$PlaylistItemsTableTableManager(_db, _db.playlistItems);
   $$SyncStateTableTableManager get syncState =>
       $$SyncStateTableTableManager(_db, _db.syncState);
+  $$PlaybackHistoryTableTableManager get playbackHistory =>
+      $$PlaybackHistoryTableTableManager(_db, _db.playbackHistory);
 }

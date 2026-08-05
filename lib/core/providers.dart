@@ -682,23 +682,29 @@ final recentPlaylistsProvider = Provider<AsyncValue<List<PlexPlaylist>>>((ref) {
   return ref.watch(playlistsProvider).whenData((all) => all.take(8).toList());
 });
 
-/// Albums played most recently.
-final recentlyPlayedAlbumsProvider = StreamProvider<List<PlexAlbum>>((
+/// Albums this device started playing, newest first.
+final recentlyPlayedAlbumsProvider = StreamProvider<List<RecentlyPlayed>>((
   ref,
 ) async* {
   final db = ref.watch(databaseProvider);
   await for (final rows in db.watchRecentlyPlayedAlbums()) {
-    yield rows.map((r) => r.toDomain()).toList();
+    yield [
+      for (final (row, startedAt) in rows)
+        RecentlyPlayed.album(row.toDomain(), startedAt),
+    ];
   }
 });
 
-/// Playlists played most recently.
-final recentlyPlayedPlaylistsProvider = StreamProvider<List<PlexPlaylist>>((
+/// Playlists this device started playing, newest first.
+final recentlyPlayedPlaylistsProvider = StreamProvider<List<RecentlyPlayed>>((
   ref,
 ) async* {
   final db = ref.watch(databaseProvider);
   await for (final rows in db.watchRecentlyPlayedPlaylists()) {
-    yield rows.map((r) => r.toDomain()).toList();
+    yield [
+      for (final (row, startedAt) in rows)
+        RecentlyPlayed.playlist(row.toDomain(), startedAt),
+    ];
   }
 });
 
@@ -721,11 +727,9 @@ final recentlyPlayedProvider = Provider<AsyncValue<List<RecentlyPlayed>>>((
   }
 
   final merged = <RecentlyPlayed>[
-    for (final album in albums.valueOrNull ?? const <PlexAlbum>[])
-      RecentlyPlayed.album(album),
-    for (final playlist in playlists.valueOrNull ?? const <PlexPlaylist>[])
-      RecentlyPlayed.playlist(playlist),
-  ]..sort((a, b) => b.lastViewedAt.compareTo(a.lastViewedAt));
+    ...albums.valueOrNull ?? const <RecentlyPlayed>[],
+    ...playlists.valueOrNull ?? const <RecentlyPlayed>[],
+  ]..sort((a, b) => b.startedAt.compareTo(a.startedAt));
 
   return AsyncValue.data(merged.take(20).toList());
 });
