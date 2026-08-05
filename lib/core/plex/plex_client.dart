@@ -406,6 +406,23 @@ class PlexClient {
   /// transcoding into a buffer nobody is reading, and several of them at once
   /// is the difference between an idle NAS and a pegged one.
   ///
+  /// The server's own account of the transcodes it is running.
+  ///
+  /// Worth having because the bytes only say what arrived, not what Plex
+  /// believed it was asked for. When a request and its result disagree, this is
+  /// the only thing that says which of the two the server misread.
+  ///
+  /// Returns an empty list rather than throwing — it is diagnostic, and a
+  /// server that will not answer it is itself the finding.
+  Future<List<Map<String, dynamic>>> transcodeSessions() async {
+    try {
+      final container = await _getContainer('/transcode/sessions');
+      return _listOf(container, 'TranscodeSession');
+    } on Object {
+      return const [];
+    }
+  }
+
   /// Returns the status Plex answered with, or 0 if it could not be reached.
   /// The code rather than a bool because a refusal and an unreachable server
   /// are different problems, and the spike needs to tell them apart.

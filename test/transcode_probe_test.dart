@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -65,11 +66,45 @@ void main() {
     Set<String> requiredParameters = const {},
     int naturalKbps = 320,
   }) {
+    // Echoed back on /transcode/sessions, so the probe can be shown to ask
+    // about the session it actually started.
+    String? running;
+
     return MockClient((request) async {
       requests.add(request.url);
 
       if (request.url.path.endsWith('/stop')) {
+        running = null;
         return http.Response('', 200);
+      }
+
+      if (request.url.path == '/transcode/sessions') {
+        return http.Response(
+          jsonEncode({
+            'MediaContainer': {
+              'TranscodeSession': [
+                // A stale session from someone else's playback, listed first.
+                // A probe that just took the head of the list would report
+                // this one and be confidently wrong.
+                {
+                  'key': '/transcode/sessions/someone-elses-session',
+                  'audioDecision': 'copy',
+                  'audioCodec': 'flac',
+                  'throttled': true,
+                },
+                if (running != null)
+                  {
+                    'key': '/transcode/sessions/$running',
+                    'audioDecision': 'transcode',
+                    'audioCodec': 'mp3',
+                    'throttled': false,
+                  },
+              ],
+            },
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
       }
 
       // Plex rejects a request it cannot form a transcode decision from, and
@@ -111,6 +146,8 @@ void main() {
             : request.url.queryParameters[name];
         if (asked != null) kbps = int.parse(asked);
       }
+
+      running = request.url.queryParameters['session'];
 
       final total = bytesFor(kbps);
       final offset = int.parse(request.url.queryParameters['offset'] ?? '0');
@@ -436,6 +473,59 @@ void main() {
         transcodeRequests().where((u) => u.path.endsWith('start.mp3')),
         hasLength(TranscodeProfile.candidates.length),
       );
+    });
+  });
+
+  group("asking Plex to explain itself", () {
+    test('reports the session record verbatim', () async {
+      final report = await probeAgainst(server()).run(track);
+
+      final account = check(report, 'What does Plex say');
+      expect(account.outcome, ProbeOutcome.pass);
+      // Reported as-is rather than summarised: the reason for asking is that
+      // the bytes and the request disagree, and the field that explains why
+      // is the one nobody thought to look for.
+      expect(account.detail, contains('audioDecision: transcode'));
+      expect(account.detail, contains('audioCodec: mp3'));
+      expect(account.detail, contains('throttled: false'));
+    });
+
+    test('asks about the session it started, not whichever is first', () async {
+      final report = await probeAgainst(server()).run(track);
+
+      // The probe opens several in a run and the server lists other people's
+      // too; matching on the key is what keeps the answer about the request
+      // being investigated rather than whatever was playing in the kitchen.
+      final detail = check(report, 'What does Plex say').detail;
+      expect(detail, contains('session-'));
+      expect(detail, isNot(contains('someone-elses-session')));
+      expect(detail, isNot(contains('audioDecision: copy')));
+    });
+
+    test('says so when the server reports no session at all', () async {
+      final report = await probeAgainst(
+        MockClient((request) async {
+          requests.add(request.url);
+          if (request.url.path == '/transcode/sessions') {
+            return http.Response(
+              jsonEncode({'MediaContainer': <String, dynamic>{}}),
+              200,
+            );
+          }
+          if (request.url.path.endsWith('/stop')) {
+            return http.Response('', 200);
+          }
+          return http.Response.bytes(
+            Uint8List(64 * 1024),
+            200,
+            headers: {'content-type': 'audio/mpeg'},
+          );
+        }),
+      ).run(track);
+
+      // Not a failure — plenty of servers simply do not list music
+      // transcodes, and calling that a fault would be inventing one.
+      expect(check(report, 'What does Plex say').outcome, ProbeOutcome.unknown);
     });
   });
 

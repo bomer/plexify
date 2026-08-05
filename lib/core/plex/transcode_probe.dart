@@ -110,6 +110,7 @@ class TranscodeProbe {
         }
       }
       checks.add(_bitrateMechanism(natural, capped));
+      checks.add(await _plexOwnAccount(track, winner.key, log));
     } else {
       checks
         ..add(
@@ -351,6 +352,69 @@ class TranscodeProbe {
           '${lines.join('\n')}\n'
           '${worked.isEmpty ? 'None of them changed the output, so there is no '
                     'way to cap the rate — cellular listening costs full price.' : 'Use: ${worked.first}.'}',
+    );
+  }
+
+  /// What Plex says it decided, in its own words.
+  ///
+  /// Three ways of asking for 128 kbps all came back at the natural rate, which
+  /// is either a server that ignores the cap or a request it read as something
+  /// else entirely. Delivered bytes cannot tell those apart. The server's own
+  /// session record can, and it also carries fields worth knowing that nobody
+  /// thought to ask for — so it is reported verbatim rather than summarised.
+  ///
+  /// Reads only a window, deliberately: the transcode has to still be running
+  /// when the question is asked.
+  Future<ProbeCheck> _plexOwnAccount(
+    PlexTrack track,
+    TranscodeProfile profile,
+    _SessionLog log,
+  ) async {
+    final session = _newSession();
+    final url = _client.transcodeUrl(
+      track.ratingKey,
+      session: session,
+      bitrateKbps: _lowKbps,
+      bitrate: TranscodeBitrateMechanism.profileLimitation,
+      profile: profile,
+    );
+
+    final read = await _fetch(url);
+    if (!read.looksLikeAudio) {
+      await log.close(session, _client, started: false);
+      return const ProbeCheck(
+        'What does Plex say it is doing?',
+        ProbeOutcome.unknown,
+        'The capped request did not return audio, so there was no session '
+            'to ask about.',
+      );
+    }
+
+    final sessions = await _client.transcodeSessions();
+    await log.close(session, _client, started: true);
+
+    if (sessions.isEmpty) {
+      return const ProbeCheck(
+        'What does Plex say it is doing?',
+        ProbeOutcome.unknown,
+        'The server listed no transcode sessions while one was running — '
+            'either it does not report music transcodes, or the stream was '
+            'already finished.',
+      );
+    }
+
+    final mine = sessions.firstWhere(
+      (s) => '${s['key']}'.contains(session),
+      // Any session is better than none: if the key does not match, that
+      // mismatch is worth seeing rather than hiding behind "not found".
+      orElse: () => sessions.first,
+    );
+
+    final lines = mine.entries.map((e) => '  ${e.key}: ${e.value}').join('\n');
+    return ProbeCheck(
+      'What does Plex say it is doing?',
+      ProbeOutcome.pass,
+      'Asked for $_lowKbps kbps; the server describes the session as:\n$lines',
     );
   }
 
