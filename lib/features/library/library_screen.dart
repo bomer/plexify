@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/db/app_database.dart' show AlbumSort;
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../../shell/layout.dart';
 import 'album_detail_screen.dart';
 import 'album_list_screen.dart';
 import 'artist_detail_screen.dart';
@@ -13,6 +14,7 @@ import 'artwork.dart';
 import '../settings/sync_actions.dart';
 import 'playlist_detail_screen.dart';
 import 'star_rating.dart';
+import 'track_rating_sheet.dart';
 import 'sync_banner.dart';
 
 /// What the Library tab is currently showing.
@@ -144,6 +146,7 @@ class _FavouritesView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    final compact = isCompactLayout(context);
     final albums = ref.watch(favouriteAlbumsProvider).valueOrNull ?? const [];
     final tracks = ref.watch(favouriteTracksProvider).valueOrNull ?? const [];
 
@@ -224,8 +227,19 @@ class _FavouritesView extends ConsumerWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
-              trailing: StarRating(rating: track.userRating, size: 14),
+              // Same rule as the album page: five stars is the widest thing
+              // that can sit in a track row, and on a phone it squeezes the
+              // title to an ellipsis — here it did not even fit, overflowing
+              // the row by a few pixels. Long press opens the rating sheet
+              // instead, which is what every other track list on a phone
+              // does.
+              trailing: compact
+                  ? null
+                  : StarRating(rating: track.userRating, size: 14),
               enabled: track.isPlayable,
+              onLongPress: compact
+                  ? () => showTrackRatingSheet(context, ref, track)
+                  : null,
               onTap: () => ref
                   .read(playbackControllerProvider)
                   ?.playTracks(tracks, startIndex: tracks.indexOf(track)),

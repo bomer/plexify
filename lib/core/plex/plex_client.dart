@@ -333,8 +333,14 @@ class PlexClient {
   /// HTTP and won't carry our headers.
   ///
   /// Returns null for tracks with no playable part.
-  String? directPlayUrl(PlexTrack track) {
-    final partKey = track.partKey;
+  String? directPlayUrl(PlexTrack track) => directPlayUrlFor(track.partKey);
+
+  /// The same, from a bare part key.
+  ///
+  /// Separate because a queue rebuilt after the connection re-resolves has the
+  /// part key but no longer has the [PlexTrack] it came from — and fetching one
+  /// back is a network read at the exact moment the network has just failed.
+  String? directPlayUrlFor(String? partKey) {
     if (partKey == null || partKey.isEmpty) return null;
     final uri = Uri.parse(
       '${_server.baseUrl}$partKey',

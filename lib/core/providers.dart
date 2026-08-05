@@ -242,6 +242,15 @@ final connectionMonitorProvider = Provider<ConnectionMonitor>((ref) {
   return monitor;
 });
 
+/// Whether a reconnect is in flight, for the mini player to say so.
+///
+/// A reconnect takes seconds and playback has usually just stopped, so the
+/// alternative to showing this is a silent player that looks broken.
+final reconnectingProvider = StreamProvider<bool>((ref) {
+  final monitor = ref.watch(connectionMonitorProvider);
+  return monitor.reconnectingChanges;
+});
+
 /// The music library section on the connected server.
 final musicSectionProvider = FutureProvider<PlexSection?>((ref) async {
   final client = ref.watch(plexClientProvider);
@@ -455,6 +464,13 @@ class SyncDiagnostics {
     required this.tracks,
     required this.playlists,
     required this.ratedAlbums,
+    required this.artworkHits,
+    required this.artworkMisses,
+    required this.artworkFetchFailures,
+    required this.artworkSkippedNoUrl,
+    required this.artworkFiles,
+    required this.artworkBytes,
+    required this.artworkError,
   });
 
   final String? serverName;
@@ -501,6 +517,18 @@ class SyncDiagnostics {
   final int tracks;
   final int playlists;
   final int ratedAlbums;
+
+  /// Artwork cache. Blank thumbnails are the one failure with three completely
+  /// different causes that look identical on screen, so all three are counted
+  /// separately: served from disk, fetched, refused by Plex, and asked for
+  /// before a connection existed.
+  final int artworkHits;
+  final int artworkMisses;
+  final int artworkFetchFailures;
+  final int artworkSkippedNoUrl;
+  final int artworkFiles;
+  final int artworkBytes;
+  final String? artworkError;
 }
 
 final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
@@ -513,6 +541,7 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
   final health = ref.watch(connectionHealthProvider);
   final monitor = ref.watch(connectionMonitorProvider);
   final reporter = ref.watch(timelineReporterProvider);
+  final artwork = ref.watch(artworkCacheProvider);
 
   // Asked live, so the stored clocks can be compared against what Plex says
   // right now — the comparison that decides whether a sync happens at all.
@@ -566,6 +595,13 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
     tracks: await db.countTracks(),
     playlists: await db.countPlaylists(),
     ratedAlbums: await db.countRatedAlbums(),
+    artworkHits: artwork.hits,
+    artworkMisses: artwork.misses,
+    artworkFetchFailures: artwork.fetchFailures,
+    artworkSkippedNoUrl: artwork.skippedNoUrl,
+    artworkFiles: artwork.entryCount,
+    artworkBytes: artwork.bytesHeld,
+    artworkError: artwork.lastError,
   );
 });
 

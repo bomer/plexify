@@ -105,6 +105,31 @@ class ArtworkCache {
 
   int get entryCount => _index.length;
 
+  /// Counters for the Sync status screen.
+  ///
+  /// Every other background mechanism in this app publishes its state there,
+  /// and this one did not — which is exactly why "no artwork on the grid, but
+  /// fine on the album page" could not be diagnosed without a device in hand.
+  /// A cache that silently returns nothing looks identical whether the server
+  /// refused, the directory could not be written, or the screen simply asked
+  /// before the connection existed.
+  int get hits => _hits;
+  int get misses => _misses;
+  int get fetchFailures => _fetchFailures;
+
+  /// Asked for while disconnected: no cached copy *and* no URL to fetch one
+  /// with. Non-zero here alongside blank artwork means the screen is asking
+  /// before the client exists, not that anything is broken.
+  int get skippedNoUrl => _skippedNoUrl;
+
+  String? get lastError => _lastError;
+
+  int _hits = 0;
+  int _misses = 0;
+  int _fetchFailures = 0;
+  int _skippedNoUrl = 0;
+  String? _lastError;
+
   /// The bytes for [key], from disk if they are there and from [url] if not.
   ///
   /// Returns null when the image is not cached and cannot be fetched — either
@@ -132,6 +157,7 @@ class ArtworkCache {
       try {
         final bytes = await file.readAsBytes();
         entry.used = ++_clock;
+        _hits++;
         return bytes;
       } on Object {
         // Indexed but unreadable — deleted from under us, or a write that was
@@ -140,14 +166,26 @@ class ArtworkCache {
       }
     }
 
-    if (url == null) return null;
+    if (url == null) {
+      _skippedNoUrl++;
+      return null;
+    }
 
+    _misses++;
     final Uint8List bytes;
     try {
       final response = await _http.get(Uri.parse(url));
-      if (response.statusCode != 200 || response.bodyBytes.isEmpty) return null;
+      if (response.statusCode != 200 || response.bodyBytes.isEmpty) {
+        _fetchFailures++;
+        _lastError = response.statusCode == 200
+            ? 'Plex answered 200 with an empty body'
+            : 'Plex answered HTTP ${response.statusCode}';
+        return null;
+      }
       bytes = response.bodyBytes;
-    } on Object {
+    } on Object catch (e) {
+      _fetchFailures++;
+      _lastError = '$e';
       return null;
     }
 
@@ -155,8 +193,11 @@ class ArtworkCache {
       await file.writeAsBytes(bytes, flush: false);
       _index[key.fileName] = _Entry(bytes: bytes.length, used: ++_clock);
       await _evict();
-    } on Object {
-      // A cache that cannot write is still a working image loader.
+    } on Object catch (e) {
+      // A cache that cannot write is still a working image loader, so this
+      // does not fail the load — but it does mean every image is fetched
+      // again on every launch, which is worth being able to see.
+      _lastError = 'Could not write to the cache: $e';
     }
 
     return bytes;
@@ -215,11 +256,12 @@ class ArtworkCache {
           _override ??
           Directory('${(await getApplicationSupportDirectory()).path}/artwork');
       await directory.create(recursive: true);
-    } on Object {
+    } on Object catch (e) {
       // Not memoised as a failure. path_provider can fail transiently during
       // startup, and holding onto a rejected future would leave the cache dead
       // for the rest of the session rather than for one image.
       _opening = null;
+      _lastError = 'Could not open the cache directory: $e';
       rethrow;
     }
 

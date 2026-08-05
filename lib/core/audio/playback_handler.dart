@@ -14,7 +14,25 @@ class PlexifyAudioHandler extends BaseAudioHandler
     with QueueHandler, SeekHandler {
   PlexifyAudioHandler() {
     // Mirror just_audio's state into the media session.
-    _player.playbackEventStream.map(_toPlaybackState).pipe(playbackState);
+    //
+    // `handleError` rather than letting it through: `pipe` is `addStream`, and
+    // an error reaching `playbackState` closes the subscription for good — one
+    // unreachable track would leave the media session frozen for the rest of
+    // the session, long after the connection came back.
+    _player.playbackEventStream
+        .handleError((Object _) => onPlaybackFailed?.call())
+        .map(_toPlaybackState)
+        .pipe(playbackState);
+
+    // The channel just_audio actually reports playback failures on. They ride
+    // on the event's `errorCode` rather than as a stream error, so the
+    // `handleError` above never sees them — it covers the platform dropping
+    // out entirely, which is a different fault.
+    //
+    // Worth listening to at all because the audio engine does its own HTTP:
+    // a queue of URLs pointing at an address that stopped answering fails
+    // here and nowhere else, so without this nothing in the app can tell.
+    _player.errorStream.listen((_) => onPlaybackFailed?.call());
 
     // Keep the "now playing" metadata in step with the current queue index, so
     // the lock screen shows the right track after an automatic advance.
@@ -74,11 +92,20 @@ class PlexifyAudioHandler extends BaseAudioHandler
   /// track can be told apart from an advance to the next one.
   int? _currentIndex;
 
+  /// Called when the engine fails to load or play the current source.
+  ///
+  /// Almost always a dead URL rather than a broken file: every playback URL
+  /// embeds the server address that was live when the queue was built, and the
+  /// engine does its own HTTP, so nothing else in the app can see it fail.
+  void Function()? onPlaybackFailed;
+
   AudioPlayer get player => _player;
 
   /// Position within the *track*, which is not the player's position once a
   /// transcode has been seeked. Prefer this over `player.position` everywhere.
   Duration get position => _streamStartedAt + _player.position;
+
+  int? get currentIndex => _player.currentIndex ?? _currentIndex;
 
   /// Replaces the queue and starts playing at [initialIndex].
   ///
@@ -103,6 +130,48 @@ class PlexifyAudioHandler extends BaseAudioHandler
       initialPosition: Duration.zero,
     );
     await _player.play();
+  }
+
+  /// Swaps the queue for one built against a new connection, carrying on from
+  /// [resumeAt].
+  ///
+  /// Distinct from [setQueueAndPlay] in what it preserves rather than in what
+  /// it does: the same tracks in the same order at the same position, only
+  /// reachable again. Every URL in a queue is fixed when it is built and
+  /// embeds the server address of that moment, so a change of route leaves the
+  /// whole queue pointing somewhere that no longer answers — not just the
+  /// track playing.
+  ///
+  /// [streamStartsAt] is how far into the current track its *URL* already
+  /// begins: non-zero when the current item is a transcode rebuilt at an
+  /// offset, since a transcode cannot be seeked and must arrive already at the
+  /// right place. Zero for a direct play, which seeks normally.
+  Future<void> resumeQueue(
+    List<MediaItem> items, {
+    required int index,
+    required Duration resumeAt,
+    Duration streamStartsAt = Duration.zero,
+  }) async {
+    if (items.isEmpty) return;
+    final at = index.clamp(0, items.length - 1);
+
+    // Whether it *was* playing, captured before the reload replaces the state.
+    // A queue rebuilt because the connection died should not start playing
+    // under someone who had deliberately paused.
+    final wasPlaying = _player.playing;
+
+    _streamStartedAt = streamStartsAt;
+    _currentIndex = at;
+    queue.add(items);
+    mediaItem.add(items[at]);
+
+    await _player.setAudioSources(
+      items.map((item) => AudioSource.uri(Uri.parse(item.id))).toList(),
+      initialIndex: at,
+      initialPosition: resumeAt - streamStartsAt,
+    );
+
+    if (wasPlaying) await _player.play();
   }
 
   @override

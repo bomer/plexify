@@ -150,6 +150,36 @@ class FakeAudioPlayer extends AudioPlayerPlatform {
     return DisposeResponse();
   }
 
+  /// Fails the current source, the way an unreachable URL does.
+  ///
+  /// An event carrying an `errorCode`, not a stream error: that is how
+  /// just_audio actually reports a source it could not load, and it is what
+  /// feeds `AudioPlayer.errorStream`.
+  void fail({int code = -1, String message = 'Source unreachable'}) {
+    if (_events.isClosed) return;
+    _events.add(
+      PlaybackEventMessage(
+        processingState: ProcessingStateMessage.idle,
+        updateTime: DateTime.now(),
+        updatePosition: position,
+        bufferedPosition: Duration.zero,
+        duration: null,
+        icyMetadata: null,
+        currentIndex: currentIndex,
+        androidAudioSessionId: null,
+        errorCode: code,
+        errorMessage: message,
+      ),
+    );
+  }
+
+  /// Drops the platform out from under the player entirely — a different
+  /// fault from a source that will not load, and the one the `handleError` on
+  /// the event stream covers.
+  void crash(Object error) {
+    if (!_events.isClosed) _events.addError(error);
+  }
+
   void _emit() {
     if (_events.isClosed) return;
     _events.add(

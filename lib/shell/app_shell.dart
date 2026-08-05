@@ -10,6 +10,7 @@ import '../features/home/home_screen.dart';
 import '../features/library/library_screen.dart';
 import '../features/player/mini_player.dart';
 import '../features/player/now_playing_screen.dart';
+import '../features/player/playback_controller.dart';
 import '../features/player/player_providers.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
@@ -153,6 +154,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     // is not yet alive would construct one — which starts a sync at the exact
     // moment we are trying to end them.
     ref.watch(syncSchedulerProvider);
+    // Without this the queue keeps pointing at the address it was built
+    // against, so walking out of the house breaks not just the track playing
+    // but every one after it.
+    ref.watch(playbackRecoveryProvider);
 
     final content = IndexedStack(
       index: destination.index,
@@ -200,7 +205,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                 bottomNavigationBar: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    const MiniPlayer(),
+                    MiniPlayer(aboveNavigationBar: !wide),
                     // The sidebar carries navigation on wide layouts, so the
                     // bottom bar would be redundant there.
                     if (!wide)

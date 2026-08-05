@@ -136,6 +136,27 @@ class SyncStatusScreen extends ConsumerWidget {
               ],
             ),
 
+            _Section(
+              title: 'Artwork',
+              subtitle:
+                  'Blank thumbnails have three different causes that look the '
+                  'same on screen. "Not yet connected" means a screen asked '
+                  'before the server was reachable; "Refused by Plex" means it '
+                  'was asked and said no.',
+              rows: [
+                ('Served from disk', '${d.artworkHits}'),
+                ('Fetched from Plex', '${d.artworkMisses}'),
+                ('Refused by Plex', '${d.artworkFetchFailures}'),
+                ('Asked before connected', '${d.artworkSkippedNoUrl}'),
+                ('Files on disk', '${d.artworkFiles}'),
+                (
+                  'Size',
+                  '${(d.artworkBytes / (1024 * 1024)).toStringAsFixed(1)} MB',
+                ),
+                ('Last error', d.artworkError ?? 'None'),
+              ],
+            ),
+
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
               child: Column(

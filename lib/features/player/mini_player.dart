@@ -12,12 +12,20 @@ import 'player_providers.dart';
 /// view over the current screen — which is a sibling layer in the shell's
 /// [Stack], not a pushed route, so the screen underneath is never unmounted.
 class MiniPlayer extends ConsumerWidget {
-  const MiniPlayer({super.key});
+  const MiniPlayer({super.key, this.aboveNavigationBar = false});
+
+  /// Whether a [NavigationBar] sits directly below this.
+  ///
+  /// When one does it owns the bottom system inset, and reserving it here as
+  /// well pads for a screen edge that is two widgets away — roughly doubling
+  /// the bar's height for no visible reason.
+  final bool aboveNavigationBar;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final handler = ref.watch(audioHandlerProvider);
     final theme = Theme.of(context);
+    final reconnecting = ref.watch(reconnectingProvider).valueOrNull ?? false;
 
     return StreamBuilder<MediaItem?>(
       stream: handler.mediaItem,
@@ -40,6 +48,7 @@ class MiniPlayer extends ConsumerWidget {
               color: theme.colorScheme.surfaceContainerHigh,
               child: SafeArea(
                 top: false,
+                bottom: !aboveNavigationBar,
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -79,14 +88,50 @@ class MiniPlayer extends ConsumerWidget {
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodyMedium,
                                   ),
-                                  Text(
-                                    item.artist ?? '',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodySmall?.copyWith(
-                                      color: theme.colorScheme.onSurfaceVariant,
+                                  // The artist line doubles as the status line
+                                  // while reconnecting. A reconnect takes
+                                  // seconds and playback has usually just
+                                  // stopped, so without it the player sits
+                                  // silent and looks broken — and the artist
+                                  // is the one thing on this bar nobody is
+                                  // reading at that moment.
+                                  if (reconnecting)
+                                    Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        SizedBox(
+                                          width: 10,
+                                          height: 10,
+                                          child: CircularProgressIndicator(
+                                            strokeWidth: 1.5,
+                                            color: theme.colorScheme.primary,
+                                          ),
+                                        ),
+                                        const SizedBox(width: 6),
+                                        Text(
+                                          'Reconnecting…',
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                                color:
+                                                    theme.colorScheme.primary,
+                                              ),
+                                        ),
+                                      ],
+                                    )
+                                  else
+                                    Text(
+                                      item.artist ?? '',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
                                     ),
-                                  ),
                                 ],
                               ),
                             ),

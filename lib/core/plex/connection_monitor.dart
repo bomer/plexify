@@ -54,6 +54,17 @@ class ConnectionMonitor {
   bool _reconnecting = false;
   DateTime? _lastAttemptAt;
 
+  final _reconnectingChanges = StreamController<bool>.broadcast();
+
+  /// Emits whenever a reconnect starts or finishes, so the UI can say so.
+  ///
+  /// A reconnect takes seconds — three waves of connection probes, each with
+  /// its own timeout — and during it playback has usually just stopped. Silence
+  /// for that long is indistinguishable from the app being broken, which is
+  /// what makes this worth publishing rather than leaving as a field the Sync
+  /// status screen happens to read.
+  Stream<bool> get reconnectingChanges => _reconnectingChanges.stream;
+
   DateTime? get lastAttemptAt => _lastAttemptAt;
   ReconnectReason? get lastReason => _lastReason;
   ReconnectReason? _lastReason;
@@ -75,6 +86,7 @@ class ConnectionMonitor {
     await _networkSubscription?.cancel();
     _lostSubscription = null;
     _networkSubscription = null;
+    await _reconnectingChanges.close();
   }
 
   /// Reconnects on demand, ignoring the cooldown.
@@ -95,6 +107,7 @@ class ConnectionMonitor {
     _lastAttemptAt = _now();
     _lastReason = reason;
     _attempts++;
+    _publish();
 
     try {
       await _reconnect();
@@ -108,6 +121,11 @@ class ConnectionMonitor {
       // listener with nobody to catch it.
     } finally {
       _reconnecting = false;
+      _publish();
     }
+  }
+
+  void _publish() {
+    if (!_reconnectingChanges.isClosed) _reconnectingChanges.add(_reconnecting);
   }
 }
