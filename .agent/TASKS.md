@@ -7,7 +7,7 @@ known traps.
 
 **Last updated:** 5 August 2026
 
-**Status:** 28 complete · 14 open · 209 tests passing
+**Status:** 29 complete · 13 open · 220 tests passing
 
 ---
 
@@ -42,6 +42,7 @@ known traps.
 | 40 | A–Z artist index | Letter headers and a jump rail. Articles stripped, matching Plex `titleSort` |
 | 41 | Reconnect when the network changes | Two triggers, one path: transport change and a run of failed requests. Sticky last-good address, manual reconnect in Sync status |
 | 8 | Transcode spike | Answered on both routes by `TranscodeProbe`, kept in the app under Sync status. Progressive works; `offset` works; **no bitrate control exists**. Parameter set and consequences in [PROJECT.md](PROJECT.md#the-music-transcode-endpoint) |
+| 42 | Sign out and switch server | One teardown, two endings. Wipes the cache eagerly and stops the writers first. Chosen server is binding — no fallback. Found and fixed a `stop()` that always threw |
 | 43a | Settings shell | Fourth destination, bottom of the sidebar. Sync status moved inside it. `SettingsStore` over `shared_preferences`; theme mode is the first setting through it |
 | 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified — Plexify appears in the Plex dashboard |
 
@@ -69,12 +70,11 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#42** Sign out and switch server | Small, and the only route out of a bad token that isn't clearing app data. Its home in Settings → Account now exists. |
-| 2 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
-| 3 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
-| 4 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-| 5 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
-| 6 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
+| 1 | **#21** Artwork disk cache | Cheap, and the largest repeating data cost after audio. Worth doing before more cellular use, not after. |
+| 2 | **#23 → #24 → #43b** Quality, audio cache, their settings | Unblocked by #8, and **smaller than planned** — see below. This is what makes the cellular half pleasant rather than merely working. |
+| 3 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 4 | **#44** Now Playing navigation test | The invariant the plan calls non-retrofittable is the least guarded thing in the app. Cheap insurance before the shell is touched again — and the shell just gained a destination. |
+| 5 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
 
 **#41 and #25 are done.** Both still want live confirmation, and neither can be confirmed
 from a test:
@@ -162,21 +162,51 @@ Lands **with** #23/#24, not after — that is what fills the two missing section
 - Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel or
   — far cheaper — a manual toggle. Suggest manual.
 
-### #42 — Sign out and switch server
+### #42 — Sign out and switch server *(done, 5 Aug 2026)*
 
-`PlexAuth.signOut()` exists at [plex_auth.dart:151](../lib/core/plex/plex_auth.dart:151) and
-nothing calls it. An expired token or a different server currently means clearing app data.
+Both live in [account_controller.dart](../lib/features/settings/account_controller.dart), and
+they are **one operation with a different last step** rather than two. Signing out ends with
+deleting the token; switching ends with recording a preferred server. Everything before that
+is shared, which is the part with an order that matters.
 
-**Subtasks**
+**The teardown, in the order it has to happen:**
 
-1. Call `signOut()`, clear `authTokenProvider`, return to the login screen.
-2. **Wipe the drift cache.** ratingKeys are unique only within a server, so a stale cache
-   against a new server blends two libraries. Identifier-mismatch handling already exists in
-   `SyncState` — confirm it covers sign-out and does not merely repair on next sync.
-3. Stop the notification socket, the scheduler and playback before tearing down the client.
-4. Confirm before doing it — it discards the whole local cache and forces a full re-sync.
-5. Server switch needs a stored preferred `clientIdentifier`; `connectServerProvider`
-   currently takes the first reachable server on the account.
+1. `reportStopped()` to Plex, with a 2-second cap — while the client still works. Skip it and
+   the dashboard shows Plexify playing until the server times the session out.
+2. `PlexifyAudioHandler.clearQueue()`. Nothing in the provider graph does this: the audio
+   handler is a root object that outlives every connection. Without it the mini player keeps
+   showing the last track, because it hides on a null `mediaItem` and on nothing else.
+3. Stop the scheduler and the notification socket.
+4. **Then** wipe the cache.
+
+Step 3 before step 4 is not tidiness, and there is a test that fails if they swap. Either
+writer can put rows back *after* the wipe — the scheduler may be mid-pass, the socket can
+deliver a push at any moment — and nothing downstream would ever notice, because the reset in
+`LibrarySync` only fires when it sees a *different* server, and by then `syncState` is gone.
+
+**Why the wipe happens here at all.** `LibrarySync._resetIfServerChanged` already wipes on a
+server change, but only *during a sync*. Between switching and that sync finishing, the album
+grid streams the previous server's rows — and because the cache is non-empty it does not fall
+through to a live read, so you browse a library that is not there and every tap 404s. Eager
+wiping is what closes that window.
+
+**Choosing a server is binding.** `AppSettings.preferredServerId` holds a `clientIdentifier`;
+`connectServerProvider` watches it, so setting it re-resolves on its own. When it is set,
+*only* that server is tried — no fallback. Falling back would be actively harmful: two
+libraries with overlapping ratingKeys would wipe each other's cache on every swap, so a
+server that comes and goes would leave the app thrashing between full syncs. Null — the
+default, and the only state on a single-server account — keeps the original behaviour of
+taking whichever answers first.
+
+The last-good sticky address is dropped whenever it is not the chosen server, or a preferred
+server that failed to answer would be handed straight back.
+
+**Found on the way:** `PlexifyAudioHandler.stop()` threw every time it was called.
+`BaseAudioHandler.stop` pushes an idle state into `playbackState` by hand, and this handler
+feeds that same subject from the player via `pipe` — rxdart refuses a manual `add` while a
+stream is piping in. It was reachable in production from the Windows media-key **Stop**
+button. The `super.stop()` call was also redundant: stopping the player emits idle through
+the pipe anyway.
 
 ### #21 — Artwork disk cache
 

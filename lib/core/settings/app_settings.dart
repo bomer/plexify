@@ -16,21 +16,44 @@ import 'package:shared_preferences/shared_preferences.dart';
 /// each add settings, and none of them should have to think about persistence.
 @immutable
 class AppSettings {
-  const AppSettings({this.themeMode = ThemeMode.dark});
+  const AppSettings({this.themeMode = ThemeMode.dark, this.preferredServerId});
 
   /// Dark by default, because the app is designed dark-first and following the
   /// system would put most users in a theme that was never the intent.
   final ThemeMode themeMode;
 
-  AppSettings copyWith({ThemeMode? themeMode}) =>
-      AppSettings(themeMode: themeMode ?? this.themeMode);
+  /// The `clientIdentifier` of the server the user picked, or null to take
+  /// whichever answers first.
+  ///
+  /// Null is the normal state and the original behaviour. It is only set by
+  /// choosing a server explicitly, and once set it is binding — see
+  /// `connectServerProvider` for why falling back to a different server would
+  /// be worse than not connecting at all.
+  final String? preferredServerId;
+
+  /// [preferredServerId] is nullable and meaningfully so, which `??` cannot
+  /// express — hence the sentinel. Clearing it is what "let any server answer"
+  /// means, and a copyWith that could not clear it would make that unreachable.
+  AppSettings copyWith({
+    ThemeMode? themeMode,
+    Object? preferredServerId = _unchanged,
+  }) => AppSettings(
+    themeMode: themeMode ?? this.themeMode,
+    preferredServerId: identical(preferredServerId, _unchanged)
+        ? this.preferredServerId
+        : preferredServerId as String?,
+  );
+
+  static const _unchanged = Object();
 
   @override
   bool operator ==(Object other) =>
-      other is AppSettings && other.themeMode == themeMode;
+      other is AppSettings &&
+      other.themeMode == themeMode &&
+      other.preferredServerId == preferredServerId;
 
   @override
-  int get hashCode => themeMode.hashCode;
+  int get hashCode => Object.hash(themeMode, preferredServerId);
 }
 
 /// Reads and writes [AppSettings].
@@ -49,11 +72,23 @@ class SettingsStore {
   final SharedPreferences _prefs;
 
   static const _themeModeKey = 'settings_theme_mode';
+  static const _preferredServerKey = 'settings_preferred_server';
 
-  AppSettings read() => AppSettings(themeMode: _themeMode());
+  AppSettings read() => AppSettings(
+    themeMode: _themeMode(),
+    preferredServerId: _prefs.getString(_preferredServerKey),
+  );
 
   Future<void> write(AppSettings settings) async {
     await _prefs.setString(_themeModeKey, settings.themeMode.name);
+    final server = settings.preferredServerId;
+    // Removed rather than stored empty, so "no preference" reads back as null
+    // on the next launch instead of as a server whose identifier is ''.
+    if (server == null) {
+      await _prefs.remove(_preferredServerKey);
+    } else {
+      await _prefs.setString(_preferredServerKey, server);
+    }
   }
 
   /// Stored by name rather than by index.
@@ -92,6 +127,13 @@ class SettingsController extends Notifier<AppSettings> {
   AppSettings build() => ref.watch(settingsStoreProvider).read();
 
   void setThemeMode(ThemeMode mode) => _apply(state.copyWith(themeMode: mode));
+
+  /// Binds the app to one server, or releases it with null.
+  ///
+  /// Changing this re-resolves the connection on its own — `connectServerProvider`
+  /// watches it — so callers do not invalidate anything themselves.
+  void setPreferredServer(String? clientIdentifier) =>
+      _apply(state.copyWith(preferredServerId: clientIdentifier));
 
   void _apply(AppSettings next) {
     if (next == state) return;

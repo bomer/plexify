@@ -148,6 +148,11 @@ class _AppShellState extends ConsumerState<AppShell> {
     ref.watch(liveSyncProvider);
     ref.watch(connectionMonitorProvider);
     ref.watch(timelineReporterProvider);
+    // The scheduler is kept alive here for a second reason: signing out has to
+    // be able to *stop* it before wiping the cache, and reading a provider that
+    // is not yet alive would construct one — which starts a sync at the exact
+    // moment we are trying to end them.
+    ref.watch(syncSchedulerProvider);
 
     final content = IndexedStack(
       index: destination.index,

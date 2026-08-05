@@ -88,10 +88,29 @@ class PlexifyAudioHandler extends BaseAudioHandler
     await _player.seek(Duration.zero, index: index);
   }
 
+  /// Stops playback and lets the media session go idle.
+  ///
+  /// Deliberately does **not** call `super.stop()`. `BaseAudioHandler.stop`
+  /// pushes an idle state into `playbackState` by hand, and this handler feeds
+  /// that same subject from the player via `pipe` — rxdart refuses a manual
+  /// `add` while a stream is being piped in, so the super call throws
+  /// "You cannot add items while items are being added from addStream". It was
+  /// also redundant: stopping the player emits an idle event that arrives
+  /// through the pipe on its own.
   @override
-  Future<void> stop() async {
-    await _player.stop();
-    await super.stop();
+  Future<void> stop() => _player.stop();
+
+  /// Stops and forgets everything that was loaded.
+  ///
+  /// Separate from [stop], which ends the session but leaves the queue in
+  /// place so the transport can resume it. Signing out is the case where that
+  /// is wrong: the mini player hides on a null `mediaItem` and nothing else, so
+  /// a plain stop would leave the last track of the old server's library on
+  /// screen, pointing at a URL that no longer resolves.
+  Future<void> clearQueue() async {
+    await stop();
+    queue.add(const []);
+    mediaItem.add(null);
   }
 
   Future<void> dispose() => _player.dispose();

@@ -273,6 +273,14 @@ Some verification genuinely requires the user.
 converts it to a `CustomAction` needing a non-zero icon, resolves the icon by name against
 the *host* package, gets `0`, and throws — killing the entire notification. Don't add it back.
 
+**Never call `super.stop()` (or otherwise `add` to `playbackState`) in `PlexifyAudioHandler`.**
+That subject is fed from the player with `pipe`, and rxdart refuses a manual `add` while a
+stream is being piped in — the call throws *"You cannot add items while items are being added
+from addStream"*. `BaseAudioHandler.stop` does exactly that, so `stop()` threw every time it
+ran, reachable in production from the Windows media-key Stop button. It was redundant too:
+stopping the player emits the idle state through the pipe on its own. The same applies to
+anything else tempted to write a state the player already reports.
+
 **`yield*` swallows error handling in `async*` functions.** It forwards inner-stream errors
 straight to subscribers, bypassing the enclosing `try`. Use `await for` + `yield` when the
 generator needs to catch failures. This silently broke sync error reporting.

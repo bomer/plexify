@@ -16,6 +16,7 @@ import 'plex/plex_identity.dart';
 import 'plex/plex_models.dart';
 import 'plex/plex_notifications.dart';
 import 'plex/plex_server.dart';
+import 'settings/app_settings.dart';
 import 'sync/library_sync.dart';
 import 'sync/library_writer.dart';
 import 'sync/live_sync.dart';
@@ -70,12 +71,18 @@ final plexDiscoveryProvider = Provider<PlexDiscovery>((ref) {
 /// flow entirely.
 final authTokenProvider = StateProvider<String?>((ref) => null);
 
-/// Connects to the first reachable server on the account.
+/// Connects to a server on the account.
 ///
-/// v1 assumes a single server; a picker comes later if that turns out to be
-/// wrong. Returns null when nothing could be reached, which the UI surfaces as
-/// a retry rather than an error — being off the LAN is normal, not exceptional.
-/// Connects to the first reachable server on the account.
+/// Returns null when nothing could be reached, which the UI surfaces as a retry
+/// rather than an error — being off the LAN is normal, not exceptional.
+///
+/// **Which server** depends on whether the user has chosen one. With no
+/// preference — the normal case, and the only one on a single-server account —
+/// the first that answers wins. With a preference set, *only* that server is
+/// tried. Falling back to a different one would be actively harmful: the two
+/// libraries have overlapping ratingKeys, so each connection would wipe the
+/// other's cache and resync from scratch, and a server that comes and goes
+/// would leave the app thrashing between two full syncs.
 ///
 /// Falling back to the last address that worked is deliberate, and the reason
 /// is not cosmetic. Resolving to null would leave no client; with no client
@@ -91,6 +98,9 @@ final authTokenProvider = StateProvider<String?>((ref) => null);
 final connectServerProvider = FutureProvider<PlexServer?>((ref) async {
   final sticky = ref.watch(_lastGoodServerProvider);
   final token = ref.watch(authTokenProvider);
+  final preferred = ref.watch(
+    settingsProvider.select((s) => s.preferredServerId),
+  );
 
   // Signing out is a real disconnection, not a failed lookup.
   if (token == null) {
@@ -98,10 +108,19 @@ final connectServerProvider = FutureProvider<PlexServer?>((ref) async {
     return null;
   }
 
+  // The last-good address is only good for the server we still want. Holding
+  // one from a server the user has just switched away from would hand it
+  // straight back the moment the new one failed to answer.
+  if (preferred != null && sticky.value?.clientIdentifier != preferred) {
+    sticky.value = null;
+  }
+
   final discovery = ref.watch(plexDiscoveryProvider);
 
   try {
-    for (final resource in await discovery.listServers(token)) {
+    final servers = await discovery.listServers(token);
+    for (final resource in servers) {
+      if (preferred != null && resource.clientIdentifier != preferred) continue;
       final connected = await discovery.connect(resource, accountToken: token);
       if (connected != null) {
         sticky.value = connected;
@@ -114,6 +133,19 @@ final connectServerProvider = FutureProvider<PlexServer?>((ref) async {
   }
 
   return sticky.value;
+});
+
+/// Every server on the account, for the picker. Not probed for reachability.
+///
+/// Deliberately not `keepAlive`: this is a plex.tv round trip that only the
+/// picker needs, and a stale list is worse than a fresh one — a server added
+/// since launch should appear.
+final accountServersProvider = FutureProvider.autoDispose<List<PlexResource>>((
+  ref,
+) async {
+  final token = ref.watch(authTokenProvider);
+  if (token == null) return const [];
+  return ref.watch(plexDiscoveryProvider).listServers(token);
 });
 
 /// Holds a value across rebuilds of the provider that computes it.

@@ -6,6 +6,8 @@ import 'package:plexify/core/plex/plex_identity.dart';
 import 'package:plexify/core/plex/plex_models.dart';
 import 'package:plexify/core/plex/plex_server.dart';
 import 'package:plexify/core/providers.dart';
+import 'package:plexify/core/settings/app_settings.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// The unit tests cover *when* to reconnect. This covers what reconnecting
 /// actually does to the provider graph — which is where the user-visible
@@ -14,12 +16,18 @@ void main() {
   late _ScriptedDiscovery discovery;
   late ProviderContainer container;
 
-  setUp(() {
+  setUp(() async {
     discovery = _ScriptedDiscovery([_lan, _remote]);
+    // Connecting consults the chosen-server preference, so the store has to
+    // exist even though these tests never set one.
+    SharedPreferences.setMockInitialValues({});
+    final settings = SettingsStore(await SharedPreferences.getInstance());
+
     container = ProviderContainer(
       overrides: [
         plexIdentityProvider.overrideWithValue(PlexIdentity.forTesting()),
         plexDiscoveryProvider.overrideWithValue(discovery),
+        settingsStoreProvider.overrideWithValue(settings),
         // The real one opens a platform channel.
         networkChangesProvider.overrideWithValue(const Stream<void>.empty()),
       ],
