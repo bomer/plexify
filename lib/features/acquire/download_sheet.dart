@@ -143,27 +143,42 @@ Future<AcquireOutcome?> _whileSearching(
   CatalogRelease release,
   Future<AcquireOutcome> Function() work,
 ) async {
+  // Two flags rather than one, and the second is not defensive padding. The
+  // dialog's own future completes for *both* reasons it can close, so closing
+  // it ourselves once the search finished set "dismissed" a moment later and
+  // the result was thrown away every single time — a one-click button that
+  // searched, found the album, and then did nothing at all.
   var dismissed = false;
-  final dialog = showDialog<void>(
-    context: context,
-    barrierDismissible: true,
-    builder: (context) => AlertDialog(
-      content: Row(
-        children: [
-          const SizedBox(
-            width: 20,
-            height: 20,
-            child: CircularProgressIndicator(strokeWidth: 2),
+  var closedByUs = false;
+
+  final dialog =
+      showDialog<void>(
+        context: context,
+        barrierDismissible: true,
+        builder: (context) => AlertDialog(
+          content: Row(
+            children: [
+              const SizedBox(
+                width: 20,
+                height: 20,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              ),
+              const SizedBox(width: 16),
+              Expanded(child: Text('Searching for ${release.title}…')),
+            ],
           ),
-          const SizedBox(width: 16),
-          Expanded(child: Text('Searching for ${release.title}…')),
-        ],
-      ),
-    ),
-  ).then((_) => dismissed = true);
+        ),
+      ).then((_) {
+        if (!closedByUs) dismissed = true;
+      });
 
   final outcome = await work();
-  if (context.mounted && !dismissed) Navigator.of(context).pop();
+  // Guarded on `dismissed` as well as `mounted`: popping a dialog the user has
+  // already dismissed pops the screen underneath it instead.
+  if (context.mounted && !dismissed) {
+    closedByUs = true;
+    Navigator.of(context).pop();
+  }
   await dialog;
   return dismissed ? null : outcome;
 }
