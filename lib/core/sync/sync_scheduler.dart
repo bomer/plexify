@@ -13,9 +13,10 @@ import 'library_sync.dart';
 /// yes, a delta sync follows.
 ///
 /// Those clocks are not the whole story though — they describe the library's
-/// shape, and a metadata-only edit such as rating an album need not move
-/// either. So a slower [deltaInterval] sweep runs a delta regardless, which is
-/// what catches stars set from Plex's own client.
+/// shape, and a metadata-only edit such as rating an album moves neither. So a
+/// slower [deltaInterval] sweep runs a pass regardless, and that pass is
+/// **unfiltered**: Plex does not move a row's own `updatedAt` for a rating
+/// either, so there is no cheap question that can find one.
 ///
 /// This is the safety net beneath the notification socket rather than a
 /// replacement for it: the socket is faster, but it cannot deliver what
@@ -26,7 +27,7 @@ class SyncScheduler {
     required PlexClient client,
     required AppDatabase db,
     this.pollInterval = const Duration(seconds: 30),
-    this.deltaInterval = const Duration(minutes: 5),
+    this.deltaInterval = const Duration(minutes: 15),
     DateTime Function()? now,
   }) : _client = client,
        _db = db,
@@ -39,18 +40,24 @@ class SyncScheduler {
   /// one small response, no metadata.
   final Duration pollInterval;
 
-  /// How often to run a delta sync regardless of what the section clocks say.
+  /// How often to sweep the whole library for edits no clock announced.
   ///
   /// The section's `updatedAt` and `scannedAt` track the library's *shape* —
   /// files appearing, a scan running. A metadata-only edit such as rating an
   /// album from Plex's own client does not reliably move either, so a scheduler
-  /// that trusts them alone will never notice the stars you just set. This
-  /// sweep asks Plex directly for anything newer than our cursor, which catches
-  /// edits the section clocks never advertised.
+  /// that trusts them alone will never notice the stars you just set.
   ///
-  /// Slower than [pollInterval] because it costs one request per metadata type
-  /// rather than one in total — still small, since the cursor means the server
-  /// usually has nothing to return.
+  /// **This sweep is unfiltered, and therefore expensive.** Plex does not move
+  /// a row's `updatedAt` when its rating changes (measured, 6 August 2026), so
+  /// there is no cheap question that can find one. Fifteen minutes rather than
+  /// five is the price of doing it honestly: a full pass over an 11.5k-track
+  /// library is around seventy requests, and three of those an hour is a
+  /// defensible background cost where twelve is not.
+  ///
+  /// Nothing else waits on it. New music arrives by push in under a second, or
+  /// by the [pollInterval] check within thirty seconds, both of which *can*
+  /// filter. Only ratings set in another client wait on this, and the refresh
+  /// button forces one immediately.
   final Duration deltaInterval;
 
   final DateTime Function() _now;
@@ -87,21 +94,20 @@ class SyncScheduler {
 
   /// Rows the last sync pulled down.
   ///
-  /// The number that says whether the delta filter is doing anything. A routine
-  /// sweep with nothing new should report ~0; if it reports the size of the
-  /// library, Plex is ignoring `updatedAt>=` and every sweep is refetching
-  /// everything — cheap on a LAN, ruinous on a phone.
+  /// **Read it against what triggered the pass.** A clock-triggered delta
+  /// should report a handful; the whole library there means the filter stopped
+  /// working. The fifteen-minute sweep reports the whole library *by design*,
+  /// because it is unfiltered, because Plex offers no question that finds a
+  /// changed rating.
   int get lastSyncRowCount => _lastSyncRowCount;
   int _lastSyncRowCount = 0;
 
   /// Runs a first check, then polls.
   ///
   /// **Not forced.** It used to be, and that turned every launch into a full
-  /// pass: `_lastDelta` began null, so a sweep was always due, and Plex ignores
-  /// the `updatedAt>=` filter (measured on James's server: a delta asking for
-  /// rows newer than the cursor returned all 13,704 of them). Quitting and
-  /// reopening therefore refetched the entire library, about seventy requests,
-  /// every time.
+  /// pass: `_lastDelta` began null, so a sweep was always due, and the sweep is
+  /// unfiltered. Quitting and reopening therefore refetched the entire library,
+  /// about seventy requests, every time.
   ///
   /// Nothing is lost by asking rather than assuming. An interrupted initial
   /// sync still resumes, because `initialSyncComplete` being false makes the
@@ -209,14 +215,35 @@ class SyncScheduler {
         stored.serverClientIdentifier == _client.server.clientIdentifier;
 
     final changed = !resumable || _sectionChanged(section, stored);
-    if (!force && !changed && !_deltaSweepDue()) return;
+    final sweepDue = _deltaSweepDue();
+    if (!force && !changed && !sweepDue) return;
+
+    // **The cursor is only used when the section clocks are what triggered
+    // this.** Measured on 6 August 2026, and it is the whole shape of the
+    // problem: adding music moves `updatedAt`, rating something does not.
+    //
+    // So a clock-triggered pass can filter, because whatever moved the clock
+    // also moved the timestamp, and fetching seventeen rows instead of
+    // thirteen thousand is the entire point of a delta sync.
+    //
+    // The sweep cannot. It exists precisely to catch metadata edits that no
+    // clock announces, and stars set in Plex are the case it was built for.
+    // Filtering it by a timestamp that does not move for those edits leaves it
+    // running, costing requests, and structurally unable to find the one thing
+    // it is for. That regression shipped for about an hour and presented as a
+    // favourite set on the phone never reaching the desktop.
+    //
+    // Forced passes go unfiltered too. Someone who pressed refresh has already
+    // decided the screen is wrong, and answering with a cheap query that cannot
+    // see ratings would be the app arguing with them.
+    final useCursor = resumable && changed && !sweepDue && !force;
 
     final fetched = <SyncPhase, int>{};
 
     await for (final update in LibrarySync(client: _client, db: _db).run(
       section,
       serverClientIdentifier: _client.server.clientIdentifier,
-      minUpdatedAt: resumable ? stored.lastSyncedUpdatedAt : 0,
+      minUpdatedAt: useCursor ? stored.lastSyncedUpdatedAt : 0,
     )) {
       if (update.phase == SyncPhase.failed) _lastError = update.message;
       fetched[update.phase] = update.done;
@@ -225,8 +252,7 @@ class SyncScheduler {
 
     _lastSyncRowCount = fetched.values.fold(0, (a, b) => a + b);
     _lastDelta = _now();
-    // Persisted so the interval means five minutes of elapsed time rather than
-    // five minutes of uptime.
+    // Persisted so the interval means elapsed time rather than uptime.
     await _db.markDeltaSweep(_lastDelta!);
     _passes++;
   }

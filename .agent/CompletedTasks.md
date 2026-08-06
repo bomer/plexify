@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **45 complete**
+**Last updated:** 6 August 2026 · **46 complete**
 
 ---
 
@@ -60,6 +60,7 @@ between the next reader and paying for it twice.
 | 43b | Settings: playback and storage | Quality override per connection, which *is* the data saver, there being no bitrate to lower. Both cache budgets, live usage, and one clear button. Budgets push into the running cache rather than rebuilding it |
 | 50 | Stop resyncing the library on every launch | Plex ignores `updatedAt>=`, so a forced launch pass plus an in-memory sweep clock meant 13,704 rows and ~70 requests every time. Schema v8 persists the clock; `start` asks instead of forcing. Ships the probe that will settle the filter itself |
 | 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
+| 52 | Filter the poll, never the sweep | A rating moves no timestamp, so a filtered sweep cannot find the one thing it exists for. Sweep and forced refresh go unfiltered, interval 5 → 15 min. The fake server now applies the filter, which is why the guard is real |
 
 ---
 
@@ -446,6 +447,44 @@ Found by using it rather than by testing it, which is the point.
 
 ---
 
+### #52 - Filter the poll, never the sweep *(done, 6 August 2026)*
+
+Reported an hour after #51 shipped: a favourite set on the phone showed there and never
+reached the desktop, not even on manual refresh. It was a regression from #51, and the
+mechanism is worth stating exactly because it is not obvious.
+
+**Plex moves a row's `updatedAt` when music is added and leaves it alone when a rating
+changes.** Measured with the probe: rate an album, and Albums-changed-in-the-last-five-minutes
+stays at zero, while an album *added* shows up immediately.
+
+While the filter was being ignored, every sweep was accidentally a full pass, so ratings
+arrived by brute force and nobody knew the sweep depended on that. The moment the filter
+started working, the sweep kept running, kept costing requests, and became structurally
+incapable of finding the only thing it exists for.
+
+So the filter is applied per pass, by trigger:
+
+| Trigger | Filtered | Why |
+|---|---|---|
+| Section clock moved | **Yes** | Whatever moved the clock moved the row's timestamp. Seventeen rows instead of thirteen thousand |
+| Periodic sweep | **No** | It exists for edits that move no timestamp |
+| Forced refresh / full resync | **No** | The point of the gesture is to override our judgement |
+
+`deltaInterval` goes 5 → 15 minutes, because an unfiltered pass over 11.5k tracks is about
+seventy requests and three of those an hour is defensible where twelve is not. Nothing waits
+on it that matters: new music still arrives by push in under a second, and the refresh button
+forces a pass immediately.
+
+**The test that should have caught this was vacuous.** `sync_scheduler_test.dart` had a test
+called "a rating set in Plex arrives even with the section clocks still", and it passed
+throughout, because the `MockClient` returned its canned album regardless of any filter in the
+request. A fake server that answers the same however it is asked is not testing the question.
+It applies the filter now, and the album in that test carries an `updatedAt` *below* the
+cursor, which is what a real unmoved rating looks like. Three tests fail if the sweep starts
+using the cursor again, verified by making it do so.
+
+---
+
 ### #51 - Use a delta filter Plex honours *(done, 6 August 2026)*
 
 **`updatedAt>` works. `updatedAt>=`, which this app had sent since #18, never did.**
@@ -688,6 +727,7 @@ Done in code, and neither can be confirmed from a test:
 - **#50**, that a relaunch inside five minutes now costs one request. Read "Rows in last
   sync" straight after reopening: it should still show the previous pass's number rather than
   13,704 again.
-- **#51**, that "Rows in last sync" now reports roughly zero on a routine sweep rather than
-  11,492. The filter is proven to work at the server; what has not been watched is a real
-  sweep going through it.
+- **#51/#52**, that a favourite set on one device now reaches the other within fifteen
+  minutes, or immediately on pressing refresh. Also that "Rows in last sync" reports a
+  handful after music is added, and the whole library after a sweep, which is now the
+  correct pair of readings rather than a symptom.

@@ -96,11 +96,18 @@ Worth reading before touching anything under `lib/core/sync/`. Three mechanisms 
 library changes, and they are not interchangeable, most of the debugging so far has been
 working out which one *should* have carried a given change.
 
-| | What it catches | Latency |
-|---|---|---|
-| `plex_notifications.dart` → `live_sync.dart` | Items Plex finishes **scanning**: new music, deletions | Sub-second |
-| `sync_scheduler.dart` 30s poll | Anything that moved the section's `updatedAt` / `scannedAt` | ≤30s |
-| `sync_scheduler.dart` 5min sweep | Metadata edits the section clocks never announced, **ratings set in Plex** | ≤5min |
+| | What it catches | Latency | Filtered? |
+|---|---|---|---|
+| `plex_notifications.dart` → `live_sync.dart` | Items Plex finishes **scanning**: new music, deletions | Sub-second | n/a |
+| `sync_scheduler.dart` 30s poll | Anything that moved the section's `updatedAt` / `scannedAt` | ≤30s | **Yes** |
+| `sync_scheduler.dart` 15min sweep | Metadata edits the section clocks never announced, **ratings set in Plex** | ≤15min | **No** |
+
+That last column is the expensive lesson. **Plex moves a row's `updatedAt` when music is
+added and leaves it alone when a rating changes** (measured 6 August 2026 with the Delta
+filter probe: rate an album, and Albums-changed-in-5-minutes stays at zero). So the poll can
+filter, because whatever moved the section clock moved the row's timestamp too; and the sweep
+cannot, because the edits it exists for move nothing. A filtered sweep is a request that
+costs money and is structurally incapable of finding what it is looking for.
 
 Playback history travels the other way. `timeline_reporter.dart` sends `/:/timeline` every
 ten seconds and on every state change, and `/:/scrobble` once a track passes 90%. It also
@@ -428,6 +435,17 @@ hence the `PostMessage` bounce through the window proc.
 **`RefreshIndicator` does nothing on desktop.** It needs a drag, and a mouse wheel produces
 none. Any pull-to-refresh must be paired with an explicit button, which is what
 `SyncActions` is.
+
+**A rating does not move `updatedAt`; adding music does.** So the delta filter can only be
+used where the trigger was the section clocks. `SyncScheduler` decides that per pass, and the
+15-minute sweep and every forced refresh go unfiltered. This regressed for about an hour and
+presented as a favourite set on the phone never reaching the desktop, which reads as a sync
+bug anywhere but the filter.
+
+**A fake server that answers the same however it is asked is not testing the question.** The
+scheduler's `MockClient` ignored the delta filter until #52, so every test passed whether the
+sweep filtered or not, including the one named "a rating set in Plex arrives". The fake
+applies the filter now, and three tests fail if the sweep starts using the cursor again.
 
 **Plex applies `updatedAt>` and ignores `updatedAt>=`.** Measured, not read: the Delta filter
 probe asked all four spellings twice against the real server. `>=` and `>>=` both returned all

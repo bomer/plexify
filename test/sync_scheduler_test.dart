@@ -87,12 +87,29 @@ void main() {
           final isAlbumPage =
               request.url.queryParameters['type'] == '9' &&
               request.url.queryParameters['X-Plex-Container-Start'] != '1';
-          if (isAlbumPage && albumsFromServer.isNotEmpty) {
-            final page = albumsFromServer;
+
+          // **The fake applies the delta filter, and that is load-bearing.**
+          // It did not until #52, so every test passed whether the sweep
+          // filtered or not, and a regression that made ratings unreachable by
+          // sync shipped with a green suite. A fake server that answers the
+          // same however it is asked is not testing the question.
+          final cutoff = request.url.queryParameters[PlexClient.deltaFilter];
+          final visible = cutoff == null
+              ? albumsFromServer
+              : albumsFromServer
+                    .where(
+                      (a) => (a['updatedAt'] as int? ?? 0) > int.parse(cutoff),
+                    )
+                    .toList();
+
+          if (isAlbumPage && visible.isNotEmpty) {
             albumsFromServer = [];
             return http.Response(
               jsonEncode({
-                'MediaContainer': {'totalSize': page.length, 'Metadata': page},
+                'MediaContainer': {
+                  'totalSize': visible.length,
+                  'Metadata': visible,
+                },
               }),
               200,
             );
@@ -182,7 +199,7 @@ void main() {
 
     test('a sweep past the window still runs', () async {
       await seedSyncedState(
-        sweptAt: clock.subtract(const Duration(minutes: 10)),
+        sweptAt: clock.subtract(const Duration(minutes: 20)),
       );
 
       await scheduler.start();
@@ -270,34 +287,96 @@ void main() {
     },
   );
 
-  test('a rating set in Plex arrives even with the section clocks still', () async {
-    await seedSyncedState();
+  test(
+    'a rating set in Plex arrives even with the section clocks still',
+    () async {
+      await seedSyncedState();
+      await scheduler.start();
+      clearRequests();
+
+      // Two things are deliberately still here, and both were measured against
+      // the real server on 6 August 2026.
+      //
+      // The section clocks do not move: rating an album leaves the library's
+      // shape identical, so a scheduler trusting them alone never looks.
+      //
+      // **And the album's own `updatedAt` does not move either**, which is why it
+      // sits below the stored cursor. That is the part that caught this project
+      // out. While Plex was ignoring the delta filter every sweep was
+      // accidentally a full pass and ratings arrived by brute force; the moment
+      // the filter started working, the sweep could no longer see the one thing
+      // it exists for. The sweep is therefore unfiltered, and this is the test
+      // that says so.
+      clock = clock.add(const Duration(minutes: 16));
+      albumsFromServer = [
+        {
+          'ratingKey': 'b1',
+          'title': 'Kid A',
+          'parentTitle': 'Radiohead',
+          'userRating': 10,
+          'updatedAt': 10,
+        },
+      ];
+
+      await scheduler.wake();
+
+      final favourites = await db.watchFavouriteAlbums().first;
+      expect(favourites.map((a) => a.title), ['Kid A']);
+    },
+  );
+
+  test(
+    'the sweep asks without a filter, the clock check asks with one',
+    () async {
+      await seedSyncedState(cursor: 4242, sweptAt: clock);
+
+      // Something appeared, so the section clock moved. Whatever moved it also
+      // moved its own updatedAt, so this pass can afford to filter.
+      sectionUpdatedAt = 200;
+      await scheduler.start();
+      expect(
+        listingQueries.every((q) => q[PlexClient.deltaFilter] == '4241'),
+        isTrue,
+        reason: 'a clock-triggered pass should carry the cursor',
+      );
+
+      // Now nothing has moved and the sweep falls due. This one has to ask
+      // unfiltered, because what it is looking for never moves a timestamp.
+      listingQueries.clear();
+      sectionUpdatedAt = 200;
+      clock = clock.add(const Duration(minutes: 16));
+      await scheduler.wake();
+
+      expect(listingQueries, isNotEmpty);
+      expect(
+        listingQueries.any((q) => q.containsKey(PlexClient.deltaFilter)),
+        isFalse,
+        reason: 'a sweep that filtered could never find a rating',
+      );
+    },
+  );
+
+  test('a forced refresh asks without a filter', () async {
+    await seedSyncedState(cursor: 4242, sweptAt: clock);
     await scheduler.start();
-    clearRequests();
+    listingQueries.clear();
 
-    // Deliberately no change to updatedAt or scannedAt. Rating an album in
-    // Plex is a metadata edit: the library's shape is identical, so the section
-    // clocks need not move, and a scheduler that trusted them alone would never
-    // fetch the stars that were just set.
-    clock = clock.add(const Duration(minutes: 6));
-    albumsFromServer = [
-      {
-        'ratingKey': 'b1',
-        'title': 'Kid A',
-        'parentTitle': 'Radiohead',
-        'userRating': 10,
-        'updatedAt': 200,
-      },
-    ];
+    await scheduler.refreshNow();
 
-    await scheduler.wake();
-
-    final favourites = await db.watchFavouriteAlbums().first;
-    expect(favourites.map((a) => a.title), ['Kid A']);
+    // Someone who pressed refresh has already decided the screen is wrong.
+    // Answering with a cheap query that structurally cannot see a rating would
+    // be the app arguing with them.
+    expect(listingQueries, isNotEmpty);
+    expect(
+      listingQueries.any((q) => q.containsKey(PlexClient.deltaFilter)),
+      isFalse,
+    );
   });
 
   test('a delta pass asks Plex only for what changed', () async {
-    await seedSyncedState(cursor: 4242);
+    // Swept just now, so the section clock moving is the only reason to sync.
+    // Without that this is a sweep, and a sweep is deliberately unfiltered.
+    await seedSyncedState(cursor: 4242, sweptAt: clock);
     sectionUpdatedAt = 200;
 
     await scheduler.start();

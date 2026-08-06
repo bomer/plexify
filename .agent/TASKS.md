@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 45 complete · 6 open · 386 tests passing
+**Status:** 46 complete · 6 open · 390 tests passing
 
 ---
 
@@ -126,6 +126,11 @@ reason v3 did. Expect one longer sync after upgrading.
 empty, and a delta sync cannot fill them, Plex's `updatedAt` for a track rated months ago
 has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
 a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
+
+**A rating does not move `updatedAt`.** Adding music does. So the delta filter is used only
+when the section clocks were what triggered the pass; the 15-minute sweep and any forced
+refresh go unfiltered, because the edits they exist for move no timestamp at all. Costs a
+full pass three times an hour of foreground use, which is what honesty costs here.
 
 **Plex applies `updatedAt>`, not `updatedAt>=`.** Found by reading "Rows in last sync" after
 a five-second launch, then settled by the Delta filter probe. `>=` and `>>=` are dropped
