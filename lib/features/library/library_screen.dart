@@ -11,6 +11,7 @@ import 'artist_detail_screen.dart';
 import 'artist_list.dart';
 import '../player/playback_controller.dart';
 import 'artwork.dart';
+import '../player/playing_indicator.dart';
 import '../settings/sync_actions.dart';
 import 'playlist_detail_screen.dart';
 import 'star_rating.dart';
@@ -38,6 +39,7 @@ class LibraryScreen extends ConsumerWidget {
         actions: [
           // These only apply to the album grid, so they are hidden elsewhere
           // rather than shown doing nothing.
+          if (view == LibraryView.artists) const _ArtistFavouritesButton(),
           if (view == LibraryView.albums) ...[
             const _FavouritesFilterButton(),
             const AlbumSortButton(),
@@ -139,6 +141,28 @@ class _FavouritesFilterButton extends ConsumerWidget {
   }
 }
 
+/// The same filter for the Artists list.
+///
+/// Its own provider rather than sharing the album one: filtering the artists
+/// list should not silently filter the album grid you switch to next.
+class _ArtistFavouritesButton extends ConsumerWidget {
+  const _ArtistFavouritesButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final active = ref.watch(artistFavouritesOnlyProvider);
+
+    return IconButton(
+      tooltip: active ? 'Showing favourites' : 'Show favourites only',
+      isSelected: active,
+      icon: const Icon(Icons.star_border),
+      selectedIcon: const Icon(Icons.star),
+      onPressed: () =>
+          ref.read(artistFavouritesOnlyProvider.notifier).state = !active,
+    );
+  }
+}
+
 /// Favourite albums and tracks — four stars or better.
 class _FavouritesView extends ConsumerWidget {
   const _FavouritesView();
@@ -214,6 +238,10 @@ class _FavouritesView extends ConsumerWidget {
           for (final track in tracks)
             ListTile(
               dense: true,
+              selected: isNowPlaying(ref, track.ratingKey),
+              leading: isNowPlaying(ref, track.ratingKey)
+                  ? const PlayingIndicator()
+                  : null,
               title: Text(
                 track.title,
                 maxLines: 1,

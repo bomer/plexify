@@ -4,6 +4,7 @@ import '../../core/audio/playback_source.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../player/playing_indicator.dart';
 import '../player/playback_controller.dart';
 
 /// A playlist's tracks, in playlist order.
@@ -71,8 +72,15 @@ class PlaylistDetailScreen extends ConsumerWidget {
               final index = i - 1;
               final track = items[index];
 
+              final playing = isNowPlaying(ref, track.ratingKey);
+
               return ListTile(
                 dense: true,
+                selected: playing,
+                // Only the playing row gets a leading slot. Reserving one on
+                // every row would indent the whole list to make room for
+                // something almost never there.
+                leading: playing ? const PlayingIndicator() : null,
                 title: Text(
                   track.title,
                   maxLines: 1,

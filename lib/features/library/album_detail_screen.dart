@@ -8,6 +8,7 @@ import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
 import 'rating_controller.dart';
 import 'artwork.dart';
+import '../player/playing_indicator.dart';
 import 'star_rating.dart';
 import 'track_rating_sheet.dart';
 
@@ -45,16 +46,30 @@ class AlbumDetailScreen extends ConsumerWidget {
             final index = i - 1;
             final track = items[index];
 
+            final playing = isNowPlaying(ref, track.ratingKey);
+
             return ListTile(
+              // Selected rather than a hand-rolled colour, so the highlight
+              // follows the theme and stays legible in both.
+              selected: playing,
+              // The marker replaces the track number rather than crowding in
+              // beside it: in a numbered list the number is how you find your
+              // place, and the one row you do not need it for is the one you
+              // are listening to.
               leading: SizedBox(
                 width: 28,
-                child: Text(
-                  '${track.index}',
-                  textAlign: TextAlign.end,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                child: playing
+                    ? const Align(
+                        alignment: Alignment.centerRight,
+                        child: PlayingIndicator(),
+                      )
+                    : Text(
+                        '${track.index}',
+                        textAlign: TextAlign.end,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
               ),
               title: Text(
                 track.title,

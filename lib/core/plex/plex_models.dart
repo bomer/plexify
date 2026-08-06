@@ -173,6 +173,7 @@ class PlexArtist {
     this.thumb,
     this.updatedAt,
     this.addedAt,
+    this.userRating,
   });
 
   final String ratingKey;
@@ -181,6 +182,9 @@ class PlexArtist {
   final int? updatedAt;
   final int? addedAt;
 
+  /// Plex `userRating`, 0-10, null when unrated.
+  final int? userRating;
+
   factory PlexArtist.fromJson(Map<String, dynamic> json) {
     return PlexArtist(
       ratingKey: _str(json['ratingKey']) ?? '',
@@ -188,6 +192,7 @@ class PlexArtist {
       thumb: _str(json['thumb']),
       updatedAt: _int(json['updatedAt']),
       addedAt: _int(json['addedAt']),
+      userRating: _int(json['userRating']),
     );
   }
 }

@@ -63,5 +63,6 @@ extension ArtistRowMapper on Artist {
     thumb: thumb,
     updatedAt: updatedAt,
     addedAt: addedAt,
+    userRating: userRating,
   );
 }

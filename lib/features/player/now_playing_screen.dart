@@ -394,21 +394,47 @@ class _UpNext extends StatelessWidget {
       stream: handler.playbackState,
       builder: (context, stateSnapshot) {
         final currentIndex = stateSnapshot.data?.queueIndex;
+        final shuffled =
+            stateSnapshot.data?.shuffleMode == AudioServiceShuffleMode.all;
 
         return StreamBuilder<List<MediaItem>>(
           stream: handler.queue,
           builder: (context, queueSnapshot) {
             final queue = queueSnapshot.data ?? const <MediaItem>[];
-            if (currentIndex == null || currentIndex + 1 >= queue.length) {
+            if (currentIndex == null || currentIndex >= queue.length) {
               return const SizedBox.shrink();
             }
 
-            final upcoming = queue.sublist(currentIndex + 1);
+            // Shuffled, "what follows this track" is not a thing: the next one
+            // is picked at random, and slicing the list at the current index
+            // made the shelf shrink and jump about after every track, which
+            // read as the queue reordering itself. So the whole queue is shown
+            // in its own order, minus what is playing, and the heading stops
+            // claiming to be a running order.
+            final upcoming = shuffled
+                ? [
+                    for (final (i, item) in queue.indexed)
+                      if (i != currentIndex) item,
+                  ]
+                : queue.sublist(currentIndex + 1);
+            if (upcoming.isEmpty) return const SizedBox.shrink();
+
+            // Offsets into `queue`, since a shuffled list is no longer a
+            // contiguous slice and the handler works in queue indices.
+            final indices = shuffled
+                ? [
+                    for (final (i, _) in queue.indexed)
+                      if (i != currentIndex) i,
+                  ]
+                : [for (var i = currentIndex + 1; i < queue.length; i++) i];
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Up next', style: theme.textTheme.titleSmall),
+                Text(
+                  shuffled ? 'In this queue' : 'Up next',
+                  style: theme.textTheme.titleSmall,
+                ),
                 const SizedBox(height: 4),
                 ReorderableListView(
                   shrinkWrap: true,
@@ -418,11 +444,15 @@ class _UpNext extends StatelessWidget {
                   // which reported the destination as an index in the list
                   // *before* the dragged item was taken out and left every
                   // caller to correct for it. This one is already adjusted.
-                  onReorderItem: (oldOffset, newOffset) =>
-                      handler.moveQueueItem(
-                        currentIndex + 1 + oldOffset,
-                        currentIndex + 1 + newOffset,
-                      ),
+                  // Reordering a shuffled queue would be rearranging a list
+                  // whose order does not decide anything, so it is only
+                  // offered when the order is the running order.
+                  onReorderItem: shuffled
+                      ? (_, _) {}
+                      : (oldOffset, newOffset) => handler.moveQueueItem(
+                          indices[oldOffset],
+                          currentIndex + 1 + newOffset,
+                        ),
                   children: [
                     for (final (offset, item) in upcoming.take(20).indexed)
                       Dismissible(
@@ -458,10 +488,12 @@ class _UpNext extends StatelessWidget {
                           // these rows are tappable too, and a long press that
                           // sometimes plays and sometimes lifts is worse than
                           // a grip you can see.
-                          trailing: ReorderableDragStartListener(
-                            index: offset,
-                            child: const Icon(Icons.drag_handle),
-                          ),
+                          trailing: shuffled
+                              ? null
+                              : ReorderableDragStartListener(
+                                  index: offset,
+                                  child: const Icon(Icons.drag_handle),
+                                ),
                           onTap: () => handler.skipToQueueItem(
                             currentIndex + 1 + offset,
                           ),

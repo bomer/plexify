@@ -105,4 +105,36 @@ void main() {
     // every keystroke.
     expect((await db.search('test', limit: 20)).albums, hasLength(20));
   });
+
+  group('the artists favourites filter', () {
+    test('shows only four stars and above', () async {
+      await writer.writeArtists([
+        const PlexArtist(ratingKey: 'f1', title: 'Loved', userRating: 10),
+        const PlexArtist(ratingKey: 'f2', title: 'Liked', userRating: 8),
+        const PlexArtist(ratingKey: 'f3', title: 'Meh', userRating: 4),
+        const PlexArtist(ratingKey: 'f4', title: 'Unrated'),
+      ]);
+
+      final favourites = await db.watchArtists(favouritesOnly: true).first;
+
+      // Same threshold as albums and tracks. Four stars is 8 on Plex's 0-10
+      // scale, so a three-star artist is not a favourite.
+      expect(
+        favourites.map((a) => a.ratingKey),
+        containsAll(<String>['f1', 'f2']),
+      );
+      expect(favourites.map((a) => a.ratingKey), isNot(contains('f3')));
+      expect(favourites.map((a) => a.ratingKey), isNot(contains('f4')));
+    });
+
+    test('unfiltered still lists everything', () async {
+      await writer.writeArtists([
+        const PlexArtist(ratingKey: 'f4', title: 'Unrated'),
+      ]);
+
+      final all = await db.watchArtists().first;
+
+      expect(all.map((a) => a.ratingKey), contains('f4'));
+    });
+  });
 }

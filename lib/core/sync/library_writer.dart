@@ -34,6 +34,7 @@ class LibraryWriter {
             thumb: Value(a.thumb),
             updatedAt: Value(a.updatedAt),
             addedAt: Value(a.addedAt),
+            userRating: Value(a.userRating),
           ),
         ),
       );

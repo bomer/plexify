@@ -8,6 +8,7 @@ import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
 import 'album_detail_screen.dart';
 import 'artwork.dart';
+import '../player/playing_indicator.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
 import 'track_rating_sheet.dart';
@@ -177,8 +178,11 @@ class _TrackList extends ConsumerWidget {
           itemCount: tracks.length,
           itemBuilder: (context, i) {
             final track = tracks[i];
+            final playing = isNowPlaying(ref, track.ratingKey);
             return ListTile(
               dense: true,
+              selected: playing,
+              leading: playing ? const PlayingIndicator() : null,
               title: Text(
                 track.title,
                 maxLines: 1,

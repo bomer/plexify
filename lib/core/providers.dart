@@ -630,9 +630,17 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
 });
 
 /// Artists, alphabetically.
+/// Whether the Artists list is filtered to favourites.
+///
+/// Separate from `albumFavouritesOnlyProvider` rather than shared: the two
+/// lists are looked at for different reasons and remembering them together
+/// would mean filtering one hid the other.
+final artistFavouritesOnlyProvider = StateProvider<bool>((ref) => false);
+
 final artistsProvider = StreamProvider<List<PlexArtist>>((ref) async* {
   final db = ref.watch(databaseProvider);
-  await for (final rows in db.watchArtists()) {
+  final favouritesOnly = ref.watch(artistFavouritesOnlyProvider);
+  await for (final rows in db.watchArtists(favouritesOnly: favouritesOnly)) {
     yield rows.map((r) => r.toDomain()).toList();
   }
 });

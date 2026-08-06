@@ -33,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 5;
+  int get schemaVersion => 6;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -90,6 +90,20 @@ class AppDatabase extends _$AppDatabase {
       // the table starts empty and fills from the next thing played.
       if (from < 5) {
         await m.createTable(playbackHistory);
+      }
+
+      // v6 gives artists a rating, so the Artists list can filter on
+      // favourites the way the album grid already does.
+      //
+      // Like v4 this does not rewind the sync cursor: an unrated artist and an
+      // artist whose rating has not synced yet look the same to the filter,
+      // and the next pass that touches the row fills it in. Unlike the v2
+      // ratings there is no backfill problem worth a full pass, because an
+      // artist rating is rare enough that waiting is not a broken-looking
+      // feature.
+      if (from < 6) {
+        await m.addColumn(artists, artists.userRating);
+        await m.createIndex(idxArtistsRating);
       }
     },
     beforeOpen: (details) async {
@@ -245,9 +259,14 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// Artists, alphabetically by normalised name.
-  Stream<List<Artist>> watchArtists() {
-    final query = select(artists)
-      ..orderBy([(a) => OrderingTerm.asc(a.normalisedTitle)]);
+  Stream<List<Artist>> watchArtists({bool favouritesOnly = false}) {
+    final query = select(artists);
+    if (favouritesOnly) {
+      query.where(
+        (a) => a.userRating.isBiggerOrEqualValue(PlexRating.favouriteThreshold),
+      );
+    }
+    query.orderBy([(a) => OrderingTerm.asc(a.normalisedTitle)]);
     return query.watch();
   }
 

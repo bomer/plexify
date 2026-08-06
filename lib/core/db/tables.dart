@@ -11,6 +11,7 @@ import 'package:drift/drift.dart';
 /// we ask Plex only for rows newer than the last successful sync.
 
 @TableIndex(name: 'idx_artists_norm', columns: {#normalisedTitle})
+@TableIndex(name: 'idx_artists_rating', columns: {#userRating})
 class Artists extends Table {
   TextColumn get ratingKey => text()();
   TextColumn get title => text()();
@@ -22,6 +23,10 @@ class Artists extends Table {
   TextColumn get thumb => text().nullable()();
   IntColumn get updatedAt => integer().nullable()();
   IntColumn get addedAt => integer().nullable()();
+
+  /// Plex `userRating`, 0-10, null when unrated. Indexed for the same reason
+  /// as the album column: the Artists list filters on it.
+  IntColumn get userRating => integer().nullable()();
 
   @override
   Set<Column> get primaryKey => {ratingKey};

@@ -80,10 +80,10 @@ class _HorizontalScrollState extends State<HorizontalScroll> {
     if (!compact) {
       child = Scrollbar(
         controller: _controller,
-        // Always visible rather than fading in on scroll: it is here to say
-        // "this moves" to someone who has not touched it yet, which is exactly
-        // the moment a fade-on-scroll bar is invisible.
-        thumbVisibility: true,
+        // Fades in on interaction rather than sitting there. The original
+        // reasoning was that a bar is needed to say "this moves" -- but a
+        // shelf already says that by cutting the last cover in half, so a
+        // permanent bar was decoration on every row at once.
         child: Padding(
           // Room for the bar, so it never sits over the bottom of a cover.
           padding: const EdgeInsets.only(bottom: 12),

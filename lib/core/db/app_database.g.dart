@@ -70,6 +70,17 @@ class $ArtistsTable extends Artists with TableInfo<$ArtistsTable, Artist> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _userRatingMeta = const VerificationMeta(
+    'userRating',
+  );
+  @override
+  late final GeneratedColumn<int> userRating = GeneratedColumn<int>(
+    'user_rating',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     ratingKey,
@@ -78,6 +89,7 @@ class $ArtistsTable extends Artists with TableInfo<$ArtistsTable, Artist> {
     thumb,
     updatedAt,
     addedAt,
+    userRating,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -136,6 +148,12 @@ class $ArtistsTable extends Artists with TableInfo<$ArtistsTable, Artist> {
         addedAt.isAcceptableOrUnknown(data['added_at']!, _addedAtMeta),
       );
     }
+    if (data.containsKey('user_rating')) {
+      context.handle(
+        _userRatingMeta,
+        userRating.isAcceptableOrUnknown(data['user_rating']!, _userRatingMeta),
+      );
+    }
     return context;
   }
 
@@ -169,6 +187,10 @@ class $ArtistsTable extends Artists with TableInfo<$ArtistsTable, Artist> {
         DriftSqlType.int,
         data['${effectivePrefix}added_at'],
       ),
+      userRating: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}user_rating'],
+      ),
     );
   }
 
@@ -188,6 +210,10 @@ class Artist extends DataClass implements Insertable<Artist> {
   final String? thumb;
   final int? updatedAt;
   final int? addedAt;
+
+  /// Plex `userRating`, 0-10, null when unrated. Indexed for the same reason
+  /// as the album column: the Artists list filters on it.
+  final int? userRating;
   const Artist({
     required this.ratingKey,
     required this.title,
@@ -195,6 +221,7 @@ class Artist extends DataClass implements Insertable<Artist> {
     this.thumb,
     this.updatedAt,
     this.addedAt,
+    this.userRating,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -210,6 +237,9 @@ class Artist extends DataClass implements Insertable<Artist> {
     }
     if (!nullToAbsent || addedAt != null) {
       map['added_at'] = Variable<int>(addedAt);
+    }
+    if (!nullToAbsent || userRating != null) {
+      map['user_rating'] = Variable<int>(userRating);
     }
     return map;
   }
@@ -228,6 +258,9 @@ class Artist extends DataClass implements Insertable<Artist> {
       addedAt: addedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(addedAt),
+      userRating: userRating == null && nullToAbsent
+          ? const Value.absent()
+          : Value(userRating),
     );
   }
 
@@ -243,6 +276,7 @@ class Artist extends DataClass implements Insertable<Artist> {
       thumb: serializer.fromJson<String?>(json['thumb']),
       updatedAt: serializer.fromJson<int?>(json['updatedAt']),
       addedAt: serializer.fromJson<int?>(json['addedAt']),
+      userRating: serializer.fromJson<int?>(json['userRating']),
     );
   }
   @override
@@ -255,6 +289,7 @@ class Artist extends DataClass implements Insertable<Artist> {
       'thumb': serializer.toJson<String?>(thumb),
       'updatedAt': serializer.toJson<int?>(updatedAt),
       'addedAt': serializer.toJson<int?>(addedAt),
+      'userRating': serializer.toJson<int?>(userRating),
     };
   }
 
@@ -265,6 +300,7 @@ class Artist extends DataClass implements Insertable<Artist> {
     Value<String?> thumb = const Value.absent(),
     Value<int?> updatedAt = const Value.absent(),
     Value<int?> addedAt = const Value.absent(),
+    Value<int?> userRating = const Value.absent(),
   }) => Artist(
     ratingKey: ratingKey ?? this.ratingKey,
     title: title ?? this.title,
@@ -272,6 +308,7 @@ class Artist extends DataClass implements Insertable<Artist> {
     thumb: thumb.present ? thumb.value : this.thumb,
     updatedAt: updatedAt.present ? updatedAt.value : this.updatedAt,
     addedAt: addedAt.present ? addedAt.value : this.addedAt,
+    userRating: userRating.present ? userRating.value : this.userRating,
   );
   Artist copyWithCompanion(ArtistsCompanion data) {
     return Artist(
@@ -283,6 +320,9 @@ class Artist extends DataClass implements Insertable<Artist> {
       thumb: data.thumb.present ? data.thumb.value : this.thumb,
       updatedAt: data.updatedAt.present ? data.updatedAt.value : this.updatedAt,
       addedAt: data.addedAt.present ? data.addedAt.value : this.addedAt,
+      userRating: data.userRating.present
+          ? data.userRating.value
+          : this.userRating,
     );
   }
 
@@ -294,14 +334,22 @@ class Artist extends DataClass implements Insertable<Artist> {
           ..write('normalisedTitle: $normalisedTitle, ')
           ..write('thumb: $thumb, ')
           ..write('updatedAt: $updatedAt, ')
-          ..write('addedAt: $addedAt')
+          ..write('addedAt: $addedAt, ')
+          ..write('userRating: $userRating')
           ..write(')'))
         .toString();
   }
 
   @override
-  int get hashCode =>
-      Object.hash(ratingKey, title, normalisedTitle, thumb, updatedAt, addedAt);
+  int get hashCode => Object.hash(
+    ratingKey,
+    title,
+    normalisedTitle,
+    thumb,
+    updatedAt,
+    addedAt,
+    userRating,
+  );
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
@@ -311,7 +359,8 @@ class Artist extends DataClass implements Insertable<Artist> {
           other.normalisedTitle == this.normalisedTitle &&
           other.thumb == this.thumb &&
           other.updatedAt == this.updatedAt &&
-          other.addedAt == this.addedAt);
+          other.addedAt == this.addedAt &&
+          other.userRating == this.userRating);
 }
 
 class ArtistsCompanion extends UpdateCompanion<Artist> {
@@ -321,6 +370,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
   final Value<String?> thumb;
   final Value<int?> updatedAt;
   final Value<int?> addedAt;
+  final Value<int?> userRating;
   final Value<int> rowid;
   const ArtistsCompanion({
     this.ratingKey = const Value.absent(),
@@ -329,6 +379,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
     this.thumb = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.addedAt = const Value.absent(),
+    this.userRating = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   ArtistsCompanion.insert({
@@ -338,6 +389,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
     this.thumb = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.addedAt = const Value.absent(),
+    this.userRating = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : ratingKey = Value(ratingKey),
        title = Value(title),
@@ -349,6 +401,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
     Expression<String>? thumb,
     Expression<int>? updatedAt,
     Expression<int>? addedAt,
+    Expression<int>? userRating,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -358,6 +411,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
       if (thumb != null) 'thumb': thumb,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (addedAt != null) 'added_at': addedAt,
+      if (userRating != null) 'user_rating': userRating,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -369,6 +423,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
     Value<String?>? thumb,
     Value<int?>? updatedAt,
     Value<int?>? addedAt,
+    Value<int?>? userRating,
     Value<int>? rowid,
   }) {
     return ArtistsCompanion(
@@ -378,6 +433,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
       thumb: thumb ?? this.thumb,
       updatedAt: updatedAt ?? this.updatedAt,
       addedAt: addedAt ?? this.addedAt,
+      userRating: userRating ?? this.userRating,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -403,6 +459,9 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
     if (addedAt.present) {
       map['added_at'] = Variable<int>(addedAt.value);
     }
+    if (userRating.present) {
+      map['user_rating'] = Variable<int>(userRating.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -418,6 +477,7 @@ class ArtistsCompanion extends UpdateCompanion<Artist> {
           ..write('thumb: $thumb, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('addedAt: $addedAt, ')
+          ..write('userRating: $userRating, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -3908,6 +3968,10 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     'idx_artists_norm',
     'CREATE INDEX idx_artists_norm ON artists (normalised_title)',
   );
+  late final Index idxArtistsRating = Index(
+    'idx_artists_rating',
+    'CREATE INDEX idx_artists_rating ON artists (user_rating)',
+  );
   late final Index idxAlbumsNormTitle = Index(
     'idx_albums_norm_title',
     'CREATE INDEX idx_albums_norm_title ON albums (normalised_title)',
@@ -3961,6 +4025,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     syncState,
     playbackHistory,
     idxArtistsNorm,
+    idxArtistsRating,
     idxAlbumsNormTitle,
     idxAlbumsNormArtist,
     idxAlbumsArtistKey,
@@ -3982,6 +4047,7 @@ typedef $$ArtistsTableCreateCompanionBuilder =
       Value<String?> thumb,
       Value<int?> updatedAt,
       Value<int?> addedAt,
+      Value<int?> userRating,
       Value<int> rowid,
     });
 typedef $$ArtistsTableUpdateCompanionBuilder =
@@ -3992,6 +4058,7 @@ typedef $$ArtistsTableUpdateCompanionBuilder =
       Value<String?> thumb,
       Value<int?> updatedAt,
       Value<int?> addedAt,
+      Value<int?> userRating,
       Value<int> rowid,
     });
 
@@ -4031,6 +4098,11 @@ class $$ArtistsTableFilterComposer
 
   ColumnFilters<int> get addedAt => $composableBuilder(
     column: $table.addedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get userRating => $composableBuilder(
+    column: $table.userRating,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -4073,6 +4145,11 @@ class $$ArtistsTableOrderingComposer
     column: $table.addedAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get userRating => $composableBuilder(
+    column: $table.userRating,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$ArtistsTableAnnotationComposer
@@ -4103,6 +4180,11 @@ class $$ArtistsTableAnnotationComposer
 
   GeneratedColumn<int> get addedAt =>
       $composableBuilder(column: $table.addedAt, builder: (column) => column);
+
+  GeneratedColumn<int> get userRating => $composableBuilder(
+    column: $table.userRating,
+    builder: (column) => column,
+  );
 }
 
 class $$ArtistsTableTableManager
@@ -4139,6 +4221,7 @@ class $$ArtistsTableTableManager
                 Value<String?> thumb = const Value.absent(),
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> addedAt = const Value.absent(),
+                Value<int?> userRating = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ArtistsCompanion(
                 ratingKey: ratingKey,
@@ -4147,6 +4230,7 @@ class $$ArtistsTableTableManager
                 thumb: thumb,
                 updatedAt: updatedAt,
                 addedAt: addedAt,
+                userRating: userRating,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -4157,6 +4241,7 @@ class $$ArtistsTableTableManager
                 Value<String?> thumb = const Value.absent(),
                 Value<int?> updatedAt = const Value.absent(),
                 Value<int?> addedAt = const Value.absent(),
+                Value<int?> userRating = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => ArtistsCompanion.insert(
                 ratingKey: ratingKey,
@@ -4165,6 +4250,7 @@ class $$ArtistsTableTableManager
                 thumb: thumb,
                 updatedAt: updatedAt,
                 addedAt: addedAt,
+                userRating: userRating,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

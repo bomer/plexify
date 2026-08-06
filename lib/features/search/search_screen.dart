@@ -9,6 +9,7 @@ import '../../shell/layout.dart';
 import '../library/library_screen.dart' show openAlbum;
 import '../library/artist_detail_screen.dart';
 import '../library/artwork.dart';
+import '../player/playing_indicator.dart';
 import '../player/playback_controller.dart';
 
 /// Search across the library, from the cache first.
@@ -148,7 +149,14 @@ class _Results extends ConsumerWidget {
           for (final track in results.tracks)
             ListTile(
               dense: compact,
-              leading: _Thumb(thumb: track.thumb, icon: Icons.music_note),
+              selected: isNowPlaying(ref, track.ratingKey),
+              leading: isNowPlaying(ref, track.ratingKey)
+                  ? const SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Center(child: PlayingIndicator(size: 22)),
+                    )
+                  : _Thumb(thumb: track.thumb, icon: Icons.music_note),
               title: Text(track.title, maxLines: 1),
               subtitle: Text(
                 [
