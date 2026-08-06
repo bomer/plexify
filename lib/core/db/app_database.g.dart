@@ -3232,6 +3232,17 @@ class $SyncStateTable extends SyncState
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _lastDeltaSweepAtMeta = const VerificationMeta(
+    'lastDeltaSweepAt',
+  );
+  @override
+  late final GeneratedColumn<int> lastDeltaSweepAt = GeneratedColumn<int>(
+    'last_delta_sweep_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   @override
   List<GeneratedColumn> get $columns => [
     sectionKey,
@@ -3241,6 +3252,7 @@ class $SyncStateTable extends SyncState
     serverScannedAt,
     initialSyncComplete,
     lastReconcileAt,
+    lastDeltaSweepAt,
   ];
   @override
   String get aliasedName => _alias ?? actualTableName;
@@ -3318,6 +3330,15 @@ class $SyncStateTable extends SyncState
         ),
       );
     }
+    if (data.containsKey('last_delta_sweep_at')) {
+      context.handle(
+        _lastDeltaSweepAtMeta,
+        lastDeltaSweepAt.isAcceptableOrUnknown(
+          data['last_delta_sweep_at']!,
+          _lastDeltaSweepAtMeta,
+        ),
+      );
+    }
     return context;
   }
 
@@ -3355,6 +3376,10 @@ class $SyncStateTable extends SyncState
         DriftSqlType.int,
         data['${effectivePrefix}last_reconcile_at'],
       ),
+      lastDeltaSweepAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}last_delta_sweep_at'],
+      ),
     );
   }
 
@@ -3385,6 +3410,15 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
   /// Wall-clock time of the last completed reconcile, which is how deletions
   /// are eventually noticed.
   final int? lastReconcileAt;
+
+  /// Wall-clock time of the last delta sweep, in milliseconds since the epoch.
+  ///
+  /// Persisted rather than held in memory because the sweep interval is meant
+  /// to be five minutes of *elapsed time*, not five minutes of uptime. Kept in
+  /// the scheduler alone it reset on every launch, so quitting and reopening
+  /// ran a full sweep every time: ten relaunches in an hour meant ten sweeps
+  /// of a library nothing had touched.
+  final int? lastDeltaSweepAt;
   const SyncStateData({
     required this.sectionKey,
     required this.serverClientIdentifier,
@@ -3393,6 +3427,7 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
     this.serverScannedAt,
     required this.initialSyncComplete,
     this.lastReconcileAt,
+    this.lastDeltaSweepAt,
   });
   @override
   Map<String, Expression> toColumns(bool nullToAbsent) {
@@ -3409,6 +3444,9 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
     map['initial_sync_complete'] = Variable<bool>(initialSyncComplete);
     if (!nullToAbsent || lastReconcileAt != null) {
       map['last_reconcile_at'] = Variable<int>(lastReconcileAt);
+    }
+    if (!nullToAbsent || lastDeltaSweepAt != null) {
+      map['last_delta_sweep_at'] = Variable<int>(lastDeltaSweepAt);
     }
     return map;
   }
@@ -3428,6 +3466,9 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
       lastReconcileAt: lastReconcileAt == null && nullToAbsent
           ? const Value.absent()
           : Value(lastReconcileAt),
+      lastDeltaSweepAt: lastDeltaSweepAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(lastDeltaSweepAt),
     );
   }
 
@@ -3450,6 +3491,7 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
         json['initialSyncComplete'],
       ),
       lastReconcileAt: serializer.fromJson<int?>(json['lastReconcileAt']),
+      lastDeltaSweepAt: serializer.fromJson<int?>(json['lastDeltaSweepAt']),
     );
   }
   @override
@@ -3465,6 +3507,7 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
       'serverScannedAt': serializer.toJson<int?>(serverScannedAt),
       'initialSyncComplete': serializer.toJson<bool>(initialSyncComplete),
       'lastReconcileAt': serializer.toJson<int?>(lastReconcileAt),
+      'lastDeltaSweepAt': serializer.toJson<int?>(lastDeltaSweepAt),
     };
   }
 
@@ -3476,6 +3519,7 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
     Value<int?> serverScannedAt = const Value.absent(),
     bool? initialSyncComplete,
     Value<int?> lastReconcileAt = const Value.absent(),
+    Value<int?> lastDeltaSweepAt = const Value.absent(),
   }) => SyncStateData(
     sectionKey: sectionKey ?? this.sectionKey,
     serverClientIdentifier:
@@ -3491,6 +3535,9 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
     lastReconcileAt: lastReconcileAt.present
         ? lastReconcileAt.value
         : this.lastReconcileAt,
+    lastDeltaSweepAt: lastDeltaSweepAt.present
+        ? lastDeltaSweepAt.value
+        : this.lastDeltaSweepAt,
   );
   SyncStateData copyWithCompanion(SyncStateCompanion data) {
     return SyncStateData(
@@ -3515,6 +3562,9 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
       lastReconcileAt: data.lastReconcileAt.present
           ? data.lastReconcileAt.value
           : this.lastReconcileAt,
+      lastDeltaSweepAt: data.lastDeltaSweepAt.present
+          ? data.lastDeltaSweepAt.value
+          : this.lastDeltaSweepAt,
     );
   }
 
@@ -3527,7 +3577,8 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
           ..write('serverUpdatedAt: $serverUpdatedAt, ')
           ..write('serverScannedAt: $serverScannedAt, ')
           ..write('initialSyncComplete: $initialSyncComplete, ')
-          ..write('lastReconcileAt: $lastReconcileAt')
+          ..write('lastReconcileAt: $lastReconcileAt, ')
+          ..write('lastDeltaSweepAt: $lastDeltaSweepAt')
           ..write(')'))
         .toString();
   }
@@ -3541,6 +3592,7 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
     serverScannedAt,
     initialSyncComplete,
     lastReconcileAt,
+    lastDeltaSweepAt,
   );
   @override
   bool operator ==(Object other) =>
@@ -3552,7 +3604,8 @@ class SyncStateData extends DataClass implements Insertable<SyncStateData> {
           other.serverUpdatedAt == this.serverUpdatedAt &&
           other.serverScannedAt == this.serverScannedAt &&
           other.initialSyncComplete == this.initialSyncComplete &&
-          other.lastReconcileAt == this.lastReconcileAt);
+          other.lastReconcileAt == this.lastReconcileAt &&
+          other.lastDeltaSweepAt == this.lastDeltaSweepAt);
 }
 
 class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
@@ -3563,6 +3616,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
   final Value<int?> serverScannedAt;
   final Value<bool> initialSyncComplete;
   final Value<int?> lastReconcileAt;
+  final Value<int?> lastDeltaSweepAt;
   final Value<int> rowid;
   const SyncStateCompanion({
     this.sectionKey = const Value.absent(),
@@ -3572,6 +3626,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
     this.serverScannedAt = const Value.absent(),
     this.initialSyncComplete = const Value.absent(),
     this.lastReconcileAt = const Value.absent(),
+    this.lastDeltaSweepAt = const Value.absent(),
     this.rowid = const Value.absent(),
   });
   SyncStateCompanion.insert({
@@ -3582,6 +3637,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
     this.serverScannedAt = const Value.absent(),
     this.initialSyncComplete = const Value.absent(),
     this.lastReconcileAt = const Value.absent(),
+    this.lastDeltaSweepAt = const Value.absent(),
     this.rowid = const Value.absent(),
   }) : sectionKey = Value(sectionKey),
        serverClientIdentifier = Value(serverClientIdentifier);
@@ -3593,6 +3649,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
     Expression<int>? serverScannedAt,
     Expression<bool>? initialSyncComplete,
     Expression<int>? lastReconcileAt,
+    Expression<int>? lastDeltaSweepAt,
     Expression<int>? rowid,
   }) {
     return RawValuesInsertable({
@@ -3606,6 +3663,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
       if (initialSyncComplete != null)
         'initial_sync_complete': initialSyncComplete,
       if (lastReconcileAt != null) 'last_reconcile_at': lastReconcileAt,
+      if (lastDeltaSweepAt != null) 'last_delta_sweep_at': lastDeltaSweepAt,
       if (rowid != null) 'rowid': rowid,
     });
   }
@@ -3618,6 +3676,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
     Value<int?>? serverScannedAt,
     Value<bool>? initialSyncComplete,
     Value<int?>? lastReconcileAt,
+    Value<int?>? lastDeltaSweepAt,
     Value<int>? rowid,
   }) {
     return SyncStateCompanion(
@@ -3629,6 +3688,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
       serverScannedAt: serverScannedAt ?? this.serverScannedAt,
       initialSyncComplete: initialSyncComplete ?? this.initialSyncComplete,
       lastReconcileAt: lastReconcileAt ?? this.lastReconcileAt,
+      lastDeltaSweepAt: lastDeltaSweepAt ?? this.lastDeltaSweepAt,
       rowid: rowid ?? this.rowid,
     );
   }
@@ -3659,6 +3719,9 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
     if (lastReconcileAt.present) {
       map['last_reconcile_at'] = Variable<int>(lastReconcileAt.value);
     }
+    if (lastDeltaSweepAt.present) {
+      map['last_delta_sweep_at'] = Variable<int>(lastDeltaSweepAt.value);
+    }
     if (rowid.present) {
       map['rowid'] = Variable<int>(rowid.value);
     }
@@ -3675,6 +3738,7 @@ class SyncStateCompanion extends UpdateCompanion<SyncStateData> {
           ..write('serverScannedAt: $serverScannedAt, ')
           ..write('initialSyncComplete: $initialSyncComplete, ')
           ..write('lastReconcileAt: $lastReconcileAt, ')
+          ..write('lastDeltaSweepAt: $lastDeltaSweepAt, ')
           ..write('rowid: $rowid')
           ..write(')'))
         .toString();
@@ -5524,6 +5588,7 @@ typedef $$SyncStateTableCreateCompanionBuilder =
       Value<int?> serverScannedAt,
       Value<bool> initialSyncComplete,
       Value<int?> lastReconcileAt,
+      Value<int?> lastDeltaSweepAt,
       Value<int> rowid,
     });
 typedef $$SyncStateTableUpdateCompanionBuilder =
@@ -5535,6 +5600,7 @@ typedef $$SyncStateTableUpdateCompanionBuilder =
       Value<int?> serverScannedAt,
       Value<bool> initialSyncComplete,
       Value<int?> lastReconcileAt,
+      Value<int?> lastDeltaSweepAt,
       Value<int> rowid,
     });
 
@@ -5579,6 +5645,11 @@ class $$SyncStateTableFilterComposer
 
   ColumnFilters<int> get lastReconcileAt => $composableBuilder(
     column: $table.lastReconcileAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get lastDeltaSweepAt => $composableBuilder(
+    column: $table.lastDeltaSweepAt,
     builder: (column) => ColumnFilters(column),
   );
 }
@@ -5626,6 +5697,11 @@ class $$SyncStateTableOrderingComposer
     column: $table.lastReconcileAt,
     builder: (column) => ColumnOrderings(column),
   );
+
+  ColumnOrderings<int> get lastDeltaSweepAt => $composableBuilder(
+    column: $table.lastDeltaSweepAt,
+    builder: (column) => ColumnOrderings(column),
+  );
 }
 
 class $$SyncStateTableAnnotationComposer
@@ -5671,6 +5747,11 @@ class $$SyncStateTableAnnotationComposer
     column: $table.lastReconcileAt,
     builder: (column) => column,
   );
+
+  GeneratedColumn<int> get lastDeltaSweepAt => $composableBuilder(
+    column: $table.lastDeltaSweepAt,
+    builder: (column) => column,
+  );
 }
 
 class $$SyncStateTableTableManager
@@ -5711,6 +5792,7 @@ class $$SyncStateTableTableManager
                 Value<int?> serverScannedAt = const Value.absent(),
                 Value<bool> initialSyncComplete = const Value.absent(),
                 Value<int?> lastReconcileAt = const Value.absent(),
+                Value<int?> lastDeltaSweepAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncStateCompanion(
                 sectionKey: sectionKey,
@@ -5720,6 +5802,7 @@ class $$SyncStateTableTableManager
                 serverScannedAt: serverScannedAt,
                 initialSyncComplete: initialSyncComplete,
                 lastReconcileAt: lastReconcileAt,
+                lastDeltaSweepAt: lastDeltaSweepAt,
                 rowid: rowid,
               ),
           createCompanionCallback:
@@ -5731,6 +5814,7 @@ class $$SyncStateTableTableManager
                 Value<int?> serverScannedAt = const Value.absent(),
                 Value<bool> initialSyncComplete = const Value.absent(),
                 Value<int?> lastReconcileAt = const Value.absent(),
+                Value<int?> lastDeltaSweepAt = const Value.absent(),
                 Value<int> rowid = const Value.absent(),
               }) => SyncStateCompanion.insert(
                 sectionKey: sectionKey,
@@ -5740,6 +5824,7 @@ class $$SyncStateTableTableManager
                 serverScannedAt: serverScannedAt,
                 initialSyncComplete: initialSyncComplete,
                 lastReconcileAt: lastReconcileAt,
+                lastDeltaSweepAt: lastDeltaSweepAt,
                 rowid: rowid,
               ),
           withReferenceMapper: (p0) => p0

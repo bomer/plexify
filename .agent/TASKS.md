@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 43 complete · 6 open · 372 tests passing
+**Status:** 44 complete · 7 open · 382 tests passing
 
 ---
 
@@ -24,6 +24,7 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | 32 | qBittorrent client | Gates #33 |
 | 33 | Acquisition flow | Needs #29 and #32 |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
+| 51 | Use a delta filter Plex honours | Needs one run of the Delta filter probe to say which spelling works. Not slotted into Order, that is yours |
 
 ---
 
@@ -49,6 +50,17 @@ is the one that matters most, and #43b now depends on it too: a transcode has ne
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
+
+### #51, Use a delta filter Plex honours
+
+`updatedAt>=` is ignored, so every sweep refetches the library. #50 made a quiet relaunch
+cheap by sweeping less often; this would make the sweeps themselves cheap.
+
+Blocked on evidence, not on work. Run **Sync status → Delta filter probe** once against the
+real server, read which spelling narrowed the result, and change the one line in
+`PlexClient.sectionPage`. `updatedAt>>=` is the leading suspect: doubled operators are Plex's
+own filter convention. If the probe says *none* of them work, this task becomes "lengthen
+`deltaInterval` and let the section clocks carry it alone" instead.
 
 ### #19, Deletion reconcile
 
@@ -127,11 +139,11 @@ empty, and a delta sync cannot fill them, Plex's `updatedAt` for a track rated m
 has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
 a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
 
-**Is `updatedAt>=` actually honoured by Plex?** Check "Rows in last sync" on the Sync status
-screen after a routine sweep with nothing new. Near zero means the filter works. Anything
-near the library size means Plex is ignoring it and every sweep refetches everything -
-tolerable on a LAN, ruinous on cellular. If so, lengthen `SyncScheduler.deltaInterval` and
-find a filter Plex does honour.
+**`updatedAt>=` is not honoured by Plex.** Answered 6 August 2026 by reading "Rows in last
+sync" after a five-second launch: cursor set, initial sync complete, **13,704 rows** came
+back, which is the whole library. Plex accepts the parameter, answers 200 and drops it, so an
+ignored filter looks exactly like a library where everything changed. #50 stopped the
+*launch* paying for that; #51 is finding a spelling the server acts on.
 
 **Repeating a track does not record a second play.** `TimelineReporter` resets its
 "already counted" mark when the media item changes, and repeat-one never changes it -

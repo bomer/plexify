@@ -163,6 +163,36 @@ class PlexClient {
     );
   }
 
+  /// How many rows a section holds, optionally through a filter, without
+  /// fetching any of them.
+  ///
+  /// `X-Plex-Container-Size: 0` makes the server report `totalSize` and send no
+  /// metadata, so this costs one small response whatever the library's size.
+  ///
+  /// [filter] is a raw Plex filter parameter name such as `updatedAt>=`,
+  /// deliberately unvalidated: the whole point of [DeltaFilterProbe] is to find
+  /// out which spellings the server actually acts on, and a helper that only
+  /// permitted the ones already known to work could not discover a new one.
+  Future<int> sectionCount(
+    String sectionKey, {
+    required int type,
+    String? filter,
+    int? filterValue,
+  }) async {
+    final container = await _getContainer(
+      '/library/sections/$sectionKey/all',
+      query: {
+        'type': '$type',
+        if (filter != null && filterValue != null) filter: '$filterValue',
+      },
+      extraHeaders: {
+        'X-Plex-Container-Start': '0',
+        'X-Plex-Container-Size': '0',
+      },
+    );
+    return _asInt(container['totalSize']) ?? _asInt(container['size']) ?? 0;
+  }
+
   /// Sets or clears an item's star rating.
   ///
   /// [rating] is Plex's 0–10 scale. Pass [PlexRating.clear] to unrate — Plex

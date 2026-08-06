@@ -34,6 +34,10 @@ void main() {
     await db.customStatement('ALTER TABLE artists DROP COLUMN user_rating');
   }
 
+  Future<void> dropDeltaSweepColumn(AppDatabase db) => db.customStatement(
+    'ALTER TABLE sync_state DROP COLUMN last_delta_sweep_at',
+  );
+
   test(
     'arriving from v2 rewinds the delta cursor so ratings get backfilled',
     () async {
@@ -55,8 +59,9 @@ void main() {
       // and the part size does not exist at all.
       await dropPartSizeColumn(db);
       await dropArtistRating(db);
+      await dropDeltaSweepColumn(db);
       final migrator = db.createMigrator();
-      await db.migration.onUpgrade(migrator, 2, 7);
+      await db.migration.onUpgrade(migrator, 2, 8);
 
       final state = await db.select(db.syncState).getSingle();
       expect(state.lastSyncedUpdatedAt, 0);
@@ -86,8 +91,9 @@ void main() {
 
     await dropPartSizeColumn(db);
     await dropArtistRating(db);
+    await dropDeltaSweepColumn(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 3, 7);
+    await db.migration.onUpgrade(migrator, 3, 8);
 
     // Unlike v3 this deliberately does *not* rewind the sync cursor: a null
     // part size degrades to "nothing measured", which QualityPolicy treats
@@ -115,9 +121,10 @@ void main() {
 
     // No branch should fire, so nothing should move. In particular the cursor
     // must not be rewound a second time, which would cost a full sync pass on
-    // every launch.
+    // every launch. `from` tracks the head, unlike every other test here, which
+    // is the whole point of this one.
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 7, 7);
+    await db.migration.onUpgrade(migrator, 8, 8);
 
     final state = await db.select(db.syncState).getSingle();
     expect(state.lastSyncedUpdatedAt, 999999);
@@ -162,8 +169,9 @@ void main() {
         );
 
     await dropArtistRating(db);
+    await dropDeltaSweepColumn(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 5, 7);
+    await db.migration.onUpgrade(migrator, 5, 8);
 
     // No cursor rewind, unlike v3: an unrated artist and one whose rating has
     // not synced yet look identical to the filter, and the next pass that
@@ -188,8 +196,9 @@ void main() {
           ),
         );
 
+    await dropDeltaSweepColumn(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 6, 7);
+    await db.migration.onUpgrade(migrator, 6, 8);
 
     // v6 added the column and left the cursor alone, which was wrong in a way
     // already learned at v3: a delta sync asks for rows changed since the
@@ -197,6 +206,39 @@ void main() {
     // this the favourites filter stays empty and looks broken.
     final state = await db.select(db.syncState).getSingle();
     expect(state.lastSyncedUpdatedAt, 0);
+    expect(state.initialSyncComplete, isTrue);
+  });
+
+  test('v8 gives the delta sweep a clock that survives a relaunch', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db
+        .into(db.syncState)
+        .insert(
+          SyncStateCompanion.insert(
+            sectionKey: '3',
+            serverClientIdentifier: 'server-1',
+            lastSyncedUpdatedAt: const Value(999999),
+            initialSyncComplete: const Value(true),
+          ),
+        );
+
+    await dropDeltaSweepColumn(db);
+    final migrator = db.createMigrator();
+    await db.migration.onUpgrade(migrator, 7, 8);
+
+    // Starts null, which reads as "never swept" and sweeps once. That is the
+    // same thing a fresh install does, and it is the safe direction: the
+    // alternative, defaulting to now, would skip the first sweep after an
+    // upgrade and hide any metadata edit made while the old build was running.
+    expect(await db.lastDeltaSweepAt(), isNull);
+
+    // And the row it was added to is untouched. The point of this column is to
+    // stop a full resync happening, so a migration that triggered one would be
+    // self-defeating.
+    final state = await db.select(db.syncState).getSingle();
+    expect(state.lastSyncedUpdatedAt, 999999);
     expect(state.initialSyncComplete, isTrue);
   });
 }

@@ -122,10 +122,16 @@ void main() {
   });
 
   /// Pretends a full sync already finished against this server.
+  ///
+  /// [sweptAt] is what makes a *relaunch* distinguishable from a first run:
+  /// null means the sweep clock has never been written, which is a fresh
+  /// install and always sweeps.
   Future<void> seedSyncedState({
     int updatedAt = 100,
     int scannedAt = 100,
     int cursor = 50,
+    DateTime? sweptAt,
+    bool initialComplete = true,
   }) {
     return db
         .into(db.syncState)
@@ -136,7 +142,8 @@ void main() {
             lastSyncedUpdatedAt: Value(cursor),
             serverUpdatedAt: Value(updatedAt),
             serverScannedAt: Value(scannedAt),
-            initialSyncComplete: const Value(true),
+            initialSyncComplete: Value(initialComplete),
+            lastDeltaSweepAt: Value(sweptAt?.millisecondsSinceEpoch),
           ),
         );
   }
@@ -150,10 +157,65 @@ void main() {
 
     await scheduler.start();
 
-    // A cache built before the app last closed may have missed anything the
-    // notification socket would otherwise have pushed while it was shut.
+    // Never swept before, so this is the once-per-install pass rather than a
+    // launch cost. The relaunch tests below are what stop it happening again.
     expect(syncedSinceLastCheck(), isTrue);
     expect(scheduler.passes, 1);
+  });
+
+  group('relaunching', () {
+    test('a sweep inside the window is not repeated', () async {
+      await seedSyncedState(
+        sweptAt: clock.subtract(const Duration(minutes: 1)),
+      );
+
+      await scheduler.start();
+
+      // The whole point of the change. `start` used to force a pass and the
+      // sweep clock lived only in memory, so it reset every launch and a sweep
+      // was permanently due. Against a server that ignores the delta filter,
+      // and James's does, that meant refetching all 13,704 rows on every
+      // launch: about seventy requests to learn nothing.
+      expect(syncedSinceLastCheck(), isFalse);
+      expect(requests, ['/library/sections']);
+    });
+
+    test('a sweep past the window still runs', () async {
+      await seedSyncedState(
+        sweptAt: clock.subtract(const Duration(minutes: 10)),
+      );
+
+      await scheduler.start();
+
+      // The sweep exists to catch metadata edits the section clocks never
+      // announce, ratings set in Plex above all. Skipping it because the app
+      // restarted would be the previous bug in the other direction.
+      expect(syncedSinceLastCheck(), isTrue);
+    });
+
+    test('an unfinished initial sync syncs however recent the sweep', () async {
+      await seedSyncedState(
+        sweptAt: clock.subtract(const Duration(seconds: 1)),
+        initialComplete: false,
+      );
+
+      await scheduler.start();
+
+      // This is what `force: true` was really protecting, and it survives
+      // without it: an incomplete initial sync has to resume, and a partial
+      // cache that stopped resuming would look like a library missing half its
+      // albums for ever.
+      expect(syncedSinceLastCheck(), isTrue);
+    });
+
+    test('the sweep is remembered across a restart', () async {
+      await seedSyncedState();
+      await scheduler.start();
+
+      // Held in memory alone this reads back null, the next launch sweeps, and
+      // the two tests above can never be reached in practice.
+      expect(await db.lastDeltaSweepAt(), isNotNull);
+    });
   });
 
   test('a poll with nothing changed costs one small request', () async {

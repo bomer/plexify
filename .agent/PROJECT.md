@@ -142,8 +142,10 @@ section clocks beside what the server reports right now, cached row counts, and 
 error from each path. It exists because three separate mechanisms failing all look identical
 from the library screen, and two rounds of diagnosis were wasted guessing before it did.
 
-"Rows in last sync" is the one to read for cost: near zero on a routine sweep means Plex is
-honouring the `updatedAt>=` filter.
+"Rows in last sync" is the one to read for cost. It is also the number that caught the
+biggest sync bug in the project: near zero means Plex is honouring the `updatedAt>=` filter,
+and on James's server it reported **13,704** — the whole library, on every launch. See the
+trap below.
 
 **Every background mechanism ships with a counter on that screen.** Push sync, polling, the
 connection monitor and playback reporting all publish counts, timestamps and their last
@@ -426,6 +428,16 @@ hence the `PostMessage` bounce through the window proc.
 **`RefreshIndicator` does nothing on desktop.** It needs a drag, and a mouse wheel produces
 none. Any pull-to-refresh must be paired with an explicit button, which is what
 `SyncActions` is.
+
+**Plex ignores the `updatedAt>=` filter, silently.** It accepts the parameter, answers 200,
+and returns everything. There is no error to read, and an ignored filter is indistinguishable
+from a library where everything changed, which is how this survived from #18 to #50 while
+every launch refetched 13,704 rows. Two separate things came out of it: `SyncScheduler.start`
+no longer forces a pass and the sweep clock is persisted in `SyncState.lastDeltaSweepAt`
+(schema v8), so a quiet relaunch costs one small request rather than seventy; and
+**Sync status → Delta filter probe** exists to find a spelling the server does act on, by
+asking for a window nothing can have changed in and counting what comes back. Anything that
+adds a filter parameter here should be probed rather than assumed.
 
 **A delta sync cannot backfill a column added by a migration.** It asks Plex for rows changed
 since the cursor, and a rating set months ago has not changed. The v3 migration rewinds

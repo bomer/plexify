@@ -180,6 +180,15 @@ class SyncState extends Table {
   /// are eventually noticed.
   IntColumn get lastReconcileAt => integer().nullable()();
 
+  /// Wall-clock time of the last delta sweep, in milliseconds since the epoch.
+  ///
+  /// Persisted rather than held in memory because the sweep interval is meant
+  /// to be five minutes of *elapsed time*, not five minutes of uptime. Kept in
+  /// the scheduler alone it reset on every launch, so quitting and reopening
+  /// ran a full sweep every time: ten relaunches in an hour meant ten sweeps
+  /// of a library nothing had touched.
+  IntColumn get lastDeltaSweepAt => integer().nullable()();
+
   @override
   Set<Column> get primaryKey => {sectionKey};
 }

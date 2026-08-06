@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **43 complete**
+**Last updated:** 6 August 2026 · **44 complete**
 
 ---
 
@@ -58,6 +58,7 @@ between the next reader and paying for it twice.
 | 49 | Rate artists | Artist ratings are Plex's, on the same `/:/rate` endpoint. Reading was already wired; writing was not, so a rating would sync in and never out. Stars on the artist page, schema v7 rewinds the cursor so existing ones arrive |
 | 34 | Packaging and release | Real signing config that falls back to the debug key loudly, generated icons on both platforms, `tool/package.ps1` that refuses a debug-signed or oversized build. Version unified at 0.9.0 |
 | 43b | Settings: playback and storage | Quality override per connection, which *is* the data saver, there being no bitrate to lower. Both cache budgets, live usage, and one clear button. Budgets push into the running cache rather than rebuilding it |
+| 50 | Stop resyncing the library on every launch | Plex ignores `updatedAt>=`, so a forced launch pass plus an in-memory sweep clock meant 13,704 rows and ~70 requests every time. Schema v8 persists the clock; `start` asks instead of forcing. Ships the probe that will settle the filter itself |
 
 ---
 
@@ -444,6 +445,48 @@ Found by using it rather than by testing it, which is the point.
 
 ---
 
+### #50 - Stop resyncing the library on every launch *(done, 6 August 2026)*
+
+Reported as "the sync that loads every time takes about five seconds for 11k songs". Settled
+in one reading, by the counter built for it: **Rows in last sync: 13,704**, delta cursor set,
+initial sync complete. So the app was asking correctly and Plex was returning the whole
+library anyway.
+
+**Plex ignores `updatedAt>=`.** It accepts the parameter, answers 200, and drops it. This had
+been an open question in TASKS.md since #18 with the instruction to read exactly that counter,
+and it survived that long because an ignored filter is indistinguishable from a library where
+everything changed. There is no error, no warning, and no shape difference in the response.
+
+Two independent causes, and only one of them is Plex's.
+
+**Ours: the sweep clock lived in memory.** `_lastDelta` began null on every launch, so a
+sweep was always due, and `start()` forced a pass on top of that. Quit and reopen ten times in
+an hour and that is ten full syncs. Schema **v8** adds `SyncState.lastDeltaSweepAt` so the
+five minutes means elapsed time rather than uptime, and `start()` now asks the section clocks
+instead of forcing.
+
+Dropping `force` sounds riskier than it is. What it was really protecting is an interrupted
+initial sync, and that survives on its own: `initialSyncComplete` being false makes the
+change check report a change regardless of the clocks. There is a test for exactly that,
+because it is the failure nobody would notice until half the library was missing.
+
+The migration starts the column **null**, which reads as "never swept" and sweeps once. That
+is the safe direction: defaulting to *now* would skip the first sweep after an upgrade and
+hide any rating set while the old build was running.
+
+**Plex's: the filter itself**, left to #51 and shipped with an instrument rather than a guess.
+`DeltaFilterProbe` asks for tracks changed in the last minute, once per candidate spelling,
+with `X-Plex-Container-Size: 0` so nothing is fetched. A minute ago has no ambiguous middle:
+a filter that works returns nearly nothing, one that is ignored returns the section. It
+deliberately does not use the real cursor, where a genuinely changed library would make a
+partial result look like an ignored filter. `updatedAt>>=` is the leading suspect, doubled
+operators being Plex's own convention.
+
+The measured cost, on an 11k-track library: a quiet relaunch goes from about **seventy
+requests to two**.
+
+---
+
 ### #43b - Settings: playback and storage *(done, 6 August 2026)*
 
 **The data-saver toggle was deliberately not built, and that is the finding.** #8 asked
@@ -595,3 +638,6 @@ Done in code, and neither can be confirmed from a test:
 - **#43b**, that forcing a transcode on mobile data actually reaches the server. Plex web
   Status is the place to read it. Confirmed working as a *setting* on 6 August, but the same
   gap as #23 remains: requested is not the same as heard.
+- **#50**, that a relaunch inside five minutes now costs one request. Read "Rows in last
+  sync" straight after reopening: it should still show the previous pass's number rather than
+  13,704 again. And the probe itself has never been run, which is the whole of #51.

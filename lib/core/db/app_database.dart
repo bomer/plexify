@@ -33,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 7;
+  int get schemaVersion => 8;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -127,6 +127,16 @@ class AppDatabase extends _$AppDatabase {
         await m.database
             .update(syncState)
             .write(const SyncStateCompanion(lastSyncedUpdatedAt: Value(0)));
+      }
+
+      // v8 gives the delta sweep somewhere to remember when it last ran.
+      //
+      // The scheduler held that in memory, so it reset on every launch and a
+      // sweep was always due: quitting and reopening ran a full pass every
+      // time. Starts null, which reads as "never swept" and sweeps once, which
+      // is the same thing a fresh install does.
+      if (from < 8) {
+        await m.addColumn(syncState, syncState.lastDeltaSweepAt);
       }
     },
     beforeOpen: (details) async {
@@ -474,6 +484,28 @@ class AppDatabase extends _$AppDatabase {
     await update(
       syncState,
     ).write(const SyncStateCompanion(lastSyncedUpdatedAt: Value(0)));
+  }
+
+  /// When the delta sweep last completed, or null if it never has.
+  ///
+  /// One row per section and only ever one section, so the earliest non-null
+  /// value is the answer. Null means sweep now.
+  Future<DateTime?> lastDeltaSweepAt() async {
+    final rows = await select(syncState).get();
+    final stamps = rows
+        .map((r) => r.lastDeltaSweepAt)
+        .whereType<int>()
+        .toList();
+    if (stamps.isEmpty) return null;
+    return DateTime.fromMillisecondsSinceEpoch(
+      stamps.reduce((a, b) => a > b ? a : b),
+    );
+  }
+
+  Future<void> markDeltaSweep(DateTime at) async {
+    await update(syncState).write(
+      SyncStateCompanion(lastDeltaSweepAt: Value(at.millisecondsSinceEpoch)),
+    );
   }
 
   Future<int> countArtists() async {

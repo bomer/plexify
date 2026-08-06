@@ -94,15 +94,27 @@ class SyncScheduler {
   int get lastSyncRowCount => _lastSyncRowCount;
   int _lastSyncRowCount = 0;
 
-  /// Runs a first sync, then polls.
+  /// Runs a first check, then polls.
   ///
-  /// The first pass is unconditional: an interrupted initial sync has to resume,
-  /// and a cache built before the app last closed may have missed anything the
-  /// socket would otherwise have pushed.
+  /// **Not forced.** It used to be, and that turned every launch into a full
+  /// pass: `_lastDelta` began null, so a sweep was always due, and Plex ignores
+  /// the `updatedAt>=` filter (measured on James's server: a delta asking for
+  /// rows newer than the cursor returned all 13,704 of them). Quitting and
+  /// reopening therefore refetched the entire library, about seventy requests,
+  /// every time.
+  ///
+  /// Nothing is lost by asking rather than assuming. An interrupted initial
+  /// sync still resumes, because `initialSyncComplete` being false makes the
+  /// check below report a change regardless of the section clocks; and anything
+  /// that happened while the app was closed moved one of those clocks, which is
+  /// what they are for.
   Future<void> start() async {
     if (_stopped) return;
+    // Restores the sweep clock from disk. Held only in memory it reset on every
+    // launch, which is what made a sweep permanently due.
+    _lastDelta ??= await _db.lastDeltaSweepAt();
     _timer ??= Timer.periodic(pollInterval, (_) => unawaited(_tick()));
-    await _tick(force: true);
+    await _tick();
   }
 
   Future<void> stop() async {
@@ -213,6 +225,9 @@ class SyncScheduler {
 
     _lastSyncRowCount = fetched.values.fold(0, (a, b) => a + b);
     _lastDelta = _now();
+    // Persisted so the interval means five minutes of elapsed time rather than
+    // five minutes of uptime.
+    await _db.markDeltaSweep(_lastDelta!);
     _passes++;
   }
 
