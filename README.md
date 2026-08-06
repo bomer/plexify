@@ -42,6 +42,34 @@ Drift generates database code. After changing anything under `lib/core/db/`:
 dart run build_runner build --delete-conflicting-outputs
 ```
 
+## Putting a build on the phone
+
+Two commands, in this order.
+
+```
+flutter build apk --release --target-platform android-arm64
+```
+
+```
+adb install -r build/app/outputs/flutter-apk/app-release.apk
+```
+
+**`flutter install` does not build.** It pushes whatever APK is already on disk,
+so skipping the first command silently installs a stale one. That is a
+frustrating five minutes if you are trying to confirm a fix.
+
+Add `-s <device-id>` to the install if more than one device is attached;
+`adb devices` lists them.
+
+**Test in release on Android, not debug.** Flutter injects the `INTERNET`
+permission into debug manifests only, so a debug build hides manifest problems
+that break release entirely. `arm64` because it is the only architecture the
+test device needs, and building all three roughly triples the time.
+
+Until a signing key exists these builds are signed with the debug key. That is
+fine for running and wrong for distributing, which is why the release script
+refuses to do it.
+
 ## Releasing
 
 ```
