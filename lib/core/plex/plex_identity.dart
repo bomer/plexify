@@ -55,7 +55,14 @@ class PlexIdentity {
   static const _prefsKey = 'plex_client_identifier';
   static const _sessionKey = 'plex_session_identifier';
   static const product = 'Plexify';
-  static const version = '0.1.0';
+
+  /// Reported to Plex on every request, and shown on the About screen.
+  ///
+  /// Must match `version:` in pubspec.yaml, which is where the Android
+  /// versionName and the Windows file version come from. There is no way to
+  /// read that from Dart without a plugin, so `test/version_test.dart` asserts
+  /// the two agree instead.
+  static const version = '0.9.0';
 
   static PlexIdentity? _cached;
 

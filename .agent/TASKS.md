@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 40 complete · 8 open · 361 tests passing
+**Status:** 42 complete · 7 open · 365 tests passing
 
 ---
 
@@ -23,7 +23,6 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
 | 32 | qBittorrent client | Gates #33 |
 | 33 | Acquisition flow | Needs #29 and #32 |
-| 34 | Packaging and release | Real keystore, icons, first-run, size guard |
 | 43b | Settings: playback and storage | Next. #24 has landed, so these settings now read something real |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 
@@ -131,18 +130,16 @@ metadata (artist + album + year), not the raw typed string. Rank by seeders and 
 with `category=Music`, existing automation handles routing, so no renaming or retagging.
 Poll progress, then `/library/sections/{id}/refresh`.
 
-### Phase 8, release
-
-**#34, Packaging.** Signed APK with a real keystore, `android/app/build.gradle.kts:32` still
-signs release with the debug key. Windows bundle: currently a 48MB folder under
-`build/windows/x64/runner/Release/`, and the whole folder is the deliverable, `plexify.exe` is
-157KB and will not start without the sibling DLLs (`flutter_windows`, `libmpv-2`, `sqlite3`)
-and `data/`. Icons, first-run flow. Size guard: arm64 release is 21.4MB against a ~20MB
-expectation.
-
 ---
 
 ## Known caveats
+
+**Releasing needs a signing key that does not exist yet.** `tool/package.ps1` refuses to
+build without `android/key.properties`, deliberately: a debug-signed APK installs and runs
+perfectly and only fails much later, when a properly signed build will not upgrade it.
+[tool/README.md](../tool/README.md) has the one `keytool` command. **The first
+release-signed install will need the current build uninstalled**, taking the library cache
+and the token with it, because Android refuses an upgrade across a signature change.
 
 **Artist ratings are Plex's, not local.** They live on the same `/:/rate` endpoint as albums
 and tracks and sync both ways: set one in the Plex web UI and it arrives on the next pass,

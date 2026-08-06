@@ -42,6 +42,21 @@ Drift generates database code. After changing anything under `lib/core/db/`:
 dart run build_runner build --delete-conflicting-outputs
 ```
 
+## Releasing
+
+```
+powershell -File tool/package.ps1
+```
+
+Builds both targets into `dist/` and checks them before they leave: the APK must
+be signed with the real upload key rather than the debug one, it must be under
+its size budget, and the Windows bundle must contain the DLLs the exe cannot
+start without. [tool/README.md](tool/README.md) covers creating the signing key,
+which is a one-time job and has to be done by hand.
+
+The Windows deliverable is the **whole** `Release` folder, not just
+`plexify.exe`. The exe is about 150KB and will not start on its own.
+
 ## Architecture
 
 Feature-first. The UI never talks to Plex directly. It reads from a local SQLite cache

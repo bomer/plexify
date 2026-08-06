@@ -1,0 +1,10 @@
+# Copy to android/key.properties and fill in. That copy is gitignored.
+#
+# storeFile is resolved relative to the android/ directory, so a keystore kept
+# outside the repo needs an absolute path, which is the recommended place for
+# it. See tool/README.md.
+
+storeFile=C:/Users/James/keys/plexify-upload.jks
+storePassword=
+keyAlias=plexify
+keyPassword=

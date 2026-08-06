@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **40 complete**
+**Last updated:** 6 August 2026 · **42 complete**
 
 ---
 
@@ -55,6 +55,8 @@ between the next reader and paying for it twice.
 | 46 | "Jump back in" shows albums and playlists | Client-owned `PlaybackHistory` (schema v5), stamped on playback *start*. Replaced `Albums.lastViewedAt`, which is Plex's: written only at 90%, and rewritten by every sync |
 | 47 | Rescue the queue when the connection moves | Whole queue rebuilt at the current position on a re-resolve, quality decided again. Playback failure reports to `ConnectionHealth`, which nothing could see before. A same-address reconnect now does nothing |
 | 48 | Desktop and mobile UI fixes | Mouse-scrollable shelves with a scrollbar, hover play on covers, "Reconnecting..." in the mini player; fixed its doubled height and the album header's star overflow |
+| 49 | Rate artists | Artist ratings are Plex's, on the same `/:/rate` endpoint. Reading was already wired; writing was not, so a rating would sync in and never out. Stars on the artist page, schema v7 rewinds the cursor so existing ones arrive |
+| 34 | Packaging and release | Real signing config that falls back to the debug key loudly, generated icons on both platforms, `tool/package.ps1` that refuses a debug-signed or oversized build. Version unified at 0.9.0 |
 
 ---
 
@@ -441,6 +443,77 @@ Found by using it rather than by testing it, which is the point.
 
 ---
 
+### #34 - Packaging and release *(done, 6 August 2026)*
+
+`tool/package.ps1` is the deliverable, not the `flutter build` lines inside it. Every check
+in it stands for a mistake that produces a build working perfectly on this machine.
+
+**Signing falls back, loudly.** Gradle uses the debug key when `android/key.properties` is
+absent, so `flutter run --release` still works on a machine without the keystore. That
+fallback is the dangerous one: a debug-signed APK installs and runs perfectly, and the
+failure surfaces later, when a properly signed build refuses to upgrade it. So the fallback
+warns, and the packaging script refuses to produce a release build that took it.
+
+**The key itself is the user's job, and stays out of the repo.** An upload key cannot be
+reissued: an install can only ever be upgraded by a build signed with the same key, so
+losing it means uninstalling and losing the library cache and token with it.
+`key.properties` and `*.jks` are gitignored and `packaging_test.dart` asserts they still
+are, because that file holds the keystore password in plain text.
+
+**`keytool` cannot read a modern APK, and says so misleadingly.** At minSdk 24 Gradle signs
+with the v2/v3 APK schemes and leaves v1 JAR signing off, so `keytool -printcert -jarfile`
+answers *"Not a signed jar file"* for a perfectly well signed APK. That reads as a broken
+build rather than a limitation of the tool, and cost one wrong conclusion here already.
+`apksigner verify --print-certs` is the right tool; the debug key is recognisable by
+`CN=Android Debug`.
+
+**Icons are generated, not drawn.** `tool/make_icons.py` writes the legacy mipmaps, the
+adaptive foreground, the Android 13 monochrome layer and the Windows multi-size `.ico` from
+one definition. The PNGs are checked in so no build needs Python, and the generator is
+checked in so the accent colour has one place to change. The mark is the equaliser bars from
+the sign-in screen, four rather than five: at 48px, five bars and their gaps become a smudge.
+The adaptive foreground is sized against the 66dp safe circle, not the 108dp canvas, which is
+why its scale factor looks so much smaller than the legacy tile's.
+
+**One version, asserted.** `pubspec.yaml` drives the Android versionName and the Windows
+file version; `PlexIdentity.version` is what Plex sees and what the About screen shows.
+Neither can read the other without a plugin, so `packaging_test.dart` fails if they drift.
+Set to **0.9.0**, not 1.0: the catalog tier of search, sonic radio and acquisition are
+unbuilt, and a version number that claims otherwise is a lie told to future-you.
+
+**The Windows deliverable is the folder.** `plexify.exe` is 157KB and will not start without
+`flutter_windows.dll`, `libmpv-2.dll`, `sqlite3.dll` and `data/`. Windows names only the
+first missing DLL it looks for, which tells you nothing about the other three, so the script
+checks for them before zipping. 20.9MB zipped.
+
+**Size guard at 25MB.** arm64 release is 22.1MB against the plan's ~20MB expectation; the
+gap is libmpv and the Flutter engine, both already accounted for. The point is that the next
+ten megabytes should be a decision rather than a discovery.
+
+Two first-run fixes fell out of reading the sign-in screen as a new user would. It now says
+a browser is about to open *before* the button rather than after it. And a browser that
+fails to open is no longer fatal: the first cut threw, and cleared the code on the way out,
+so the one message saying "type this at plex.tv/link" was also the moment the code left the
+screen.
+
+### #49 - Rate artists *(done, 6 August 2026)*
+
+Prompted by a good question: are artist favourites local only? They are not.
+`PlexArtist.fromJson` already parsed `userRating` and `LibraryWriter.writeArtists` already
+stored it, so **reading** was wired. **Writing** was not, and there were no stars on the
+artist page, so a rating would sync in and never out.
+
+`rateArtist` joins `rateAlbum` and `rateTrack`, and calls `ensureArtist` first for the same
+reason they do: the local write is an `UPDATE`, so without a row Plex accepts the rating
+while the artist never appears in the favourites filter.
+
+Schema **v7** rewinds the delta cursor. An earlier claim here that v6 needed no rewind was
+wrong, for exactly the reason v3 already taught: a delta sync asks for rows changed since
+the cursor, and an artist rated months ago has not changed. A new version rather than an
+edit to v6, because v6 has already run on installs that took the previous build.
+
+---
+
 ## Still wanting live confirmation
 
 Done in code, and neither can be confirmed from a test:
@@ -463,3 +536,9 @@ Done in code, and neither can be confirmed from a test:
   the server thinks it is transcoding.
 - **#21**, the payoff is a cold start that does not refetch every thumbnail. Visible on the
   phone, not assertable here.
+- **#34**, the signed path has never run, because the keystore does not exist yet. Create it,
+  then `tool/package.ps1` end to end. **The first release-signed install needs the current
+  debug-signed one uninstalled first**, which wipes the library cache and the token; Android
+  refuses an upgrade across a signature change, and the error names neither cause nor cure.
+- **#49**, that existing Plex ratings appear after the v7 resync, and that a rating set on
+  the artist page shows up in the Plex web UI.

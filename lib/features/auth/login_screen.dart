@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-import '../../core/plex/plex_auth.dart';
 import '../../core/providers.dart';
 
 /// Plex sign-in via the PIN link flow.
@@ -22,6 +21,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   String? _code;
   String? _error;
 
+  /// Set when the browser could not be opened for us.
+  ///
+  /// Not an error: the code is live and typing it into plex.tv/link by hand
+  /// works exactly as well, so this downgrades to an instruction and the poll
+  /// keeps running.
+  bool _openManually = false;
+
   /// Set when the widget is disposed mid-poll, so the polling loop can bail out
   /// instead of resolving into a dead widget.
   bool _cancelled = false;
@@ -37,6 +43,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       _busy = true;
       _error = null;
       _code = null;
+      _openManually = false;
     });
 
     final auth = ref.read(plexAuthProvider);
@@ -46,12 +53,13 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
       if (!mounted) return;
       setState(() => _code = pin.code);
 
+      // Deliberately not fatal. The first cut threw here and cleared the code
+      // on the way out, so the one message that said "type this at
+      // plex.tv/link" was also the moment the code stopped being on screen.
       final url = auth.authorizationUrl(pin);
-      if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
-        throw const PlexAuthException(
-          'Could not open your browser. Visit plex.tv/link and enter the code.',
-        );
-      }
+      final opened = await launchUrl(url, mode: LaunchMode.externalApplication);
+      if (!mounted) return;
+      if (!opened) setState(() => _openManually = true);
 
       final token = await auth.waitForToken(pin, isCancelled: () => _cancelled);
       if (!mounted) return;
@@ -62,9 +70,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     } on Object catch (e) {
       if (!mounted) return;
       setState(() {
-        _error = e.toString();
+        _error = '$e';
         _busy = false;
         _code = null;
+        _openManually = false;
       });
     }
   }
@@ -96,7 +105,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Sign in with your Plex account',
+                  // Said before the button rather than after it. Handing
+                  // someone off to a browser is startling if it was not
+                  // announced, and "why did it open Chrome" is the first
+                  // impression this app gets to make.
+                  'Plexify opens plex.tv in your browser, where you approve '
+                  'this device. Your password is never typed in here.',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
@@ -106,7 +120,9 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
                 if (_code != null) ...[
                   Text(
-                    'Approve this code in your browser',
+                    _openManually
+                        ? 'Go to plex.tv/link and enter this code'
+                        : 'Approve this code in your browser',
                     textAlign: TextAlign.center,
                     style: theme.textTheme.bodySmall,
                   ),

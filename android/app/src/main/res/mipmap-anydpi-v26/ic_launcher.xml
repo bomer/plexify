@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icon, Android 8+. The launcher masks these layers to whatever
+     shape the device uses, so the foreground must keep clear of the edges;
+     `make_icons.py` sizes the mark against the 66dp safe circle for that
+     reason. `mipmap-*/ic_launcher.png` is the pre-masked fallback for
+     everything older. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <!-- Android 13+ themed icons recolour this layer to match the wallpaper,
+         so it carries shape in its alpha and no colour of its own. -->
+    <monochrome android:drawable="@mipmap/ic_launcher_monochrome" />
+</adaptive-icon>

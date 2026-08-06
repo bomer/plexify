@@ -63,6 +63,16 @@ flutter run -d windows
 flutter build apk --release --target-platform android-arm64
 ```
 
+Releasing goes through the script, not the build commands, because the checks are the point:
+
+```powershell
+powershell -File tool/package.ps1
+```
+
+It refuses a debug-signed APK, an APK over its size budget, and a Windows bundle missing a
+DLL the exe cannot start without. See [tool/README.md](../tool/README.md), including the
+one-time `keytool` command for the signing key.
+
 Deploying to the phone, note `flutter install` does **not** build, so build first:
 
 ```powershell
@@ -387,6 +397,18 @@ re-add the package for an Android-only permission.
 **Windows build failing with a missing header after toolchain changes** is usually a stale
 CMake cache, not a missing component. Delete `build\windows` and rebuild before concluding
 something needs installing, this produced one wrong diagnosis already.
+
+**`keytool` cannot read a modern APK, and its error is misleading.** At minSdk 24 Gradle
+signs with the v2/v3 APK schemes and leaves v1 JAR signing off, so
+`keytool -printcert -jarfile` answers *"Not a signed jar file"* about a perfectly well
+signed APK. That reads as a broken build rather than a limitation of the tool. Use
+`apksigner verify --print-certs` from `build-tools`; Google's debug key is `CN=Android Debug`.
+
+**App icons are generated, not drawn.** `tool/make_icons.py` writes every Android density,
+the adaptive foreground, the Android 13 monochrome layer and the Windows `.ico` from one
+definition. Editing a PNG by hand is editing build output. The accent colour is duplicated
+in three places by necessity, the Dart theme, the generator, and `values/colors.xml` for the
+adaptive icon's background; change one and change all three.
 
 **Flutter needs Windows Developer Mode** for plugin symlinks. Already enabled.
 

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The surface the app itself paints, so the launcher icon and the first
+         frame after tapping it are the same colour. Kept in step with
+         `SURFACE` in tool/make_icons.py. -->
+    <color name="ic_launcher_background">#10141B</color>
+</resources>

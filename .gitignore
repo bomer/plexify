@@ -46,3 +46,12 @@ app.*.map.json
 
 # Local convenience shortcuts to build output
 *.lnk
+
+# Release signing. The keystore is the one credential here that cannot be
+# reissued, and key.properties holds its passwords in plain text.
+/android/key.properties
+*.jks
+*.keystore
+
+# Packaged output from tool/package.ps1
+/dist/
