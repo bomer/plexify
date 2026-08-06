@@ -273,6 +273,8 @@ class _TransportControls extends StatelessWidget {
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
+            _ShuffleButton(handler: handler, state: state),
+            const SizedBox(width: 8),
             IconButton(
               iconSize: 40,
               icon: const Icon(Icons.skip_previous),
@@ -302,6 +304,8 @@ class _TransportControls extends StatelessWidget {
               icon: const Icon(Icons.skip_next),
               onPressed: handler.skipToNext,
             ),
+            const SizedBox(width: 8),
+            _RepeatButton(handler: handler, state: state),
           ],
         );
       },
@@ -309,8 +313,74 @@ class _TransportControls extends StatelessWidget {
   }
 }
 
-/// Read-only view of what's coming. Reordering and removal land with the queue
-/// work in Phase 3.
+/// Shuffle, reading its state from the session rather than holding its own.
+///
+/// The handler is the only place that knows whether shuffle is on, and it
+/// publishes that in `playbackState` so the lock screen agrees. A button
+/// holding its own boolean would disagree with the lock screen the first time
+/// either one was used.
+class _ShuffleButton extends StatelessWidget {
+  const _ShuffleButton({required this.handler, required this.state});
+
+  final PlexifyAudioHandler handler;
+  final PlaybackState? state;
+
+  @override
+  Widget build(BuildContext context) {
+    final on = state?.shuffleMode == AudioServiceShuffleMode.all;
+    return IconButton(
+      tooltip: on ? 'Shuffle on' : 'Shuffle off',
+      isSelected: on,
+      color: on ? Theme.of(context).colorScheme.primary : null,
+      icon: const Icon(Icons.shuffle),
+      onPressed: () => handler.setShuffleMode(
+        on ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all,
+      ),
+    );
+  }
+}
+
+/// Repeat, cycling off, all, one.
+///
+/// Three states on one button because that is the order people expect, and
+/// two controls for one idea would take room the transport needs.
+class _RepeatButton extends StatelessWidget {
+  const _RepeatButton({required this.handler, required this.state});
+
+  final PlexifyAudioHandler handler;
+  final PlaybackState? state;
+
+  @override
+  Widget build(BuildContext context) {
+    final mode = state?.repeatMode ?? AudioServiceRepeatMode.none;
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return IconButton(
+      tooltip: switch (mode) {
+        AudioServiceRepeatMode.one => 'Repeat this track',
+        AudioServiceRepeatMode.none => 'Repeat off',
+        _ => 'Repeat all',
+      },
+      isSelected: mode != AudioServiceRepeatMode.none,
+      color: mode == AudioServiceRepeatMode.none ? null : primary,
+      icon: Icon(
+        mode == AudioServiceRepeatMode.one ? Icons.repeat_one : Icons.repeat,
+      ),
+      onPressed: () => handler.setRepeatMode(switch (mode) {
+        AudioServiceRepeatMode.none => AudioServiceRepeatMode.all,
+        AudioServiceRepeatMode.all ||
+        AudioServiceRepeatMode.group => AudioServiceRepeatMode.one,
+        AudioServiceRepeatMode.one => AudioServiceRepeatMode.none,
+      }),
+    );
+  }
+}
+
+/// What is coming, reorderable and removable.
+///
+/// Only the tracks *after* the current one. Reordering something into the past
+/// has no meaning, and dragging away the track you are listening to would stop
+/// it, which is never what dragging a row further down the list should do.
 class _UpNext extends StatelessWidget {
   const _UpNext({required this.handler});
 
@@ -340,25 +410,65 @@ class _UpNext extends StatelessWidget {
               children: [
                 Text('Up next', style: theme.textTheme.titleSmall),
                 const SizedBox(height: 4),
-                ...upcoming.take(20).indexed.map((entry) {
-                  final (offset, item) = entry;
-                  return ListTile(
-                    dense: true,
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(
-                      item.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    subtitle: Text(
-                      item.artist ?? '',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                    onTap: () =>
-                        handler.skipToQueueItem(currentIndex + 1 + offset),
-                  );
-                }),
+                ReorderableListView(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  buildDefaultDragHandles: false,
+                  // `onReorderItem` rather than the deprecated `onReorder`,
+                  // which reported the destination as an index in the list
+                  // *before* the dragged item was taken out and left every
+                  // caller to correct for it. This one is already adjusted.
+                  onReorderItem: (oldOffset, newOffset) =>
+                      handler.moveQueueItem(
+                        currentIndex + 1 + oldOffset,
+                        currentIndex + 1 + newOffset,
+                      ),
+                  children: [
+                    for (final (offset, item) in upcoming.take(20).indexed)
+                      Dismissible(
+                        key: ValueKey('up-next-$offset-${item.id}'),
+                        direction: DismissDirection.endToStart,
+                        background: ColoredBox(
+                          color: theme.colorScheme.errorContainer,
+                          child: const Align(
+                            alignment: Alignment.centerRight,
+                            child: Padding(
+                              padding: EdgeInsets.only(right: 16),
+                              child: Icon(Icons.delete_outline),
+                            ),
+                          ),
+                        ),
+                        onDismissed: (_) => handler.removeQueueItemAt(
+                          currentIndex + 1 + offset,
+                        ),
+                        child: ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                            item.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: Text(
+                            item.artist ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          // An explicit handle rather than long-press-to-drag:
+                          // these rows are tappable too, and a long press that
+                          // sometimes plays and sometimes lifts is worse than
+                          // a grip you can see.
+                          trailing: ReorderableDragStartListener(
+                            index: offset,
+                            child: const Icon(Icons.drag_handle),
+                          ),
+                          onTap: () => handler.skipToQueueItem(
+                            currentIndex + 1 + offset,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
               ],
             );
           },

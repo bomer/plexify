@@ -71,8 +71,15 @@ class FakeAudioPlayer extends AudioPlayerPlatform {
 
   int? currentIndex;
 
-  /// The URIs of the sources in the most recent load, in order.
-  List<String> get loadedUris => _urisOf(loads.last.audioSourceMessage);
+  /// The URIs the engine currently holds, in order.
+  ///
+  /// Tracked as a mutable list rather than read back off the last load,
+  /// because the queue can be reordered and shortened after loading and the
+  /// whole point of those operations is that the engine's list changes with
+  /// the published one.
+  List<String> get loadedUris => List.unmodifiable(_sources);
+
+  final _sources = <String>[];
 
   static List<String> _urisOf(AudioSourceMessage message) => switch (message) {
     ConcatenatingAudioSourceMessage(:final children) => [
@@ -88,6 +95,9 @@ class FakeAudioPlayer extends AudioPlayerPlatform {
   @override
   Future<LoadResponse> load(LoadRequest request) async {
     loads.add(request);
+    _sources
+      ..clear()
+      ..addAll(_urisOf(request.audioSourceMessage));
     currentIndex = request.initialIndex ?? 0;
     position = request.initialPosition ?? Duration.zero;
     _emit();
@@ -116,6 +126,34 @@ class FakeAudioPlayer extends AudioPlayerPlatform {
     _emit();
     return SeekResponse();
   }
+
+  @override
+  Future<ConcatenatingMoveResponse> concatenatingMove(
+    ConcatenatingMoveRequest request,
+  ) async {
+    if (_inRange(request.currentIndex) && _inRange(request.newIndex)) {
+      _sources.insert(
+        request.newIndex,
+        _sources.removeAt(request.currentIndex),
+      );
+    }
+    return ConcatenatingMoveResponse();
+  }
+
+  @override
+  Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(
+    ConcatenatingRemoveRangeRequest request,
+  ) async {
+    if (_inRange(request.startIndex) && request.endIndex <= _sources.length) {
+      _sources.removeRange(request.startIndex, request.endIndex);
+      if (currentIndex != null && currentIndex! >= _sources.length) {
+        currentIndex = _sources.isEmpty ? null : _sources.length - 1;
+      }
+    }
+    return ConcatenatingRemoveRangeResponse();
+  }
+
+  bool _inRange(int index) => index >= 0 && index < _sources.length;
 
   @override
   Future<SetVolumeResponse> setVolume(SetVolumeRequest request) async =>

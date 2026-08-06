@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **39 complete**
+**Last updated:** 6 August 2026 · **40 complete**
 
 ---
 
@@ -34,6 +34,7 @@ between the next reader and paying for it twice.
 | 18 | Change-detection poll and delta sync | 30s poll on `/library/sections`, wake on resume, pull-to-refresh. Schema v3 rewinds the cursor once |
 | 20 | UI reads from drift, additively | Grid streams from cache; sort by added/title/artist |
 | 21 | Artwork disk cache | Hand-rolled over `path_provider`, keyed on `(thumb, size)` so a token refresh or a re-race is a hit. Custom `ImageProvider`, LRU-bounded, prefetch via `scrollCacheExtent` |
+| 22 | Queue controls | Shuffle and repeat overridden and published, with controls in Now Playing. Up Next reorders by drag handle and removes by swipe, engine and published queue moved together |
 | 23 | Transcode-or-direct-play | Binary, per #8, no bitrate anywhere in the type. Three signals kept apart: connectivity, server locality, source rate. Schema v4 adds the part size. Seeking a transcode reloads at `offset=`; the handler holds the difference |
 | 25 | Timeline reporting and scrobbling | `/:/timeline` every 10s and on every state change, `/:/scrobble` once past 90%. Writes `lastViewedAt` locally so Home updates immediately. Live-verified, Plexify appears in the Plex dashboard |
 | 26 | Sidebar with recent playlists | Recents beneath the destinations; bottom nav under 800px |
@@ -267,6 +268,41 @@ head, so `onUpgrade` re-ran DDL for a column that already existed. They now drop
 and pass the real head as `to` rather than an intermediate version the code never sees.
 
 ---
+
+### #22 - Queue controls *(done, 6 Aug 2026)*
+
+Four things, three of them shipped and the fourth still owed to a pair of ears.
+
+**Shuffle and repeat** are declared by `BaseAudioHandler` and were never implemented, so the
+lock screen offered controls that did nothing. Both are overridden, published in the reported
+state, and now have buttons in Now Playing. Publishing is the part that matters: the lock
+screen renders whatever the state says, so setting the engine without publishing shows the
+wrong icon for ever, which reads as a broken button. The controls read their state from the
+session rather than holding their own boolean, or they would disagree with the lock screen
+the first time either was used.
+
+That needed `playbackState` to have a **single writer**. It was fed directly by `pipe`, which
+is `addStream`, and rxdart refuses a manual `add` while a stream is being piped in. The same
+trap broke `super.stop()` earlier in the project and is recorded in PROJECT.md; I walked into
+it again anyway. Player events and mode changes now both go through one controller.
+
+**Reorder and remove** move the engine's playlist and the published queue together. They have
+to: the engine plays by index and `queue` is what every screen and the lock screen render, so
+a mismatch means tapping the third row plays the fourth track, and nothing throws when it
+happens. Only the tracks *after* the current one are offered, and `removeQueueItemAt` refuses
+the playing track outright, because swiping a row further down the list must never stop what
+you are listening to. Dragging uses an explicit handle rather than long-press, since the rows
+are tappable and a long press that sometimes plays and sometimes lifts is worse than a grip
+you can see.
+
+`onReorderItem` rather than the deprecated `onReorder`, which reported the destination as an
+index in the list *before* the dragged item was removed and left every caller to correct for
+it.
+
+**Gapless is still unverified.** It cannot be tested from Dart: `setAudioSources` hands the
+engine the whole list at once so it can pre-buffer, which is the mechanism, but whether there
+is an audible seam between two consecutive album tracks is a question for a pair of ears on
+each platform.
 
 ### #28 - Instant local search *(done, 6 Aug 2026)*
 

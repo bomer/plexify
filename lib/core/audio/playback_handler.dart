@@ -316,6 +316,50 @@ class PlexifyAudioHandler extends BaseAudioHandler
   /// use, so a mode change is visible without waiting for the next event.
   void _republish() => _publish(_toPlaybackState(_player.playbackEvent));
 
+  /// Moves a queue entry, keeping the engine's playlist and the published
+  /// queue in step.
+  ///
+  /// Both have to move or they drift apart silently: the engine plays by index
+  /// and `queue` is what every screen and the lock screen render, so a
+  /// mismatch means tapping the third row plays the fourth track. Nothing
+  /// throws when that happens, which is what makes it worth being careful
+  /// about.
+  Future<void> moveQueueItem(int oldIndex, int newIndex) async {
+    final items = List<MediaItem>.of(queue.value);
+    if (!_inRange(oldIndex, items) || !_inRange(newIndex, items)) return;
+    if (oldIndex == newIndex) return;
+
+    await _player.moveAudioSource(oldIndex, newIndex);
+    items.insert(newIndex, items.removeAt(oldIndex));
+    queue.add(items);
+
+    // The current track may have shifted without changing, so the index the
+    // state reports has to be recomputed rather than assumed.
+    _currentIndex = _player.currentIndex;
+    _republish();
+  }
+
+  @override
+  Future<void> removeQueueItemAt(int index) async {
+    final items = List<MediaItem>.of(queue.value);
+    if (!_inRange(index, items)) return;
+
+    // Removing the track that is playing would stop it, which is not what
+    // swiping a row *further down the list* should ever do. The caller only
+    // offers this for upcoming entries; this is the guard for when it does
+    // not.
+    if (index == _player.currentIndex) return;
+
+    await _player.removeAudioSourceAt(index);
+    items.removeAt(index);
+    queue.add(items);
+    _currentIndex = _player.currentIndex;
+    _republish();
+  }
+
+  static bool _inRange(int index, List<MediaItem> items) =>
+      index >= 0 && index < items.length;
+
   @override
   Future<void> skipToNext() => _player.seekToNext();
 

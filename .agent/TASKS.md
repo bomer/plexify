@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 39 complete · 9 open · 349 tests passing
+**Status:** 40 complete · 8 open · 354 tests passing
 
 ---
 
@@ -18,7 +18,6 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 
 | # | Task | Where it sits |
 |---|---|---|
-| 22 | Queue controls | Shuffle and repeat done. Reorder and remove in Up Next still to do, plus gapless by ear |
 | 29 | MusicBrainz "not in your library" | Gates #30 and #33. #28 left the empty-result message pointing at it |
 | 30 | De-duplicate catalog results | Needs #29 |
 | 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
@@ -40,10 +39,7 @@ Plexamp side by side while moving over.
 | | Task | Why here |
 |---|---|---|
 | 1 | **#43b** Settings: playback and storage | #24 landed the cache, so the size and clear controls now have something to control. `QualityPolicy.decide` already takes an override nothing passes yet. Plexamp offers 512MB as a comparison. |
-| 2 | **#22** Queue controls, then Phase 5 onward | Feature work resumes here. |
-| 3 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
-
-#28 was previously marked "next up". It is a feature, and it now sits behind correctness.
+| 2 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 
 Six finished tasks still want live confirmation that no test can give, listed under
 [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation). #23's
@@ -56,32 +52,6 @@ playing on either platform, only requested.
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
-
-### #24, Audio disk cache _(unblocked by #23)_
-
-**Subtasks**
-
-1. `LockCachingAudioSource` in place of `AudioSource.uri`. Note there are now **two** sites,
-   not one: `setQueueAndPlay` and the reload inside `seek`.
-2. **Key on `(ratingKey, qualityDecision)`.** Both are already on the `MediaItem` -
-   `extras['ratingKey']` and `extras['qualityDecision']`, put there by #23 for this. Keyed
-   on ratingKey alone, a transcoded copy cached on cellular is served forever once back on
-   the LAN, and the fidelity the decision exists to protect silently never arrives.
-3. **A seeked transcode is a partial file that is not the track.** Its URL carries an
-   `offset`, so caching it under the track's key would store the tail as though it were the
-   whole. Either exclude offset reloads from the cache or key them separately.
-4. Bounded LRU, ~2GB Android, ~10GB desktop, configurable in #43b.
-5. Fill on wifi/LAN only, so it never burns cellular in the background.
-6. Eviction must not delete a file currently being read.
-
-**Considerations**
-
-- **Verify `LockCachingAudioSource` works under `just_audio_media_kit` on Windows.** The
-  caching source is a just_audio feature and the media_kit backend is a different engine;
-  this is a genuine unknown, not a formality. If it does not work, the cache is Android-only
- , acceptable, but worth knowing before designing around it.
-- This layer is what later becomes explicit offline downloads. Worth not painting into a
-  corner, without building for it yet.
 
 ### #43b, Settings: playback and storage
 
@@ -103,8 +73,8 @@ control.
 
 - Do not build settings nothing reads yet. That rule is why #43a shipped four sections and
   not six.
-- Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel or
- , far cheaper, a manual toggle. Suggest manual.
+- Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel,
+  or far more cheaply a manual toggle. Suggest manual.
 
 ### #19, Deletion reconcile
 
@@ -122,42 +92,14 @@ play. #17 catches deletions that happen while connected; this catches the rest.
 
 - **This is the one place that deliberately breaks the "cache is additive, never
   authoritative about absence" invariant, so it needs the strongest guard in the codebase.**
-  A pass that drops halfway, network blip, server restart mid-pagination, must be discarded
-  entirely. Treating a partial fetch as authoritative deletes a chunk of the library, and the
+  A pass that drops halfway (a network blip, a server restart mid-pagination) must be
+  discarded entirely. Treating a partial fetch as authoritative deletes a chunk of the library, and the
   user's first symptom is albums vanishing.
 - Test this failure directly: simulate a fetch that fails on page 3 of 5 and assert **nothing**
   is deleted. That test matters more than the happy path.
 - Plex has no keys-only projection, so the pass is not cheap. Daily is right; hourly is not.
 
-### #44, Widget test: Now Playing preserves navigation state
-
-docs/PLAN.md calls this invariant non-retrofittable and it has no test. The sibling-`Stack`
-overlay design in [app_shell.dart](../lib/shell/app_shell.dart) exists solely to guarantee it.
-
-Navigate deep into a tab's nested `Navigator`, scroll, expand the overlay via
-`nowPlayingExpandedProvider`, assert the underlying route is still mounted, collapse, assert
-the scroll position survived.
-
-### #22, Queue controls
-
-**Subtasks**
-
-1. ~~Shuffle and repeat~~ *(done)* - overridden, published, and the `playbackState` subject
-   now has a single writer so publishing a mode change does not fight the `pipe`.
-2. **Controls for them in Now Playing.** The handler supports both; nothing on screen calls
-   them yet, so they are reachable only from the lock screen.
-3. Queue reorder and remove, the Up Next list in Now Playing is read-only. `moveAudioSource`
-   / `removeAudioSourceAt`, keeping `queue` in step.
-4. Verify gapless **by ear** on a continuous album, both platforms.
-
 ### Phase 5, search
-
-**#28, Instant local search.** drift-backed on every keystroke, no network round trip. The
-normalised columns and their indexes already exist (`idx_artists_norm`, `idx_albums_norm_title`,
-`idx_albums_norm_artist`, `idx_tracks_norm`). Merge with `/hubs/search` so unsynced server
-content still appears. [search_screen.dart](../lib/features/search/search_screen.dart) is a
-placeholder wired into the shell, so there is a visible "coming soon" in the app until this
-lands.
 
 **#29, MusicBrainz "Not in your library" tier.** Free, no API key, art from Cover Art
 Archive. **Must**: descriptive `User-Agent` with contact info (generic agents get 503),

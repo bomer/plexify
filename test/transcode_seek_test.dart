@@ -205,4 +205,70 @@ void main() {
       );
     });
   });
+
+  group('reordering the queue', () {
+    Future<PlexifyAudioHandler> queued(int count) async {
+      final handler = PlexifyAudioHandler();
+      addTearDown(handler.dispose);
+      await handler.setQueueAndPlay([
+        for (var i = 1; i <= count; i++) item('$i', transcoded: false),
+      ]);
+      return handler;
+    }
+
+    List<String?> keysOf(PlexifyAudioHandler handler) => [
+      for (final i in handler.queue.value) i.extras?['ratingKey'] as String?,
+    ];
+
+    test('moves the published queue and the engine together', () async {
+      final handler = await queued(4);
+
+      await handler.moveQueueItem(3, 1);
+
+      // Both have to move or they drift apart silently: the engine plays by
+      // index and `queue` is what every screen renders, so a mismatch means
+      // tapping the third row plays the fourth track. Nothing throws.
+      expect(keysOf(handler), ['1', '4', '2', '3']);
+      expect(audio.player.loadedUris, hasLength(4));
+    });
+
+    test('removes a track from both', () async {
+      final handler = await queued(3);
+
+      await handler.removeQueueItemAt(2);
+
+      expect(keysOf(handler), ['1', '2']);
+    });
+
+    test('refuses to remove the track that is playing', () async {
+      final handler = await queued(3);
+
+      await handler.removeQueueItemAt(0);
+
+      // Swiping a row further down the list must never stop what you are
+      // listening to. The UI only offers this for upcoming entries; this is
+      // the guard for when it does not.
+      expect(keysOf(handler), ['1', '2', '3']);
+    });
+
+    test('ignores an index outside the queue', () async {
+      final handler = await queued(2);
+
+      await handler.moveQueueItem(0, 9);
+      await handler.removeQueueItemAt(-1);
+      await handler.removeQueueItemAt(7);
+
+      expect(keysOf(handler), ['1', '2']);
+    });
+
+    test('a move that goes nowhere changes nothing', () async {
+      final handler = await queued(3);
+      final before = audio.player.loads.length;
+
+      await handler.moveQueueItem(1, 1);
+
+      expect(keysOf(handler), ['1', '2', '3']);
+      expect(audio.player.loads, hasLength(before));
+    });
+  });
 }
