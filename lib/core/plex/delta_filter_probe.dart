@@ -2,20 +2,52 @@ import 'plex_client.dart';
 import 'plex_models.dart';
 
 /// One filter spelling, and what the server did with it.
+///
+/// **Two measurements, because one cannot tell "filters correctly" from
+/// "matches nothing".** Asked for a cutoff a minute ago, a working filter and a
+/// filter the server silently turns into an empty set both answer zero. The
+/// first would make the delta sync cheap; the second would make the app stop
+/// noticing new music for ever, which is worse than the bug being fixed and
+/// would look exactly like the library having gone quiet.
+///
+/// So each spelling is also asked for a cutoff ten years ago, where a real
+/// filter has to return everything.
 class DeltaFilterResult {
   const DeltaFilterResult({
     required this.filter,
-    required this.count,
+    required this.recent,
+    required this.ancient,
     this.error,
   });
 
   /// The raw query parameter name, e.g. `updatedAt>=`.
   final String filter;
 
-  /// Rows the server reported through it, or null if the request failed.
-  final int? count;
+  /// Rows changed in the last minute. Null if the request failed.
+  final int? recent;
+
+  /// Rows changed in the last ten years, which is the whole library.
+  final int? ancient;
 
   final String? error;
+
+  /// Whether this spelling both narrows *and* widens.
+  ///
+  /// Narrowing alone is not enough, see the class comment. Widening alone means
+  /// the server ignored it and handed back everything twice.
+  bool usableAgainst(int baseline) =>
+      recent != null &&
+      ancient != null &&
+      recent! < baseline &&
+      ancient! >= baseline;
+
+  /// What went wrong, in the words of what was measured.
+  String verdictAgainst(int baseline) {
+    if (error != null) return 'failed: $error';
+    if (usableAgainst(baseline)) return '$recent recent / $ancient ever, works';
+    if (recent! >= baseline) return '$recent recent, ignored';
+    return '$recent recent / $ancient ever, matches nothing, do not use';
+  }
 }
 
 /// What a probe run found.
@@ -23,6 +55,7 @@ class DeltaFilterReport {
   const DeltaFilterReport({
     required this.baseline,
     required this.since,
+    required this.ancient,
     required this.results,
   });
 
@@ -30,22 +63,39 @@ class DeltaFilterReport {
   /// filter comes back with.
   final int baseline;
 
-  /// The cutoff asked for, in epoch seconds.
+  /// The narrowing cutoff asked for, in epoch seconds.
   final int since;
+
+  /// The widening cutoff, in epoch seconds.
+  final int ancient;
 
   final List<DeltaFilterResult> results;
 
-  /// The spellings the server acted on, cheapest first.
+  /// The spellings that are safe to use.
   ///
-  /// "Acted on" means fewer rows than unfiltered. A filter Plex does not
-  /// recognise is silently dropped rather than rejected, so the response is a
-  /// perfectly valid 200 containing the entire library, and the only way to
-  /// tell the two apart is to count.
-  List<DeltaFilterResult> get honoured =>
-      results.where((r) => r.count != null && r.count! < baseline).toList()
-        ..sort((a, b) => a.count!.compareTo(b.count!));
+  /// A filter Plex does not recognise is dropped rather than rejected, so the
+  /// response is a perfectly valid 200 containing the entire library; and one
+  /// it turns into an empty set is a perfectly valid 200 containing nothing.
+  /// Only asking twice separates those from a filter that works.
+  List<DeltaFilterResult> get usable =>
+      results.where((r) => r.usableAgainst(baseline)).toList();
 
-  bool get anyHonoured => honoured.isNotEmpty;
+  bool get anyUsable => usable.isNotEmpty;
+
+  /// Spellings that narrowed to nothing and stayed at nothing.
+  ///
+  /// Called out separately because these are the dangerous ones: they look like
+  /// the answer on a single measurement, and adopting one would leave the cache
+  /// silently frozen.
+  List<DeltaFilterResult> get empty => results
+      .where(
+        (r) =>
+            r.error == null &&
+            r.recent != null &&
+            r.recent! < baseline &&
+            !r.usableAgainst(baseline),
+      )
+      .toList();
 }
 
 /// Finds out which delta filter, if any, this server actually applies.
@@ -62,6 +112,15 @@ class DeltaFilterReport {
 /// accepts unknown filter parameters, answers 200, and drops them. There is no
 /// error to read and no documentation to trust, so the only honest test is to
 /// ask for something that *must* narrow the result and count what comes back.
+///
+/// **And then to ask the opposite.** The first run of this probe reported that
+/// `updatedAt>` returned zero rows, which reads as a perfect filter and is
+/// equally consistent with a filter the server turns into an empty set.
+/// Adopting that would have stopped the app noticing new music at all, which is
+/// worse than the bug it was fixing and would present as the library having
+/// gone quiet rather than as a broken filter. So every spelling is measured
+/// twice, once where it must return nothing and once where it must return
+/// everything.
 ///
 /// Lives in the app, next to [TranscodeProbe], for the same reason: it has to
 /// be re-runnable against the real server after an upgrade changes the answer.
@@ -86,19 +145,26 @@ class DeltaFilterProbe {
     'updatedAt>>',
   ];
 
-  /// How far back to ask for.
+  /// How far back the narrowing measurement asks.
   ///
   /// A minute, not the real cursor. The cursor is whatever the last sync stored
   /// and a library that genuinely changed since then would muddy the reading;
   /// nothing has been edited in the last sixty seconds, so a filter that works
-  /// returns approximately nothing and a filter that is ignored returns the
-  /// whole section. There is no ambiguous middle.
+  /// returns approximately nothing.
   static const window = Duration(minutes: 1);
 
+  /// How far back the widening measurement asks.
+  ///
+  /// Old enough that every row in any real library is newer, so a filter that
+  /// works has to return all of them. This is the half that catches a spelling
+  /// the server turns into an empty set, which a single measurement reports as
+  /// a spectacular success.
+  static const ancientWindow = Duration(days: 3650);
+
   Future<DeltaFilterReport> run(PlexSection section) async {
-    final since =
-        _now().subtract(window).millisecondsSinceEpoch ~/
-        Duration.millisecondsPerSecond;
+    final now = _now();
+    final since = _epochSeconds(now.subtract(window));
+    final ancient = _epochSeconds(now.subtract(ancientWindow));
 
     // Tracks rather than albums or artists: it is the biggest of the three, so
     // the gap between "filtered" and "ignored" is the widest, and it is where
@@ -111,18 +177,23 @@ class DeltaFilterProbe {
     final results = <DeltaFilterResult>[];
     for (final filter in candidates) {
       try {
-        final count = await _client.sectionCount(
-          section.key,
-          type: PlexClient.typeTrack,
-          filter: filter,
-          filterValue: since,
+        results.add(
+          DeltaFilterResult(
+            filter: filter,
+            recent: await _count(section, filter, since),
+            ancient: await _count(section, filter, ancient),
+          ),
         );
-        results.add(DeltaFilterResult(filter: filter, count: count));
       } on Object catch (e) {
         // A rejected filter is a *result*, not a failure of the run. Some
         // spellings may well 400, and knowing which is part of the answer.
         results.add(
-          DeltaFilterResult(filter: filter, count: null, error: '$e'),
+          DeltaFilterResult(
+            filter: filter,
+            recent: null,
+            ancient: null,
+            error: '$e',
+          ),
         );
       }
     }
@@ -130,7 +201,19 @@ class DeltaFilterProbe {
     return DeltaFilterReport(
       baseline: baseline,
       since: since,
+      ancient: ancient,
       results: results,
     );
   }
+
+  Future<int> _count(PlexSection section, String filter, int value) =>
+      _client.sectionCount(
+        section.key,
+        type: PlexClient.typeTrack,
+        filter: filter,
+        filterValue: value,
+      );
+
+  static int _epochSeconds(DateTime at) =>
+      at.millisecondsSinceEpoch ~/ Duration.millisecondsPerSecond;
 }

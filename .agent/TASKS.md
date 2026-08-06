@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 44 complete · 7 open · 382 tests passing
+**Status:** 44 complete · 7 open · 383 tests passing
 
 ---
 
@@ -56,11 +56,24 @@ will have moved by the time they start.
 `updatedAt>=` is ignored, so every sweep refetches the library. #50 made a quiet relaunch
 cheap by sweeping less often; this would make the sweeps themselves cheap.
 
-Blocked on evidence, not on work. Run **Sync status → Delta filter probe** once against the
-real server, read which spelling narrowed the result, and change the one line in
-`PlexClient.sectionPage`. `updatedAt>>=` is the leading suspect: doubled operators are Plex's
-own filter convention. If the probe says *none* of them work, this task becomes "lengthen
-`deltaInterval` and let the section clocks carry it alone" instead.
+Blocked on evidence, not on work. Run **Sync status → Delta filter probe** against the real
+server, read which spelling it reports as usable, and change the one line in
+`PlexClient.sectionPage`.
+
+**What the first run already established**, on 6 August 2026 against 11,492 tracks:
+`updatedAt>=` and `updatedAt>>=` returned all of them, so both are ignored. `updatedAt>` and
+`updatedAt>>` returned **zero**, which is either a working filter or one the server turns
+into an empty set, and those are not the same thing at all: adopting the second would stop
+the library ever gaining music, silently. The probe now asks each spelling twice, once where
+it must return nothing and once where it must return everything, so a second run settles it.
+
+**If `>` turns out to work, the cursor needs care.** It is strict, and the stored cursor is
+the newest `updatedAt` already held, so a row sharing that exact second and not yet seen would
+be skipped for ever. A bulk edit stamps many rows with one timestamp, so this is not
+hypothetical. Store `cursor - 1`.
+
+If the probe says nothing is usable, this task becomes "lengthen `deltaInterval` and let the
+section clocks carry it alone" instead.
 
 ### #19, Deletion reconcile
 

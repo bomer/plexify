@@ -475,12 +475,22 @@ is the safe direction: defaulting to *now* would skip the first sweep after an u
 hide any rating set while the old build was running.
 
 **Plex's: the filter itself**, left to #51 and shipped with an instrument rather than a guess.
-`DeltaFilterProbe` asks for tracks changed in the last minute, once per candidate spelling,
-with `X-Plex-Container-Size: 0` so nothing is fetched. A minute ago has no ambiguous middle:
-a filter that works returns nearly nothing, one that is ignored returns the section. It
-deliberately does not use the real cursor, where a genuinely changed library would make a
-partial result look like an ignored filter. `updatedAt>>=` is the leading suspect, doubled
-operators being Plex's own convention.
+`DeltaFilterProbe` asks each candidate spelling with `X-Plex-Container-Size: 0` so nothing is
+fetched, and deliberately not with the real cursor, where a genuinely changed library would
+make a partial result look like an ignored filter.
+
+**The first run of it changed its design, and that is the part worth keeping.** Against
+James's server: `updatedAt>=` and `updatedAt>>=` both returned all 11,492 tracks, so both are
+ignored; `updatedAt>` and `updatedAt>>` both returned **zero**, which reads as a perfect
+filter. It is equally consistent with a spelling the server turns into an empty set, and
+adopting one of those would have meant a delta sync that returned nothing for ever: the
+library would simply stop gaining music, with no error anywhere, which is worse than the bug
+being fixed and breaks the cache-is-never-authoritative-about-absence invariant outright.
+
+So every spelling is now measured **twice**, once where it must return nothing (a minute ago)
+and once where it must return everything (ten years ago). A filter is only reported as usable
+if it narrows *and* widens. The probe calls the narrow-but-never-wide case out by name,
+because on one measurement it looks like the answer.
 
 The measured cost, on an 11k-track library: a quiet relaunch goes from about **seventy
 requests to two**.
@@ -640,4 +650,7 @@ Done in code, and neither can be confirmed from a test:
   gap as #23 remains: requested is not the same as heard.
 - **#50**, that a relaunch inside five minutes now costs one request. Read "Rows in last
   sync" straight after reopening: it should still show the previous pass's number rather than
-  13,704 again. And the probe itself has never been run, which is the whole of #51.
+  13,704 again.
+- **#51**, a second probe run, now that it asks both questions. The first run ruled out
+  `>=` and `>>=` as ignored and left `>` and `>>` unresolved between "works" and "matches
+  nothing".

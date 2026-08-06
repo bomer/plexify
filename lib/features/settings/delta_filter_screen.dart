@@ -60,11 +60,13 @@ class _DeltaFilterScreenState extends ConsumerState<DeltaFilterScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'Asks the server for tracks changed in the last minute, once per '
-            'filter spelling, and counts what comes back. Nothing has been '
-            'edited in the last minute, so a filter that works returns roughly '
-            'nothing and a filter the server ignores returns the whole '
-            'library.',
+            'Asks each filter spelling twice: for tracks changed in the last '
+            'minute, where a working filter returns roughly nothing, and for '
+            'tracks changed in the last ten years, where it has to return '
+            'everything.\n\n'
+            'Both, because a spelling the server quietly turns into an empty '
+            'set looks identical to a perfect one on the first question alone '
+            'and would stop the app noticing new music at all.',
             style: theme.textTheme.bodyMedium?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
@@ -97,14 +99,7 @@ class _DeltaFilterScreenState extends ConsumerState<DeltaFilterScreen> {
             for (final result in report.results)
               _Row(
                 label: result.filter,
-                value: switch (result) {
-                  DeltaFilterResult(error: final e?) => 'failed: $e',
-                  DeltaFilterResult(count: final c?) =>
-                    c < report.baseline
-                        ? '$c tracks — honoured'
-                        : '$c tracks — ignored',
-                  _ => 'no answer',
-                },
+                value: result.verdictAgainst(report.baseline),
               ),
             const SizedBox(height: 24),
             OutlinedButton.icon(
@@ -126,10 +121,10 @@ class _DeltaFilterScreenState extends ConsumerState<DeltaFilterScreen> {
   static String _asText(DeltaFilterReport report) {
     final lines = <String>[
       'Delta filter probe',
-      'since=${report.since}',
+      'recent=${report.since} ancient=${report.ancient}',
       'unfiltered: ${report.baseline} tracks',
       for (final r in report.results)
-        '${r.filter}: ${r.error ?? '${r.count} tracks'}',
+        '${r.filter}: ${r.verdictAgainst(report.baseline)}',
     ];
     return lines.join('\n');
   }
@@ -143,7 +138,8 @@ class _Verdict extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final winner = report.honoured.firstOrNull;
+    final winner = report.usable.firstOrNull;
+    final dangerous = report.empty;
 
     return Card(
       color: winner == null
@@ -152,13 +148,23 @@ class _Verdict extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Text(
-          winner == null
-              ? 'No filter works on this server. Every spelling returned the '
-                    'whole library, so a delta sync cannot be made cheap by '
-                    'filtering and the launch check has to rely on the section '
-                    'clocks alone.'
-              : 'Use ${winner.filter} — it returned ${winner.count} of '
-                    '${report.baseline}.',
+          switch ((winner, dangerous.isNotEmpty)) {
+            (final w?, _) =>
+              'Use ${w.filter}. It returned ${w.recent} of ${report.baseline} '
+                  'for the last minute and ${w.ancient} for the last ten '
+                  'years, so it narrows and widens.',
+            (null, true) =>
+              'No filter is safe here. '
+                  '${dangerous.map((r) => r.filter).join(', ')} returned '
+                  'nothing for both questions, which means matching nothing '
+                  'rather than filtering. Adopting one would stop new music '
+                  'ever appearing.',
+            (null, false) =>
+              'No filter works on this server. Every spelling returned the '
+                  'whole library, so a delta sync cannot be made cheap by '
+                  'filtering and the launch check has to rely on the section '
+                  'clocks alone.',
+          },
           style: theme.textTheme.bodyMedium?.copyWith(
             color: winner == null
                 ? theme.colorScheme.onErrorContainer

@@ -9,18 +9,19 @@ import 'package:plexify/core/plex/plex_identity.dart';
 import 'package:plexify/core/plex/plex_models.dart';
 import 'package:plexify/core/plex/plex_server.dart';
 
-/// The probe answers a question that has no error to read: Plex accepts a
+/// The probe answers a question that has no error to read. Plex accepts a
 /// filter parameter it does not understand, answers 200, and silently returns
-/// everything. So "honoured" can only mean "returned fewer rows than
-/// unfiltered", and that is the judgement these tests are about.
+/// everything; and at least one spelling on James's server answers 200 with
+/// nothing at all. Both are valid responses and neither says what happened, so
+/// every judgement here is made by counting, twice.
 void main() {
   const section = PlexSection(key: '3', title: 'Music', type: 'artist');
+  const total = 11492;
 
   late List<Uri> asked;
 
-  /// A server that acts on [honours] and ignores every other filter, answering
-  /// [total] whenever it does not filter.
-  PlexClient serverThat({required Set<String> honours, int total = 13704}) {
+  /// Builds a server with a per-request rule, recording what was asked.
+  PlexClient serverThat(int Function(Uri url) count) {
     return PlexClient(
       server: const PlexServer(
         name: 'Tower',
@@ -32,12 +33,9 @@ void main() {
       identity: PlexIdentity.forTesting(),
       httpClient: MockClient((request) async {
         asked.add(request.url);
-        final applied = honours.any(
-          (f) => request.url.queryParameters.containsKey(f),
-        );
         return http.Response(
           jsonEncode({
-            'MediaContainer': {'totalSize': applied ? 2 : total},
+            'MediaContainer': {'totalSize': count(request.url)},
           }),
           200,
         );
@@ -45,39 +43,73 @@ void main() {
     );
   }
 
+  /// A server that genuinely applies [working] and ignores everything else.
+  PlexClient serverApplying(String working) {
+    return serverThat((url) {
+      final value = url.queryParameters[working];
+      if (value == null) return total;
+      // A real filter: nothing changed in the last minute, everything changed
+      // in the last ten years.
+      final cutoff = int.parse(value);
+      final aMinuteAgo =
+          DateTime.now()
+              .subtract(const Duration(minutes: 2))
+              .millisecondsSinceEpoch ~/
+          1000;
+      return cutoff > aMinuteAgo ? 0 : total;
+    });
+  }
+
   setUp(() => asked = []);
 
-  test('names the spelling that narrows the result', () async {
+  test('names a spelling that narrows and widens', () async {
     final report = await DeltaFilterProbe(
-      client: serverThat(honours: {'updatedAt>>='}),
+      client: serverApplying('updatedAt>>='),
     ).run(section);
 
-    expect(report.baseline, 13704);
-    expect(report.anyHonoured, isTrue);
-    expect(report.honoured.first.filter, 'updatedAt>>=');
+    expect(report.baseline, total);
+    expect(report.anyUsable, isTrue);
+    expect(report.usable.single.filter, 'updatedAt>>=');
+    expect(report.empty, isEmpty);
   });
 
-  test('a filter that returns everything is not honoured', () async {
+  test('a filter that returns everything is ignored, not honoured', () async {
     final report = await DeltaFilterProbe(
-      client: serverThat(honours: const {}),
+      client: serverThat((_) => total),
     ).run(section);
 
-    // The whole failure mode. Every candidate came back 200 with the entire
-    // library, which is indistinguishable from success unless something counts.
-    expect(report.anyHonoured, isFalse);
+    // Plex drops a parameter it does not recognise and answers 200 with the
+    // whole library, which is indistinguishable from success unless something
+    // counts.
+    expect(report.anyUsable, isFalse);
+    expect(report.empty, isEmpty);
     for (final result in report.results) {
-      expect(result.count, 13704);
-      expect(result.error, isNull);
+      expect(result.verdictAgainst(total), contains('ignored'));
     }
   });
 
-  test('asks for no metadata at all', () async {
-    await DeltaFilterProbe(client: serverThat(honours: const {})).run(section);
+  test('a filter that returns nothing is refused, however good it looks', () {
+    // This is the case that made the second measurement necessary. On the real
+    // server `updatedAt>` answered 0 for a one-minute window, which reads as a
+    // perfect filter. Adopting it would have meant a delta sync that returned
+    // nothing for ever: the library would simply stop gaining music, and
+    // nothing in the app would report an error.
+    const alwaysEmpty = DeltaFilterResult(
+      filter: 'updatedAt>',
+      recent: 0,
+      ancient: 0,
+    );
 
-    // Five requests against an 11k library have to stay free. The probe runs
-    // on a phone, possibly on cellular, and a version of it that pulled a page
-    // of tracks per candidate would cost more than the bug it is measuring.
-    expect(asked, hasLength(DeltaFilterProbe.candidates.length + 1));
+    expect(alwaysEmpty.usableAgainst(total), isFalse);
+    expect(alwaysEmpty.verdictAgainst(total), contains('do not use'));
+  });
+
+  test('asks every spelling both questions', () async {
+    await DeltaFilterProbe(client: serverThat((_) => total)).run(section);
+
+    // One baseline plus two per candidate. All of them ask for zero metadata,
+    // so the whole run stays free enough to do on cellular.
+    expect(asked, hasLength(1 + DeltaFilterProbe.candidates.length * 2));
     expect(
       asked.every(
         (u) => !u.queryParameters.containsKey('X-Plex-Container-Size'),
@@ -87,20 +119,24 @@ void main() {
     );
   });
 
-  test('asks about a window nothing can have changed in', () async {
+  test('the two cutoffs are a minute and a decade', () async {
     final now = DateTime(2026, 8, 6, 12);
     final report = await DeltaFilterProbe(
-      client: serverThat(honours: const {}),
+      client: serverThat((_) => total),
       now: () => now,
     ).run(section);
 
-    // Deliberately not the real sync cursor. A library that genuinely changed
-    // since the cursor would return rows through a working filter, and a
-    // partial result cannot be told from an ignored one. A minute ago there is
-    // no ambiguous middle: nearly nothing, or everything.
+    // Deliberately not the real sync cursor for either. A library that genuinely
+    // changed since the cursor would return rows through a working filter, and
+    // a partial result cannot be told from an ignored one.
     expect(
       report.since,
       now.subtract(DeltaFilterProbe.window).millisecondsSinceEpoch ~/ 1000,
+    );
+    expect(
+      report.ancient,
+      now.subtract(DeltaFilterProbe.ancientWindow).millisecondsSinceEpoch ~/
+          1000,
     );
   });
 
@@ -120,7 +156,7 @@ void main() {
         }
         return http.Response(
           jsonEncode({
-            'MediaContainer': {'totalSize': 13704},
+            'MediaContainer': {'totalSize': total},
           }),
           200,
         );
@@ -133,6 +169,6 @@ void main() {
     // 400 must not abandon the candidates after it.
     expect(report.results, hasLength(DeltaFilterProbe.candidates.length));
     expect(report.results.where((r) => r.error != null), isNotEmpty);
-    expect(report.results.where((r) => r.count != null), isNotEmpty);
+    expect(report.results.where((r) => r.recent != null), isNotEmpty);
   });
 }
