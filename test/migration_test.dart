@@ -38,6 +38,19 @@ void main() {
     'ALTER TABLE sync_state DROP COLUMN last_delta_sweep_at',
   );
 
+  /// v9 creates tables rather than adding columns, and `createTable` is no more
+  /// idempotent than `addColumn` — against a head schema it fails on a table
+  /// that is already there. Same reasoning as the drops above.
+  Future<void> dropCatalogTables(AppDatabase db) async {
+    for (final table in [
+      'catalog_queries',
+      'catalog_releases',
+      'catalog_artists',
+    ]) {
+      await db.customStatement('DROP TABLE IF EXISTS $table');
+    }
+  }
+
   test(
     'arriving from v2 rewinds the delta cursor so ratings get backfilled',
     () async {
@@ -60,8 +73,9 @@ void main() {
       await dropPartSizeColumn(db);
       await dropArtistRating(db);
       await dropDeltaSweepColumn(db);
+      await dropCatalogTables(db);
       final migrator = db.createMigrator();
-      await db.migration.onUpgrade(migrator, 2, 8);
+      await db.migration.onUpgrade(migrator, 2, 9);
 
       final state = await db.select(db.syncState).getSingle();
       expect(state.lastSyncedUpdatedAt, 0);
@@ -92,8 +106,9 @@ void main() {
     await dropPartSizeColumn(db);
     await dropArtistRating(db);
     await dropDeltaSweepColumn(db);
+    await dropCatalogTables(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 3, 8);
+    await db.migration.onUpgrade(migrator, 3, 9);
 
     // Unlike v3 this deliberately does *not* rewind the sync cursor: a null
     // part size degrades to "nothing measured", which QualityPolicy treats
@@ -124,7 +139,7 @@ void main() {
     // every launch. `from` tracks the head, unlike every other test here, which
     // is the whole point of this one.
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 8, 8);
+    await db.migration.onUpgrade(migrator, 9, 9);
 
     final state = await db.select(db.syncState).getSingle();
     expect(state.lastSyncedUpdatedAt, 999999);
@@ -170,8 +185,9 @@ void main() {
 
     await dropArtistRating(db);
     await dropDeltaSweepColumn(db);
+    await dropCatalogTables(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 5, 8);
+    await db.migration.onUpgrade(migrator, 5, 9);
 
     // No cursor rewind, unlike v3: an unrated artist and one whose rating has
     // not synced yet look identical to the filter, and the next pass that
@@ -197,8 +213,9 @@ void main() {
         );
 
     await dropDeltaSweepColumn(db);
+    await dropCatalogTables(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 6, 8);
+    await db.migration.onUpgrade(migrator, 6, 9);
 
     // v6 added the column and left the cursor alone, which was wrong in a way
     // already learned at v3: a delta sync asks for rows changed since the
@@ -225,8 +242,9 @@ void main() {
         );
 
     await dropDeltaSweepColumn(db);
+    await dropCatalogTables(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 7, 8);
+    await db.migration.onUpgrade(migrator, 7, 9);
 
     // Starts null, which reads as "never swept" and sweeps once. That is the
     // same thing a fresh install does, and it is the safe direction: the
@@ -240,5 +258,51 @@ void main() {
     final state = await db.select(db.syncState).getSingle();
     expect(state.lastSyncedUpdatedAt, 999999);
     expect(state.initialSyncComplete, isTrue);
+  });
+
+  test('v9 adds the catalog cache without touching the library', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db
+        .into(db.albums)
+        .insert(
+          AlbumsCompanion.insert(
+            ratingKey: 'a1',
+            title: 'In Rainbows',
+            normalisedTitle: 'in rainbows',
+            artistTitle: 'Radiohead',
+            normalisedArtist: 'radiohead',
+          ),
+        );
+    await db
+        .into(db.syncState)
+        .insert(
+          SyncStateCompanion.insert(
+            sectionKey: '3',
+            serverClientIdentifier: 'server-1',
+            lastSyncedUpdatedAt: const Value(999999),
+            initialSyncComplete: const Value(true),
+          ),
+        );
+
+    await dropCatalogTables(db);
+    final migrator = db.createMigrator();
+    await db.migration.onUpgrade(migrator, 8, 9);
+
+    // The three tables exist and start empty. They are filled from MusicBrainz,
+    // not from Plex, so unlike v3 and v7 there is nothing to backfill and no
+    // reason to rewind the cursor — the whole point of checking that here is
+    // that a needless rewind costs a full resync of a large library.
+    expect(await db.countCatalogReleases(), 0);
+    final state = await db.select(db.syncState).getSingle();
+    expect(state.lastSyncedUpdatedAt, 999999);
+
+    // `Albums.mbid` has existed since v1 and is only now written to. An
+    // existing row keeps its null, which falls back to matching on normalised
+    // artist and title rather than failing.
+    final album = await db.select(db.albums).getSingle();
+    expect(album.mbid, isNull);
+    expect(album.title, 'In Rainbows');
   });
 }

@@ -94,6 +94,56 @@ void main() {
     });
   });
 
+  group('catalog and downloads', () {
+    test('looking up albums you do not own is off until asked for', () async {
+      final (store, _) = await freshStore();
+
+      // Off is a real default rather than a soft launch. It turns on a
+      // third-party lookup on the search path and a section on every artist
+      // page, which on a phone is noise.
+      expect(store.read().catalogEnabled, isFalse);
+    });
+
+    test('the catalog switch round-trips', () async {
+      final (store, prefs) = await freshStore();
+      final c = await container(store);
+
+      c.read(settingsProvider.notifier).setCatalogEnabled(true);
+      await pumpEventQueue();
+
+      expect(prefs.getBool('settings_catalog_enabled'), isTrue);
+      expect(store.read().catalogEnabled, isTrue);
+    });
+
+    test('a trailing slash is stripped from the qBittorrent address', () async {
+      final (store, _) = await freshStore();
+      final c = await container(store);
+
+      c.read(settingsProvider.notifier).setQbitUrl('https://box.local:8080/');
+
+      // Left on, every request path becomes double-slashed and the Referer
+      // stops matching Host — which qBittorrent answers with a 403 that reads
+      // as a wrong password rather than as a typo.
+      expect(c.read(settingsProvider).qbitUrl, 'https://box.local:8080');
+    });
+
+    test('clearing the address removes the key rather than storing ""', () async {
+      final (store, prefs) = await freshStore();
+      final c = await container(store);
+
+      c.read(settingsProvider.notifier).setQbitUrl('https://box.local:8080');
+      await pumpEventQueue();
+      c.read(settingsProvider.notifier).setQbitUrl('   ');
+      await pumpEventQueue();
+
+      // An empty string would read back as a configured server whose address is
+      // nothing, and every request against it would fail for an unguessable
+      // reason.
+      expect(prefs.getString('settings_qbit_url'), isNull);
+      expect(store.read().qbitUrl, isNull);
+    });
+  });
+
   group('playback and storage settings', () {
     test(
       'quality overrides round-trip, and clearing removes the key',

@@ -193,6 +193,100 @@ class SyncState extends Table {
   Set<Column> get primaryKey => {sectionKey};
 }
 
+/// Release groups MusicBrainz told us about — records that exist, whether or
+/// not the library holds them.
+///
+/// **Not part of the library cache, and the distinction is load-bearing.** Every
+/// other table here mirrors Plex and is wiped when the server changes, because
+/// `ratingKey`s are server-scoped. MBIDs are global: they mean the same thing on
+/// any server and to any other tool. So these rows survive a sign-out, which is
+/// also what stops a switch of server costing a fresh round of rate-limited
+/// lookups for a discography that has not changed.
+///
+/// Cached at all because MusicBrainz permits roughly one request a second and
+/// answers 503 rather than 429 when pushed. Without this, opening the same
+/// artist twice costs two paced round trips, and the second one is the one
+/// somebody is waiting on.
+///
+/// The row classes are named explicitly because drift derives them by
+/// singularising the table, which would produce `CatalogRelease` and
+/// `CatalogArtist` — the names the domain models in `catalog_models.dart`
+/// already use. Two types with one name in one layer is worth six characters to
+/// avoid.
+@DataClassName('CatalogReleaseRow')
+class CatalogReleases extends Table {
+  /// The MusicBrainz release-group id.
+  TextColumn get mbid => text()();
+
+  TextColumn get title => text()();
+  TextColumn get artist => text()();
+  TextColumn get artistMbid => text().nullable()();
+  IntColumn get year => integer().nullable()();
+
+  /// [ReleaseKind.name] — album, ep, single or other.
+  TextColumn get kind => text()();
+
+  /// Comma-joined `secondary-types`: Compilation, Live, Remix and friends.
+  ///
+  /// Stored as text rather than normalised into a table because it is only ever
+  /// read back as a whole to decide whether to *show* a row, never queried.
+  TextColumn get secondaryTypes => text().withDefault(const Constant(''))();
+
+  @override
+  Set<Column> get primaryKey => {mbid};
+}
+
+/// What a given catalog question answered, and when it was asked.
+///
+/// Separate from [CatalogReleases] because a question has an *order* and a
+/// *membership* that the rows themselves do not carry: search results are
+/// ranked by MusicBrainz, and a discography is a set. Storing the answer as a
+/// list of ids keeps both, and lets one release group belong to several answers
+/// without being duplicated.
+@DataClassName('CatalogQueryRow')
+class CatalogQueries extends Table {
+  /// `search:<normalised query>` or `artist:<mbid>`. Prefixed so the two kinds
+  /// of question cannot collide — an artist whose name is a hex string is
+  /// unlikely and the alternative is a bug nobody would ever guess at.
+  TextColumn get queryKey => text()();
+
+  /// Comma-joined release-group ids, in the order they were returned.
+  TextColumn get mbids => text()();
+
+  /// Epoch milliseconds. Answers expire, because a discography gains records.
+  IntColumn get fetchedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {queryKey};
+}
+
+/// Artist names already resolved to a MusicBrainz id.
+///
+/// A name is not a key — "Genesis" and "Nirvana" each match several real
+/// artists — so resolving one costs a search and a judgement, and doing that
+/// again every time an artist page opens would spend the rate limit on a
+/// question with an unchanging answer.
+///
+/// [mbid] is nullable **so a failed lookup is remembered too**. Plenty of
+/// artists in a personal library are not in MusicBrainz at all, and without a
+/// negative cache each of them re-queries on every visit, holding up the paced
+/// queue behind an answer already known to be nothing.
+@DataClassName('CatalogArtistRow')
+class CatalogArtists extends Table {
+  /// The library's artist name, run through `normalise`.
+  TextColumn get normalisedName => text()();
+
+  TextColumn get mbid => text().nullable()();
+
+  /// The name MusicBrainz gave back, for showing what was actually matched.
+  TextColumn get resolvedName => text().nullable()();
+
+  IntColumn get fetchedAt => integer()();
+
+  @override
+  Set<Column> get primaryKey => {normalisedName};
+}
+
 /// What *this user on this device* started playing, and when.
 ///
 /// Deliberately not `Albums.lastViewedAt`, which was the first attempt and

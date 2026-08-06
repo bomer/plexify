@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/playback_source.dart';
 
+import '../../core/catalog/catalog_models.dart';
+import '../acquire/catalog_artwork.dart';
+import '../acquire/download_sheet.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../../shell/layout.dart';
@@ -108,6 +111,11 @@ class ArtistDetailScreen extends ConsumerWidget {
                 ),
               ),
 
+            // What they made and you do not have, between the albums and the
+            // tracks. Above the flat track list because it is about the shape
+            // of the discography, which is what the grid above is about too.
+            _MissingAlbums(artist: artist),
+
             // Every track, flat, underneath the albums. For an artist you only
             // have a handful of songs by, scrolling to the track you want beats
             // guessing which album it was on.
@@ -137,6 +145,225 @@ class ArtistDetailScreen extends ConsumerWidget {
         source: PlaybackSource(PlaybackSourceKind.artist, artist.ratingKey),
       );
     }
+  }
+}
+
+/// Records this artist made that the library does not hold.
+///
+/// **Renders nothing at all when the catalog setting is off**, which is the
+/// whole point of that switch: on a phone this section is noise, and hiding it
+/// behind a collapsed header would still mean the lookup ran. Off means no
+/// request, no section, no gap on the page.
+///
+/// Studio albums and EPs only. A well-catalogued artist has three or four times
+/// as many compilations, live records and singles as albums, and listing them
+/// turns "what am I missing" into a wall nobody reads. They are still findable
+/// through search.
+class _MissingAlbums extends ConsumerWidget {
+  const _MissingAlbums({required this.artist});
+
+  final PlexArtist artist;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    if (!ref.watch(catalogEnabledProvider)) return const SliverToBoxAdapter();
+
+    final missing = ref.watch(
+      missingAlbumsProvider((ratingKey: artist.ratingKey, name: artist.title)),
+    );
+
+    // A rate-limited lookup takes a second or two, and a spinner that pushes
+    // the track list down and then lets it spring back is worse than the
+    // section simply appearing when it has something to say.
+    final data = missing.valueOrNull;
+    if (data == null || data.state == MissingAlbumsState.disabled) {
+      return const SliverToBoxAdapter();
+    }
+
+    if (data.state == MissingAlbumsState.unresolved) {
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Text(
+            // Stated rather than left blank. "No missing albums" and "we could
+            // not work out who this is" look identical otherwise, and only one
+            // of them is good news.
+            'MusicBrainz has no confident match for ${artist.title}, so '
+            'missing albums cannot be listed here.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (data.releases.isEmpty) {
+      return SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+          child: Row(
+            children: [
+              Icon(
+                Icons.check_circle_outline,
+                size: 18,
+                color: theme.colorScheme.primary,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'You have every album MusicBrainz lists for this artist.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Not in your library',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                      Text(
+                        _subtitle(data, artist.title),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          sliver: SliverGrid.builder(
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 200,
+              childAspectRatio: 0.66,
+              crossAxisSpacing: 16,
+              mainAxisSpacing: 16,
+            ),
+            itemCount: data.releases.length,
+            itemBuilder: (context, i) =>
+                _MissingCard(release: data.releases[i]),
+          ),
+        ),
+      ],
+    );
+  }
+
+  /// Names the artist MusicBrainz actually matched when it is not the one the
+  /// library calls them, so a wrong match is visible rather than presenting as
+  /// a page of albums this artist never made.
+  static String _subtitle(MissingAlbums data, String libraryName) {
+    final matched = data.matchedName;
+    final counts = '${data.releases.length} of ${data.totalKnown}';
+    if (matched == null || matched.toLowerCase() == libraryName.toLowerCase()) {
+      return '$counts albums and EPs on MusicBrainz';
+    }
+    return '$counts albums and EPs, matched as "$matched"';
+  }
+}
+
+/// One missing record, with the button that queues it.
+class _MissingCard extends ConsumerWidget {
+  const _MissingCard({required this.release});
+
+  final CatalogRelease release;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(8),
+      // Long press opens the full list of search hits, tap queues the obvious
+      // one. Both go through the same search; the difference is only whether a
+      // confident result is added without asking. See `acquire`.
+      onTap: () => acquire(context, ref, release),
+      onLongPress: () => showAcquireSheet(context, ref, release),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  // Dimmed, so a grid of records you own and a grid of records
+                  // you do not are distinguishable at a glance rather than by
+                  // reading the heading above them.
+                  child: Opacity(
+                    opacity: 0.55,
+                    child: CatalogArtwork(mbid: release.mbid),
+                  ),
+                ),
+                Align(
+                  alignment: Alignment.bottomRight,
+                  child: Padding(
+                    padding: const EdgeInsets.all(6),
+                    child: Material(
+                      color: theme.colorScheme.primaryContainer,
+                      shape: const CircleBorder(),
+                      child: InkWell(
+                        customBorder: const CircleBorder(),
+                        onTap: () => acquire(context, ref, release),
+                        child: Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Icon(
+                            Icons.download,
+                            size: 18,
+                            color: theme.colorScheme.onPrimaryContainer,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            release.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium,
+          ),
+          Text(
+            [
+              if (release.year != null) '${release.year}',
+              if (release.kind == ReleaseKind.ep) 'EP',
+            ].join(' · '),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

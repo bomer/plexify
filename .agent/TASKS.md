@@ -5,9 +5,9 @@ already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md) for the
 rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps, and
 [CompletedTasks.md](CompletedTasks.md) for finished work.
 
-**Last updated:** 6 August 2026
+**Last updated:** 7 August 2026
 
-**Status:** 47 complete · 6 open · 391 tests passing
+**Status:** 52 complete · 2 open · 448 tests passing
 
 ---
 
@@ -18,11 +18,7 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 
 | # | Task | Where it sits |
 |---|---|---|
-| 29 | MusicBrainz "not in your library" | Gates #30 and #33. #28 left the empty-result message pointing at it |
-| 30 | De-duplicate catalog results | Needs #29 |
 | 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
-| 32 | qBittorrent client | Gates #33 |
-| 33 | Acquisition flow | Needs #29 and #32 |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 
 ---
@@ -38,10 +34,12 @@ Plexamp side by side while moving over.
 |---|---|---|
 | 1 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 
-Seven finished tasks still want live confirmation that no test can give, listed under
+Finished tasks still wanting live confirmation that no test can give are listed under
 [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation). #23's
 is the one that matters most, and #43b depends on it too: a transcode has never been *heard*
-playing on either platform, only requested.
+playing on either platform, only requested. The whole catalog and acquisition group (#29,
+#30, #32, #33) joined that list on 7 August: it is built and tested against fixtures, and
+nothing in it has met the real MusicBrainz or James's real qBittorrent.
 
 ---
 
@@ -73,17 +71,6 @@ play. #17 catches deletions that happen while connected; this catches the rest.
   is deleted. That test matters more than the happy path.
 - Plex has no keys-only projection, so the pass is not cheap. Daily is right; hourly is not.
 
-### Phase 5, search
-
-**#29, MusicBrainz "Not in your library" tier.** Free, no API key, art from Cover Art
-Archive. **Must**: descriptive `User-Agent` with contact info (generic agents get 503),
-debounced single-flight queue (~1 req/sec), cached results. Local results always render first
-and independently, that is what makes the rate limit invisible. **Gates #30, #33.**
-
-**#30, De-duplicate catalog results** _(needs #29)_. Match on `Albums.mbid` where present,
-falling back to `normalisedArtist` + `normalisedTitle`, the column exists and is unused so
-far. Get it wrong and every album you own appears twice.
-
 ### Phase 6, radio
 
 **#31, Sonic radio and autoplay.** `/library/metadata/{ratingKey}/nearest?limit=50`.
@@ -92,22 +79,29 @@ Autoplay **on by default**; the `onQueueExhausted` hook already exists at
 "sonic analysis incomplete" state rather than silently returning nothing.
 **Prerequisite: Plex sonic analysis must have been run, takes hours to days.**
 
-### Phase 7, acquisition
-
-**#32, qBittorrent client.** WebUI API v2, native web form login → `SID` cookie, one layer,
-no HTTP Basic. **Two traps:** `Referer`/`Origin` must exactly match `Host` including port, or
-unexplained 403s; and 403 _also_ means "IP banned for too many failed logins", so one attempt
-then explicit backoff, a retry loop would get the phone banned by James's own server.
-**Gates #33.**
-
-**#33, Acquisition flow** _(needs #29, #32)_. Search using **structured** MusicBrainz
-metadata (artist + album + year), not the raw typed string. Rank by seeders and format. Add
-with `category=Music`, existing automation handles routing, so no renaming or retagging.
-Poll progress, then `/library/sections/{id}/refresh`.
-
 ---
 
 ## Known caveats
+
+**Albums you do not own are off by default.** One switch in Settings turns on both the
+catalog tier of search and the missing-albums grid, and off means off — no client is built,
+no request is made, and `downloadMonitorProvider` resolves to null so nothing polls. Settings
+are per device, which is the granularity that was wanted.
+
+**The catalog needs one thing only the user can do: a qBittorrent search plugin.** Without
+one the search endpoints answer 200 and return nothing, which reads as "nobody is seeding
+this" for every album ever asked for. Save and test on the qBittorrent screen reports it.
+
+**Plex records a MusicBrainz id for very few albums, and that is expected.** `Albums.mbid` is
+now written where `Guid` or `guid` carries one, and matching falls back to normalised artist
+and title everywhere else. No cursor rewind was done for it, deliberately: unlike the v3 and
+v7 rating columns, a null here degrades to the path most rows take anyway rather than leaving
+a feature looking broken.
+
+**Edition words are stripped from titles before matching, and the list is conservative on
+purpose.** Adding a word merges two albums, and the failure that causes — a record you do not
+own never appearing in the list of records you do not own — is invisible, unlike the noise it
+removes. `_editionWords` in `catalog_matcher.dart`.
 
 **Releasing needs a signing key that does not exist yet.** `tool/package.ps1` refuses to
 build without `android/key.properties`, deliberately: a debug-signed APK installs and runs

@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **47 complete**
+**Last updated:** 7 August 2026 · **52 complete**
 
 ---
 
@@ -58,6 +58,11 @@ between the next reader and paying for it twice.
 | 49 | Rate artists | Artist ratings are Plex's, on the same `/:/rate` endpoint. Reading was already wired; writing was not, so a rating would sync in and never out. Stars on the artist page, schema v7 rewinds the cursor so existing ones arrive |
 | 34 | Packaging and release | Real signing config that falls back to the debug key loudly, generated icons on both platforms, `tool/package.ps1` that refuses a debug-signed or oversized build. Version unified at 0.9.0 |
 | 43b | Settings: playback and storage | Quality override per connection, which *is* the data saver, there being no bitrate to lower. Both cache budgets, live usage, and one clear button. Budgets push into the running cache rather than rebuilding it |
+| 29 | MusicBrainz "Not in your library" | Paced at 1.1s through one serialised chain and a user agent naming the app and a contact — MusicBrainz answers **503** for either rule and says which for neither. Answers cached in drift for a week (schema v9) and deliberately *not* cleared on sign-out: MBIDs are global, unlike ratingKeys. A separate provider from local search on purpose, so the fast half never waits for the slow half |
+| 30 | De-duplicate catalog results | MBID where Plex recorded one, which is a minority of rows, otherwise normalised artist and title with *edition* qualifiers stripped. Only recognised edition words go: stripping every bracket is one line shorter and wrong in both directions — it makes *(What's the Story) Morning Glory?* differ from itself and collapses *Greatest Hits (Volume 1)* into *(Volume 2)*, so owning one hides the other, invisibly |
+| 32 | qBittorrent client | Form login → `SID`, one auth layer. `Referer`/`Origin` derived from the configured address so they cannot drift from `Host`; a trailing slash trimmed in the setter, since it breaks that check specifically. A 403 during login **latches** rather than retrying — the client cannot tell a ban from a wrong password, and retrying is what extends a ban. A rejected password is a 200 whose body is `Fails.` Searches are always deleted; leaked ones cap out the server |
+| 33 | Acquisition flow | Query built from MusicBrainz's fields, not the typed string; the year scores rather than filters, because torrent names carry it about half the time. Ranking is a pure function: confident matches first, then format and diminishing seeders. One click queues **only** when the filename names this artist and this album, otherwise the list opens — seeder count measures popularity, never correctness. `DownloadMonitor` turns a completion into the existing refresh path, adaptively polled and null unless configured |
+| 54 | Missing albums on the artist page | A discography subtracted from what you own, studio albums and EPs only. Artist resolution refuses to guess: an exact name wins, an inexact one needs a 90+ score, and everything else resolves to nobody and is *cached* as nobody. Taking the top hit attaches one artist's records to another's page and offers to download them |
 | 50 | Stop resyncing the library on every launch | Plex ignores `updatedAt>=`, so a forced launch pass plus an in-memory sweep clock meant 13,704 rows and ~70 requests every time. Schema v8 persists the clock; `start` asks instead of forcing. Ships the probe that will settle the filter itself |
 | 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
 | 52 | Filter the poll, never the sweep | A rating moves no timestamp, so a filtered sweep cannot find the one thing it exists for. Sweep and forced refresh go unfiltered, interval 5 → 15 min. The fake server now applies the filter, which is why the guard is real |
@@ -763,6 +768,16 @@ for what has.
 - **#43b**, that forcing a transcode on mobile data actually reaches the server. Plex web
   Status is the place to read it. The settings themselves were confirmed working on 6 August;
   the same gap as #23 remains, in that requested is not the same as heard.
+- **#29 / #30 / #32 / #33 / #54**, the whole catalog and acquisition group, built 7 August and
+  never once run against the real MusicBrainz or James's real qBittorrent. Everything below is
+  a fixture, and four of the things that can go wrong are invisible from a test. That
+  MusicBrainz accepts *this* user agent and *this* pace, rather than answering 503 as it does
+  for a generic one. That the artist resolver picks the right person for James's actual
+  library, where the interesting cases are the ambiguous names and the artists MusicBrainz has
+  never heard of. That de-duplication holds against his real file tags, which is where the
+  edition-word list either earns its keep or reports albums he owns as missing. And that a
+  queued torrent lands, gets scanned, and appears — the one path that crosses three systems and
+  is only ever end-to-end.
 - **#19**, not built yet, but noted here because it is the one task whose *test* matters more
   than its behaviour: a reconcile that treats a partial fetch as authoritative deletes a chunk
   of the library, and the first symptom is albums vanishing.

@@ -7,7 +7,9 @@ import '../../core/audio/quality_policy.dart';
 import '../../core/plex/plex_identity.dart';
 import '../../core/providers.dart';
 import '../../core/settings/app_settings.dart';
+import '../acquire/downloads_screen.dart';
 import 'account_controller.dart';
+import 'qbittorrent_screen.dart';
 import 'server_picker_screen.dart';
 import 'sync_status_screen.dart';
 
@@ -31,6 +33,7 @@ class SettingsScreen extends ConsumerWidget {
           _AccountSection(),
           _PlaybackSection(),
           _StorageSection(),
+          _CatalogSection(),
           _AppearanceSection(),
           _SyncSection(),
           _AboutSection(),
@@ -293,6 +296,88 @@ class _UsageLine extends StatelessWidget {
           color: theme.colorScheme.onSurfaceVariant,
         ),
       ),
+    );
+  }
+}
+
+/// Albums you do not own, and where to get them.
+///
+/// **One switch for both halves, and that is the design rather than a
+/// shortcut.** Looking up records the library does not hold is either something
+/// you want or something you do not, and the two places it shows — the lower
+/// tier of search and the missing-albums grid on an artist page — are the same
+/// question asked from two directions. A build where one appeared without the
+/// other would be harder to explain than either.
+///
+/// Off by default. Settings are per device, which is exactly the granularity
+/// wanted here: on a phone this is noise, and on the desktop, where downloads
+/// actually happen, it is the point.
+///
+/// The qBittorrent rows sit inside the same section but stay visible when the
+/// switch is off, so an address typed in once is not hidden by turning the
+/// feature off and mysteriously absent when it goes back on.
+class _CatalogSection extends ConsumerWidget {
+  const _CatalogSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final enabled = settings.catalogEnabled;
+
+    return _Section(
+      title: 'Albums you do not own',
+      children: [
+        SwitchListTile(
+          value: enabled,
+          onChanged: ref.read(settingsProvider.notifier).setCatalogEnabled,
+          title: const Text('Search and show missing albums'),
+          subtitle: const Text(
+            'Adds a "Not in your library" section to search, and lists what an '
+            'artist released that you do not have. Uses MusicBrainz.',
+          ),
+        ),
+        ListTile(
+          enabled: enabled,
+          leading: const Icon(Icons.downloading),
+          title: const Text('qBittorrent'),
+          subtitle: Text(
+            settings.qbitUrl == null
+                ? 'Not set up. Needed only to download something.'
+                : settings.qbitUrl!,
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const QbittorrentScreen()),
+          ),
+        ),
+        ListTile(
+          enabled: enabled,
+          leading: const Icon(Icons.download_outlined),
+          title: const Text('Downloads'),
+          subtitle: const Text('What is arriving, and what has landed.'),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const DownloadsScreen()),
+          ),
+        ),
+        if (enabled)
+          ListTile(
+            leading: const Icon(Icons.refresh),
+            title: const Text('Forget catalog lookups'),
+            subtitle: const Text(
+              'Throws away what MusicBrainz told us, including any artist '
+              'matched to the wrong person. Your library is untouched.',
+            ),
+            onTap: () async {
+              await ref.read(databaseProvider).clearCatalog();
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('Catalog lookups forgotten')),
+                );
+              }
+            },
+          ),
+      ],
     );
   }
 }

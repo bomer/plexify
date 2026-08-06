@@ -4,13 +4,23 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
+import '../features/acquire/acquire_controller.dart';
 import 'artwork/artwork_cache.dart';
 import 'audio/audio_cache.dart';
 import 'audio/playback_handler.dart';
 import 'audio/timeline_reporter.dart';
+import 'catalog/catalog_matcher.dart';
+import 'catalog/catalog_models.dart';
+import 'catalog/catalog_service.dart';
+import 'catalog/catalog_store.dart';
+import 'catalog/musicbrainz_client.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
 import 'db/recently_played.dart';
+import 'qbit/download_monitor.dart';
+import 'qbit/qbit_client.dart';
+import 'qbit/qbit_credentials.dart';
+import 'qbit/qbit_models.dart';
 import 'plex/connection_health.dart';
 import 'plex/connection_monitor.dart';
 import 'plex/plex_auth.dart';
@@ -1079,3 +1089,247 @@ final artistByKeyProvider = FutureProvider.autoDispose
       )..where((a) => a.ratingKey.equals(ratingKey))).getSingleOrNull();
       return row?.toDomain();
     });
+
+// ---------------------------------------------------------------------------
+// The catalog: records that exist, as opposed to records you own.
+//
+// Everything below here is gated on `settings.catalogEnabled` and does nothing
+// at all when it is off — no client is built, no request is made, and the two
+// places it surfaces render nothing. That is the point of the switch: on a
+// phone this is noise, and "off" has to mean off rather than hidden.
+// ---------------------------------------------------------------------------
+
+/// Whether to look up records the library does not hold.
+final catalogEnabledProvider = Provider<bool>(
+  (ref) => ref.watch(settingsProvider.select((s) => s.catalogEnabled)),
+);
+
+/// The MusicBrainz web service.
+///
+/// One instance for the app's lifetime, because the pacing queue lives inside
+/// it: rebuilding it would reset the clock that keeps requests a second apart,
+/// which is the one thing the rate limit cares about.
+final musicBrainzClientProvider = Provider<MusicBrainzClient>((ref) {
+  final client = MusicBrainzClient();
+  ref.onDispose(client.close);
+  return client;
+});
+
+final catalogServiceProvider = Provider<CatalogService>(
+  (ref) => CatalogService(
+    client: ref.watch(musicBrainzClientProvider),
+    store: CatalogStore(ref.watch(databaseProvider)),
+  ),
+);
+
+/// Which albums the library already holds, as a set of match keys.
+///
+/// A stream rather than a future so a download that lands and syncs disappears
+/// from "missing" on its own, which is the one moment anybody is looking
+/// closely. `autoDispose` because rebuilding this on every album write during a
+/// first sync is only affordable while something is actually watching.
+final ownedIndexProvider = StreamProvider.autoDispose<OwnedIndex>((ref) async* {
+  final db = ref.watch(databaseProvider);
+  await for (final rows in db.watchAlbumIdentities()) {
+    yield OwnedIndex([
+      for (final row in rows)
+        OwnedAlbum(title: row.title, artist: row.artist, mbid: row.mbid),
+    ]);
+  }
+});
+
+/// Records matching a search, minus the ones already in the library.
+///
+/// Deliberately a separate provider from [searchResultsProvider] rather than
+/// another field on it. The two tiers have to be able to arrive at different
+/// times: local results are on screen in milliseconds and this one is paced
+/// behind a rate limit, and folding them into one future would make the fast
+/// half wait for the slow half — which is precisely what the two-tier design
+/// exists to prevent.
+final catalogSearchProvider = FutureProvider.autoDispose
+    .family<List<CatalogRelease>, String>((ref, query) async {
+      if (!ref.watch(catalogEnabledProvider)) return const [];
+      if (query.trim().length < 3) return const [];
+
+      final releases = await ref.watch(catalogServiceProvider).search(query);
+
+      final owned = await ref.watch(ownedIndexProvider.future);
+      // Primary works only. A search for an artist otherwise returns forty
+      // compilations before the record anybody meant.
+      return owned.missingFrom(releases.where((r) => r.isPrimaryWork));
+    });
+
+/// What an artist released that the library does not have.
+///
+/// Keyed on the ratingKey *and* the name because both are needed and neither is
+/// derivable from the other here: the name is what MusicBrainz is asked about,
+/// and the ratingKey is what the library is asked about. A record is used so
+/// the family key compares structurally.
+typedef ArtistRef = ({String ratingKey, String name});
+
+final missingAlbumsProvider = FutureProvider.autoDispose
+    .family<MissingAlbums, ArtistRef>((ref, artist) async {
+      if (!ref.watch(catalogEnabledProvider)) return const MissingAlbums.off();
+
+      final db = ref.watch(databaseProvider);
+      final discography = await ref
+          .watch(catalogServiceProvider)
+          .discographyFor(artist.name);
+
+      if (!discography.resolved) return const MissingAlbums.unresolved();
+
+      // Matched against this artist's own albums, with the artist name itself
+      // left out of the comparison. The library spells performers however the
+      // file tags did — "Beatles, The", "Bowie, David" — and MusicBrainz spells
+      // them canonically, so requiring both to agree would report a complete
+      // discography as entirely missing.
+      final owned = OwnedIndex([
+        for (final row in await db.albumIdentitiesForArtist(artist.ratingKey))
+          OwnedAlbum(title: row.title, artist: row.artist, mbid: row.mbid),
+      ], requireArtist: false);
+
+      final missing = owned.missingFrom(
+        discography.releases.where((r) => r.isPrimaryWork),
+      );
+      missing.sort((a, b) => (b.year ?? 0).compareTo(a.year ?? 0));
+
+      return MissingAlbums(
+        releases: missing,
+        matchedName: discography.artistName,
+        totalKnown: discography.releases.where((r) => r.isPrimaryWork).length,
+      );
+    });
+
+/// The albums an artist made and the library does not have.
+class MissingAlbums {
+  const MissingAlbums({
+    required this.releases,
+    this.matchedName,
+    this.totalKnown = 0,
+  }) : state = MissingAlbumsState.ready;
+
+  const MissingAlbums.off()
+    : releases = const [],
+      matchedName = null,
+      totalKnown = 0,
+      state = MissingAlbumsState.disabled;
+
+  const MissingAlbums.unresolved()
+    : releases = const [],
+      matchedName = null,
+      totalKnown = 0,
+      state = MissingAlbumsState.unresolved;
+
+  final List<CatalogRelease> releases;
+
+  /// What MusicBrainz called this artist. Shown when it differs from the
+  /// library's spelling, so a wrong match is visible rather than presenting as
+  /// a discography full of records the artist never made.
+  final String? matchedName;
+
+  /// How many primary works MusicBrainz lists in total, so the count can read
+  /// "4 of 19 missing" rather than a bare number with nothing to compare it to.
+  final int totalKnown;
+
+  final MissingAlbumsState state;
+}
+
+enum MissingAlbumsState {
+  /// The setting is off. Nothing was asked and nothing is shown.
+  disabled,
+
+  /// MusicBrainz has nobody by this name, or nobody confidently enough. A real
+  /// answer, and distinct from "no albums missing".
+  unresolved,
+
+  ready,
+}
+
+// ---------------------------------------------------------------------------
+// qBittorrent.
+// ---------------------------------------------------------------------------
+
+final qbitCredentialsProvider = Provider<QbitCredentials>(
+  (ref) => QbitCredentials(),
+);
+
+/// A configured qBittorrent client, or null.
+///
+/// Null for three different reasons that all mean the same thing to a caller —
+/// no address set, no credentials saved, or the catalog switch off — so they
+/// collapse into one. The screens that use this all have something sensible to
+/// show for null, which is a link into Settings.
+///
+/// A future because the credentials come from the platform keystore, which is
+/// asynchronous. Rebuilt whenever the address changes, so saving a new one in
+/// Settings takes effect without a restart.
+final qbitClientProvider = FutureProvider<QbitClient?>((ref) async {
+  if (!ref.watch(catalogEnabledProvider)) return null;
+
+  final url = ref.watch(settingsProvider.select((s) => s.qbitUrl));
+  if (url == null || url.isEmpty) return null;
+
+  final saved = await ref.watch(qbitCredentialsProvider).read();
+  final username = saved.username;
+  final password = saved.password;
+  if (username == null || username.isEmpty || password == null) return null;
+
+  final client = QbitClient(
+    baseUrl: url,
+    username: username,
+    password: password,
+  );
+  ref.onDispose(client.close);
+  return client;
+});
+
+final acquireControllerProvider = FutureProvider<AcquireController?>((
+  ref,
+) async {
+  final client = await ref.watch(qbitClientProvider.future);
+  return client == null ? null : AcquireController(client);
+});
+
+/// Watches the Music category and asks Plex to rescan when something lands.
+///
+/// Nothing reads its value — it exists for its side effects, like
+/// [liveSyncProvider], so [AppShell] watches it to keep it alive for the
+/// session. Null when qBittorrent is not configured, so a phone with the
+/// catalog switched off never makes a request.
+final downloadMonitorProvider = Provider<DownloadMonitor?>((ref) {
+  final client = ref.watch(qbitClientProvider).valueOrNull;
+  if (client == null) return null;
+
+  final monitor = DownloadMonitor(
+    client: () => client,
+    onComplete: () async {
+      // The same two steps the refresh button runs, in the same order: ask Plex
+      // to look at the disk, then sync what it found. Deliberately not a new
+      // path into the cache (invariant 10) — a download is one more trigger for
+      // machinery that already exists.
+      final plex = ref.read(plexClientProvider);
+      final section = await ref.read(musicSectionProvider.future);
+      if (plex != null && section != null) {
+        await plex.refreshSection(section.key);
+      }
+      await ref.read(syncSchedulerProvider)?.refreshNow();
+    },
+  );
+  monitor.start();
+  ref.onDispose(monitor.stop);
+  return monitor;
+});
+
+/// The Music category, live.
+final downloadsProvider = StreamProvider<List<QbitTorrent>>((ref) {
+  final monitor = ref.watch(downloadMonitorProvider);
+  if (monitor == null) return const Stream<List<QbitTorrent>>.empty();
+  // Seeded with whatever the last poll saw, so opening the screen shows the
+  // current state rather than waiting out an interval for the next tick.
+  return monitor.torrents.transform(
+    StreamTransformer.fromBind((stream) async* {
+      yield monitor.latest;
+      yield* stream;
+    }),
+  );
+});

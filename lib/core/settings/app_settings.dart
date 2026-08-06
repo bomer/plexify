@@ -25,7 +25,30 @@ class AppSettings {
     this.qualityMetered,
     this.audioCacheMaxBytes,
     this.artworkCacheMaxBytes,
+    this.catalogEnabled = false,
+    this.qbitUrl,
   });
+
+  /// Whether to look up records the library does not hold.
+  ///
+  /// Off by default, and off is a real answer rather than a soft launch. It
+  /// turns on a third-party lookup on the search path and an extra section on
+  /// every artist page, and on a phone that is noise: what you want there is
+  /// the music you have. On the desktop, where acquisition actually happens, it
+  /// is the point. Settings are per-device, so one switch gives both.
+  ///
+  /// Gates the catalog tier of search *and* the missing-albums list, because
+  /// they are the same question asked from two places, and a build where one
+  /// appeared without the other would be harder to explain than either.
+  final bool catalogEnabled;
+
+  /// Scheme, host and port of the qBittorrent WebUI — `https://box.local:8080`.
+  ///
+  /// The address is a preference and lives here; the username and password are
+  /// secrets and live in [QbitCredentials], which is the platform keystore. The
+  /// split is not decoration: `shared_preferences` is a plaintext file on both
+  /// platforms.
+  final String? qbitUrl;
 
   /// Dark by default, because the app is designed dark-first and following the
   /// system would put most users in a theme that was never the intent.
@@ -83,7 +106,11 @@ class AppSettings {
     Object? qualityMetered = _unchanged,
     Object? audioCacheMaxBytes = _unchanged,
     Object? artworkCacheMaxBytes = _unchanged,
+    bool? catalogEnabled,
+    Object? qbitUrl = _unchanged,
   }) => AppSettings(
+    catalogEnabled: catalogEnabled ?? this.catalogEnabled,
+    qbitUrl: identical(qbitUrl, _unchanged) ? this.qbitUrl : qbitUrl as String?,
     themeMode: themeMode ?? this.themeMode,
     preferredServerId: identical(preferredServerId, _unchanged)
         ? this.preferredServerId
@@ -112,7 +139,9 @@ class AppSettings {
       other.qualityUnmetered == qualityUnmetered &&
       other.qualityMetered == qualityMetered &&
       other.audioCacheMaxBytes == audioCacheMaxBytes &&
-      other.artworkCacheMaxBytes == artworkCacheMaxBytes;
+      other.artworkCacheMaxBytes == artworkCacheMaxBytes &&
+      other.catalogEnabled == catalogEnabled &&
+      other.qbitUrl == qbitUrl;
 
   @override
   int get hashCode => Object.hash(
@@ -122,6 +151,8 @@ class AppSettings {
     qualityMetered,
     audioCacheMaxBytes,
     artworkCacheMaxBytes,
+    catalogEnabled,
+    qbitUrl,
   );
 }
 
@@ -146,8 +177,14 @@ class SettingsStore {
   static const _qualityMeteredKey = 'settings_quality_metered';
   static const _audioCacheMaxKey = 'settings_audio_cache_max_bytes';
   static const _artworkCacheMaxKey = 'settings_artwork_cache_max_bytes';
+  static const _catalogEnabledKey = 'settings_catalog_enabled';
+  static const _qbitUrlKey = 'settings_qbit_url';
 
   AppSettings read() => AppSettings(
+    catalogEnabled:
+        _prefs.getBool(_catalogEnabledKey) ??
+        const AppSettings().catalogEnabled,
+    qbitUrl: _prefs.getString(_qbitUrlKey),
     themeMode: _themeMode(),
     preferredServerId: _prefs.getString(_preferredServerKey),
     qualityUnmetered: _quality(_qualityUnmeteredKey),
@@ -167,6 +204,8 @@ class SettingsStore {
     await _write(_qualityMeteredKey, settings.qualityMetered?.name);
     await _writeInt(_audioCacheMaxKey, settings.audioCacheMaxBytes);
     await _writeInt(_artworkCacheMaxKey, settings.artworkCacheMaxBytes);
+    await _prefs.setBool(_catalogEnabledKey, settings.catalogEnabled);
+    await _write(_qbitUrlKey, settings.qbitUrl);
   }
 
   Future<void> _write(String key, String? value) async =>
@@ -244,6 +283,30 @@ class SettingsController extends Notifier<AppSettings> {
 
   void setArtworkCacheMaxBytes(int? bytes) =>
       _apply(state.copyWith(artworkCacheMaxBytes: bytes));
+
+  /// Turns the catalog tier of search and the missing-albums list on or off
+  /// together. See [AppSettings.catalogEnabled] for why they share a switch.
+  void setCatalogEnabled(bool enabled) =>
+      _apply(state.copyWith(catalogEnabled: enabled));
+
+  /// Sets the qBittorrent address, or clears it with null.
+  ///
+  /// Trailing slashes are removed here rather than at the call site: they make
+  /// every request path double-slashed, which breaks qBittorrent's CSRF check
+  /// specifically — the `Referer` stops matching — and produces a 403 that
+  /// reads as a wrong password.
+  void setQbitUrl(String? url) {
+    final trimmed = url?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      _apply(state.copyWith(qbitUrl: null));
+      return;
+    }
+    var cleaned = trimmed;
+    while (cleaned.endsWith('/')) {
+      cleaned = cleaned.substring(0, cleaned.length - 1);
+    }
+    _apply(state.copyWith(qbitUrl: cleaned));
+  }
 
   void _apply(AppSettings next) {
     if (next == state) return;

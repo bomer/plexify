@@ -102,6 +102,12 @@ class LibraryWriter {
     addedAt: Value(a.addedAt),
     lastViewedAt: Value(a.lastViewedAt),
     userRating: Value(a.userRating),
+    // Populated where Plex has one, which is a minority of rows. Not worth a
+    // cursor rewind to backfill: a null here degrades to matching on normalised
+    // artist and title, which is the path most albums take regardless, so the
+    // column improves accuracy where it is present rather than being required
+    // for the feature to work.
+    mbid: Value(a.mbid),
   );
 
   /// Stores tracks.

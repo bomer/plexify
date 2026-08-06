@@ -4,7 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/playback_source.dart';
+import '../../core/catalog/catalog_models.dart';
 import '../../core/providers.dart';
+import '../acquire/catalog_artwork.dart';
+import '../acquire/download_sheet.dart';
 import '../../shell/layout.dart';
 import '../library/library_screen.dart' show openAlbum;
 import '../library/artist_detail_screen.dart';
@@ -61,6 +64,7 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
   Widget build(BuildContext context) {
     final query = ref.watch(searchQueryProvider);
     final results = ref.watch(searchResultsProvider(query));
+    final catalogOn = ref.watch(catalogEnabledProvider);
 
     return Scaffold(
       appBar: AppBar(
@@ -88,31 +92,112 @@ class _SearchScreenState extends ConsumerState<SearchScreen> {
           // milliseconds, so flashing a loader between keystrokes reads as
           // slower than doing nothing; the previous results stay put until
           // the new ones arrive.
-          loading: () => const SizedBox.shrink(),
+          //
+          // The catalog tier is rendered even while the local half is still
+          // loading, so the slower one is never blocked by the faster one
+          // finishing first.
+          loading: () => catalogOn
+              ? ListView(children: [_CatalogTier(query: query)])
+              : const SizedBox.shrink(),
           error: (_, _) => const _Message(
             icon: Icons.error_outline,
             title: 'Search failed',
             detail: 'Your library is still browsable from the Library tab.',
           ),
-          data: (data) => data.isEmpty
+          data: (data) => data.isEmpty && !catalogOn
               ? _Message(
                   icon: Icons.search_off,
                   title: 'Nothing for "$query"',
                   detail:
-                      'Albums you do not own yet arrive in a later pass '
-                      '(#29).',
+                      'Only your library is searched. Turn on "Albums you do '
+                      'not own" in Settings to search MusicBrainz too.',
                 )
-              : _Results(results: data),
+              : _Results(results: data, query: query),
         ),
       },
     );
   }
 }
 
+/// Records matching the query that the library does not hold.
+///
+/// **A separate widget watching a separate provider, deliberately.** The two
+/// tiers answer at completely different speeds — the library from SQLite in
+/// milliseconds, this from a rate-limited third party a second or two later —
+/// and merging them into one result would make the fast half wait for the slow
+/// half. Local results are on screen and usable before this has been asked, and
+/// MusicBrainz being slow, rate-limited or down can only ever mean this section
+/// does not appear.
+class _CatalogTier extends ConsumerWidget {
+  const _CatalogTier({required this.query});
+
+  final String query;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    if (!ref.watch(catalogEnabledProvider)) return const SizedBox.shrink();
+
+    final releases = ref.watch(catalogSearchProvider(query)).valueOrNull;
+    if (releases == null || releases.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 24, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Not in your library', style: theme.textTheme.titleSmall),
+              Text(
+                'From MusicBrainz. Tap to look for a download.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
+        for (final release in releases)
+          ListTile(
+            leading: ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: SizedBox(
+                width: 44,
+                height: 44,
+                child: Opacity(
+                  opacity: 0.55,
+                  child: CatalogArtwork(mbid: release.mbid, size: 250),
+                ),
+              ),
+            ),
+            title: Text(release.title, maxLines: 1),
+            subtitle: Text(
+              [
+                release.artist,
+                if (release.year != null) '${release.year}',
+                if (release.kind == ReleaseKind.ep) 'EP',
+              ].join(' · '),
+              maxLines: 1,
+            ),
+            trailing: IconButton(
+              tooltip: 'Look for a download',
+              icon: const Icon(Icons.download_outlined),
+              onPressed: () => acquire(context, ref, release),
+            ),
+            onTap: () => showAcquireSheet(context, ref, release),
+          ),
+      ],
+    );
+  }
+}
+
 class _Results extends ConsumerWidget {
-  const _Results({required this.results});
+  const _Results({required this.results, required this.query});
 
   final SearchResults results;
+  final String query;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -180,6 +265,7 @@ class _Results extends ConsumerWidget {
               ),
             ),
         ],
+        _CatalogTier(query: query),
         const SizedBox(height: 16),
       ],
     );

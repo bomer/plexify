@@ -26,6 +26,9 @@ enum AlbumSort { recentlyAdded, title, artist }
     PlaylistItems,
     SyncState,
     PlaybackHistory,
+    CatalogReleases,
+    CatalogQueries,
+    CatalogArtists,
   ],
 )
 class AppDatabase extends _$AppDatabase {
@@ -33,7 +36,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 8;
+  int get schemaVersion => 9;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -137,6 +140,21 @@ class AppDatabase extends _$AppDatabase {
       // is the same thing a fresh install does.
       if (from < 8) {
         await m.addColumn(syncState, syncState.lastDeltaSweepAt);
+      }
+
+      // v9 adds the catalog cache — records that exist, as opposed to records
+      // you own.
+      //
+      // Three new tables and nothing touched, so no cursor rewind and no
+      // resync: these are filled by MusicBrainz, not by Plex, and start empty
+      // on a fresh install and an upgrade alike. `Albums.mbid` has existed
+      // since v1 and is only now written; a row where it is still null falls
+      // back to normalised artist and title, which is the path most rows take
+      // anyway because Plex records an MBID for very few of them.
+      if (from < 9) {
+        await m.createTable(catalogReleases);
+        await m.createTable(catalogQueries);
+        await m.createTable(catalogArtists);
       }
     },
     beforeOpen: (details) async {
@@ -508,6 +526,72 @@ class AppDatabase extends _$AppDatabase {
     );
   }
 
+  /// Every album, reduced to the three fields catalog matching needs.
+  ///
+  /// A projection rather than `select(albums)` because this is rebuilt into a
+  /// set of keys on every album write, and during a first sync that is
+  /// thousands of times — reading twelve columns to use three would put the
+  /// whole row through the isolate boundary for nothing.
+  ///
+  /// A stream rather than a future so "albums I am missing" corrects itself the
+  /// moment a download lands and syncs, which is the one time anybody is
+  /// watching that list closely.
+  Stream<List<AlbumIdentity>> watchAlbumIdentities() {
+    final query = selectOnly(albums)
+      ..addColumns([albums.mbid, albums.artistTitle, albums.title]);
+    return query.watch().map(
+      (rows) => [
+        for (final row in rows)
+          AlbumIdentity(
+            mbid: row.read(albums.mbid),
+            artist: row.read(albums.artistTitle) ?? '',
+            title: row.read(albums.title) ?? '',
+          ),
+      ],
+    );
+  }
+
+  /// The same, for one artist. Used by the artist page, which only ever
+  /// compares a discography against that artist's own albums.
+  Future<List<AlbumIdentity>> albumIdentitiesForArtist(
+    String artistRatingKey,
+  ) async {
+    final query = selectOnly(albums)
+      ..addColumns([albums.mbid, albums.artistTitle, albums.title])
+      ..where(albums.artistRatingKey.equals(artistRatingKey));
+    final rows = await query.get();
+    return [
+      for (final row in rows)
+        AlbumIdentity(
+          mbid: row.read(albums.mbid),
+          artist: row.read(albums.artistTitle) ?? '',
+          title: row.read(albums.title) ?? '',
+        ),
+    ];
+  }
+
+  Future<int> countCatalogReleases() async {
+    final count = catalogReleases.mbid.count();
+    final row = await (selectOnly(
+      catalogReleases,
+    )..addColumns([count])).getSingle();
+    return row.read(count) ?? 0;
+  }
+
+  /// Drops everything MusicBrainz told us.
+  ///
+  /// Not called by sign-out — MBIDs are global and mean the same thing on any
+  /// server, so unlike the library cache there is nothing here that could
+  /// collide. It exists for the settings screen, so a discography that resolved
+  /// to the wrong artist can be thrown away and asked again.
+  Future<void> clearCatalog() async {
+    await transaction(() async {
+      await delete(catalogQueries).go();
+      await delete(catalogReleases).go();
+      await delete(catalogArtists).go();
+    });
+  }
+
   Future<int> countArtists() async {
     final count = artists.ratingKey.count();
     final row = await (selectOnly(artists)..addColumns([count])).getSingle();
@@ -557,6 +641,23 @@ class AppDatabase extends _$AppDatabase {
       await delete(syncState).go();
     });
   }
+}
+
+/// An album stripped to what deciding "do I already own this?" needs.
+///
+/// A named type rather than a record, because it crosses from the database into
+/// the catalog matcher and back through a provider — and three unlabelled
+/// strings in a row is exactly the shape that gets silently transposed.
+class AlbumIdentity {
+  const AlbumIdentity({
+    required this.mbid,
+    required this.artist,
+    required this.title,
+  });
+
+  final String? mbid;
+  final String artist;
+  final String title;
 }
 
 /// What the cache had for a query.

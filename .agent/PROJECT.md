@@ -141,6 +141,24 @@ not that anything is reachable through it. The failure count is trustworthy but 
 on a desktop whose transport never changes it is the only signal there is. Neither is
 sufficient alone.
 
+A fourth thing now *triggers* that machinery without being part of it. `DownloadMonitor`
+watches qBittorrent's Music category and, when a torrent finishes, calls exactly what the
+refresh button calls — `refreshSection` then `refreshNow`. That is invariant 10 honoured
+rather than bent: a download is one more trigger, not a fifth path into the cache. It polls
+adaptively, every 5s with something in flight and every 60s otherwise, and it is null unless
+qBittorrent is configured *and* the catalog switch is on, so a phone with the feature off never
+makes a request.
+
+Two mistakes are easy in it and neither is visible on screen: announcing everything already
+complete on the first poll asks Plex to rescan the whole library on every cold start, and
+announcing a finished torrent on every subsequent poll does the same continuously, because
+qBittorrent keeps seeding it and it never leaves the list. Both are guarded by tests.
+
+Its counters live on the **Downloads** screen rather than on Sync status. That screen *is* the
+instrument for this mechanism — the live list, the completion count and the last error, in the
+place someone already goes to ask "where is that album?" — so a duplicate row on Sync status
+would be a second thing to keep in step rather than a second thing to read.
+
 ### Start here when something "didn't show up"
 
 The **Sync status** screen (Settings → Sync, `lib/features/settings/`) reports socket
@@ -301,8 +319,10 @@ routinely not the place at fault:
 | "The launch sync takes five seconds" | Not the sync code. Plex had been ignoring the delta filter since #18, so every launch refetched 13,704 rows while looking healthy |
 | "A favourite doesn't reach the desktop" | Not the write path. Rating moves no `updatedAt`, so the sweep that exists to catch ratings could not see one |
 | "Nothing plays after wifi to 5G" | Not the audio cache, which was the guess. A sticky re-resolve counted as a success and wiped the failure streak, and the cache's own HTTP client was invisible to everything |
+| "The catalog finds nothing at all" | Check the user agent before the query. MusicBrainz answers **503** both for a generic agent and for exceeding one request a second, and an empty tier looks the same either way |
+| "qBittorrent says 403 but works in a browser" | Almost never the password. Either `Referer` does not match `Host` down to the port, or the address is banned for repeated failed logins — and retrying, the obvious response, is what extends the ban |
 
-In six of those seven, a competent-looking fix to the named component was within reach and
+In six of the first seven, a competent-looking fix to the named component was within reach and
 would have been wrong. What works instead:
 
 - **Read the counters first.** That is what the Sync status screen is for, and it settled the
@@ -356,6 +376,14 @@ plus the saved playback session. Every one is keyed on data that belongs to a pa
 server, so leaving any behind means one library's ratingKeys pointed at another's. The list
 lives in `AccountController._leave` and is the place to add the fourth.
 
+**The catalog cache is the deliberate exception, and the reason is the key.** `CatalogReleases`,
+`CatalogQueries` and `CatalogArtists` survive a sign-out and a change of server, because
+MusicBrainz ids are *global*: they mean the same record on any server and to any other tool,
+so there is nothing to collide. Wiping them would cost a fresh round of rate-limited lookups
+for discographies that have not changed. `clearLibrary()` does not touch them; Settings has an
+explicit "Forget catalog lookups" for the one case that needs it, an artist matched to the
+wrong person.
+
 **`lastViewedAt` belongs to Plex. Do not build client behaviour on it.** "Jump back in" did,
 and failed twice over: the column is rewritten by every sync, so an album Plex had stamped
 server-side kept reappearing however carefully the local write was suppressed; and it was
@@ -378,6 +406,41 @@ artwork. mpv is failing to create its own file-backed stream cache and falling b
 in-memory demuxer buffer, which `audio_init.dart` sets to 8 MB. Harmless, and worth
 recording because it reads like a Plexify cache error and is the sort of thing that gets
 chased twice.
+
+**MusicBrainz rejects a generic user agent with a 503, the same code it uses for rate
+limiting.** Two rules, one status, and neither says which it meant. `MusicBrainzClient` names
+the app and a contact URL in `userAgent`, and paces every request through one serialised chain
+at 1.1s — the extra hundred milliseconds buy a limit that is never argued about for a delay
+nobody perceives, since the local half of search has already rendered. A test asserts both,
+because the symptom of getting either wrong is an empty section that looks like "nothing
+matched".
+
+**qBittorrent answers 403 for three unrelated things, and the obvious fix for two of them
+makes the third worse.** A failed CSRF check, an expired session, and an IP banned for
+repeated failed logins. `Referer` and `Origin` must equal `Host` including the port — a
+trailing slash on the configured address double-slashes every path and breaks it, which is why
+`SettingsController.setQbitUrl` trims. And a 403 *during login* latches `QbitClient.lockedOut`
+rather than retrying: the client cannot tell a ban from a wrong password, and guessing again
+is the one action that makes either worse, on a server James runs himself.
+
+**A rejected qBittorrent password is a 200 whose body is `Fails.`** Not a 401. Reading the
+status alone treats it as a successful sign-in, and every request afterwards then 403s for
+what looks like a completely different reason.
+
+**A qBittorrent search that is not deleted is leaked.** The server keeps finished searches
+until they are removed and caps how many may exist, so leaking them means searching stops
+working after a few dozen attempts with an error naming nothing relevant. `QbitClient.search`
+stops and deletes in a `finally`.
+
+**Filenames are not normalised text, and `normalise` is the wrong tool for them.** It drops
+punctuation entirely, which is right for typed queries — "dont look back" finds "Don't Look
+Back" — and wrong here, because punctuation *is* the word separator: `OK_Computer` folds to
+`okcomputer` and stops containing either word. `torrentTokens` splits on non-alphanumerics
+instead. Two different normalisers on purpose.
+
+**Drift singularises table names, and two of the catalog ones collided with the domain
+models.** `CatalogReleases` would have generated `CatalogRelease`, which is the model in
+`catalog_models.dart`. All three catalog tables carry an explicit `@DataClassName('…Row')`.
 
 Do not rediscover these.
 
@@ -674,6 +737,12 @@ cellular, which is the expensive direction to be wrong in.
   playback. Building successfully proves nothing here.
 - **Run Plex's sonic analysis** (Settings → Library → Analyze). Takes hours to days and gates
   sonic radio.
+- **Enter the qBittorrent username and password.** Credentials are never typed by an agent;
+  the screen exists so James enters his own into his own keystore.
+- **Install and enable a qBittorrent search plugin.** Without one the search endpoints answer
+  200 and return nothing, which is indistinguishable from "nobody is seeding this album" for
+  every album ever asked for. `hasSearchPlugins` exists to tell those apart, and Save and test
+  reports it.
 - **Install software or change system settings.**
 - **Anything needing the real Plex library.** Tests run against fixtures, so behaviour that
   depends on what the server actually returns, whether a filter is honoured, what a

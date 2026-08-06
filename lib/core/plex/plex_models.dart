@@ -210,10 +210,19 @@ class PlexAlbum {
     this.updatedAt,
     this.lastViewedAt,
     this.userRating,
+    this.mbid,
   });
 
   final String ratingKey;
   final String title;
+
+  /// MusicBrainz release-group id, when Plex happens to know one.
+  ///
+  /// Usually it does not. Whether this is populated depends entirely on which
+  /// agent scanned the library and what the file tags carried, so catalog
+  /// matching treats it as the good path rather than the expected one and falls
+  /// back to comparing normalised artist and title. See [OwnedIndex].
+  final String? mbid;
 
   /// 0–10, or null when unrated. See [PlexRating].
   final int? userRating;
@@ -251,7 +260,35 @@ class PlexAlbum {
       updatedAt: _int(json['updatedAt']),
       lastViewedAt: _int(json['lastViewedAt']),
       userRating: _int(json['userRating']),
+      mbid: _mbid(json),
     );
+  }
+
+  /// Digs a MusicBrainz id out of whichever shape this server uses.
+  ///
+  /// Three of them exist in the wild and which one appears depends on the
+  /// agent. The modern music agent puts a `Guid` array on the item, one entry
+  /// per external source, of which `mbid://` is one among Discogs and others.
+  /// The legacy agent puts a single `guid` string on the item instead. And most
+  /// libraries have neither, which is not an error — it is the common case, and
+  /// why matching never depends on this.
+  static String? _mbid(Map<String, dynamic> json) {
+    final list = json['Guid'];
+    if (list is List) {
+      for (final entry in list) {
+        if (entry is! Map) continue;
+        final id = _str(entry['id']);
+        if (id != null && id.startsWith('mbid://')) {
+          return id.substring('mbid://'.length);
+        }
+      }
+    }
+
+    final guid = _str(json['guid']);
+    if (guid != null && guid.startsWith('mbid://')) {
+      return guid.substring('mbid://'.length);
+    }
+    return null;
   }
 }
 

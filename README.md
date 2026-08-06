@@ -96,7 +96,7 @@ lib/
   core/
     plex/       Plex auth, server discovery, API client, models
     catalog/    MusicBrainz, albums you DON'T own, for search + acquisition
-    qbit/       qBittorrent WebUI API client
+    qbit/       qBittorrent WebUI API client, ranking, download monitor
     db/         drift schema: cached library, play history  [codegen]
     audio/      playback handler, queue, cache policy, quality policy
     source/     SourceProvider interface, the seam for future sources
@@ -161,6 +161,44 @@ The audio cache is **mobile only**. `LockCachingAudioSource` renames its part-fi
 completion while still holding it open, which POSIX allows and Windows does not, and the
 failure took the audio source down with it.
 
+## Albums you don't own
+
+Off by default, and one switch turns on both halves: a **Not in your library** tier under
+search, and a **missing albums** grid on every artist page. Settings are per device, which is
+exactly the granularity wanted — on a phone this is noise, and on the desktop, where
+downloads actually happen, it is the point.
+
+The catalog is **MusicBrainz**: free, no API key, and the same ids Lidarr, Picard and beets
+use. Two of its rules are enforced with the same status code and neither is guessable —
+roughly one request per second, and a `User-Agent` naming the application and a contact. It
+answers **503** for either, which reads as the service being down. Answers are cached in
+drift for a week and are *not* cleared on sign-out: MBIDs are global, unlike Plex's
+server-scoped `ratingKey`s.
+
+**De-duplication is the part that fails quietly.** An album you own appearing in the list of
+albums you don't is noise you can see; a record you're missing silently never appearing is
+not. Matching prefers the MBID where Plex recorded one — it usually hasn't, since that
+depends on the agent and the file tags — and otherwise compares normalised artist and title
+with *edition* qualifiers removed. `Nevermind (Deluxe Edition)` is the same record as
+`Nevermind`; `Greatest Hits (Volume 1)` is not the same record as `(Volume 2)`, so only
+recognised edition words are stripped and never every bracket.
+
+Acquisition hands off to **qBittorrent**, adding with `category=Music` so existing automation
+routes it to the folder Plex watches. Nothing is renamed, retagged or post-processed. When a
+download finishes, Plex is asked to rescan and the library syncs on its own — that is a new
+*trigger* on the existing refresh path, not a fourth sync mechanism.
+
+**The one-click button never queues on seeder count alone.** Torrent search matches
+filenames, so the most popular hit for an album is routinely a different record that shares a
+word. A result is only added unasked when its filename actually names this artist and this
+album; otherwise the ranked list opens instead. One tap in the common case, never one tap
+away from the wrong album.
+
+Two qBittorrent traps are handled up front, and both answer 403 against a WebUI that works
+perfectly in a browser: `Referer`/`Origin` must match `Host` exactly *including the port*,
+and 403 **also** means "this address is banned for repeated failed logins" — so the client
+makes one attempt and then stops rather than making a ban worse.
+
 ## Platform notes
 
 **Android:** `audio_service` runs playback in a foreground service for background playback
@@ -174,3 +212,7 @@ provides one and must be initialised at startup before any player is constructed
 
 Playlist editing (read-only), YouTube playback, explicit offline downloads, cross-device
 handoff, Last.fm, iOS, multi-user, Cast.
+
+Torrent *management* too. The Downloads screen is read-only: pausing, reprioritising and
+deleting all exist perfectly well in qBittorrent's own interface, and a second copy here
+would be one more thing to keep in step.
