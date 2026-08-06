@@ -135,20 +135,31 @@ Sync has three tiers:
 2. **Cheap change detection.** `/library/sections` returns `updatedAt`/`scannedAt` per
    section in one tiny response. Polled every ~30s foreground and on resume/reconnect, to
    catch anything the websocket missed while backgrounded.
-3. **Delta sync.** Fetch only `updatedAt >= lastSync`, paginated. Never a full re-sync.
+3. **Delta sync.** Fetch only `updatedAt > lastSync`, paginated. Never a full re-sync.
 
 Deletions don't appear in an `updatedAt` delta, so a periodic ratingKey-set reconcile
 handles those separately.
 
+**The delta filter is only used where it can work.** Plex moves a row's `updatedAt` when
+music is added and leaves it alone when a rating changes, so a clock-triggered pass filters
+and the slower sweep does not. Getting that wrong makes ratings set elsewhere unreachable
+while still costing the requests.
+
 **2. Cache entries are keyed by `(trackId, qualityDecision)`, never `trackId` alone.**
 
-Quality adapts to the network: direct-play the original on LAN, 320k AAC on cellular. If the
-cache key ignored quality, a lossy copy cached on cellular would be served forever once
-you're back on LAN, silently defeating the point of adaptive quality.
+Quality adapts to the network: direct-play the original at home, ask Plex to transcode over
+mobile data. If the cache key ignored quality, a transcoded copy made on the train would be
+served forever once you're back on the LAN, silently defeating the point of deciding.
 
-Note that `LockCachingAudioSource` caches progressive HTTP only, **not HLS**. Plex's
-transcode endpoint offers both; we must use the progressive form or transcoded audio can't
-be cached at all.
+**There is no bitrate in that decision, and that is a measured finding.** Plex's music
+transcoder was asked for 128kbps three documented ways and returned the natural rate each
+time, so the only lever that exists is whether transcoding happens at all. Against a FLAC
+that is still a large saving; against an mp3 already smaller than the transcoder's own
+output it costs more data for worse audio, which is why the policy has a floor.
+
+The audio cache is **mobile only**. `LockCachingAudioSource` renames its part-file on
+completion while still holding it open, which POSIX allows and Windows does not, and the
+failure took the audio source down with it.
 
 ## Platform notes
 

@@ -38,10 +38,10 @@ Plexamp side by side while moving over.
 |---|---|---|
 | 1 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 
-Eight finished tasks still want live confirmation that no test can give, listed under
+Seven finished tasks still want live confirmation that no test can give, listed under
 [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation). #23's
-is the one that matters most, and #43b now depends on it too: a transcode has never been
-*heard* playing on either platform, only requested.
+is the one that matters most, and #43b depends on it too: a transcode has never been *heard*
+playing on either platform, only requested.
 
 ---
 
@@ -123,9 +123,10 @@ the delta cursor so ratings set before Plexify existed actually come through, fo
 reason v3 did. Expect one longer sync after upgrading.
 
 **Existing Plex ratings arrive on the next launch, once.** The v2 `userRating` columns start
-empty, and a delta sync cannot fill them, Plex's `updatedAt` for a track rated months ago
-has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
-a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
+empty and a delta sync cannot fill them: rating something moves no `updatedAt` at all, which
+#52 later confirmed is true of every rating rather than only old ones. Schema v3 rewinds the
+delta cursor so the next run does one full pass. Expect a longer-than-usual sync exactly once
+after upgrading, then ratings appear on their own.
 
 **A rating does not move `updatedAt`.** Adding music does. So the delta filter is used only
 when the section clocks were what triggered the pass; the 15-minute sweep and any forced
@@ -151,9 +152,10 @@ which would under-count, never over-count. The safer direction of the two.
 
 **Ratings set in Plex are not pushed, only polled.** Plex emits a timeline entry when it
 finishes _scanning_ an item, which is why a new album appears instantly, but rating one is a
-metadata edit that produces no such entry. The five-minute sweep catches it; the refresh
-button catches it now. Accepted rather than fixed, the alternative is watching another
-notification type, and James has asked that the sync logic not grow more paths.
+metadata edit that produces no such entry, and it moves no timestamp either. The 15-minute
+unfiltered sweep catches it; the refresh button catches it now. Accepted rather than fixed:
+the alternative is watching another notification type, and James has asked that the sync
+logic not grow more paths.
 
 ---
 
@@ -174,11 +176,6 @@ notification type, and James has asked that the sync logic not grow more paths.
   Prefer making the existing ones observable over adding a fourth.
 - **Artists file under their first non-article word**, so The Beatles sits under B, matching
   Plex's own `titleSort`. Reverse it and the app disagrees with the server it browses.
-- **The playing track is not rescued when the connection re-resolves.** `just_audio` holds
-  URL strings and re-resolving does not rewrite them, so the track in flight fails and the
-  next one uses the new address. Rebuilding the queue at the current position would save it
-  at the cost of a stutter mid-song. Left as is deliberately, revisit only if it grates in
-  practice.
 - **The connection never resolves to null once it has worked.** Only signing out clears it.
   A failed re-resolve keeps the stale address, because no server means no client, no client
   means no requests, and no requests means nothing can ever observe the failure that would

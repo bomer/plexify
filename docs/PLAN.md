@@ -14,6 +14,23 @@ qBittorrent to fetch it.
 Target: cold start to audible playback under 2 seconds, no perceptible frame drops while
 browsing, and browsing that never feels network-bound.
 
+## What measurement later disproved
+
+This document is the plan as written before any of it was built, kept as a record of the
+reasoning. Four of its assumptions turned out to be wrong, and the corrections live in
+[.agent/PROJECT.md](../.agent/PROJECT.md) rather than here:
+
+- **There is no bitrate control.** Plex's music transcoder ignores `musicBitrate`,
+  `maxAudioBitrate` and a client-profile limitation alike, returning its natural rate every
+  time. So quality is one binary decision, direct play or transcode, and every mention of
+  320k or 128k below is fiction.
+- **`updatedAt>=` is ignored; `updatedAt>` is applied.** The filter this plan assumes did
+  nothing at all for the project's first six weeks.
+- **Rating something moves no `updatedAt`.** Adding music does. The delta filter is therefore
+  usable only on the clock-triggered pass, never on the sweep.
+- **The audio cache is mobile only.** `LockCachingAudioSource` cannot rename its part-file on
+  Windows, and failing there is worse than not caching.
+
 ## Decisions (all confirmed)
 
 | Area | Decision |

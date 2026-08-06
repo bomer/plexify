@@ -298,8 +298,11 @@ routinely not the place at fault:
 | "Playback stops when I go outside" | Not the audio layer. The server address resolved at startup had gone stale |
 | "I can't scrub a track" | Not the seek bar, which worked. The mini player was being used, and deliberately has no scrub control |
 | "Plays aren't reaching Plex" | Not the wiring, which was fine. A missing `X-Plex-Session-Identifier` header |
+| "The launch sync takes five seconds" | Not the sync code. Plex had been ignoring the delta filter since #18, so every launch refetched 13,704 rows while looking healthy |
+| "A favourite doesn't reach the desktop" | Not the write path. Rating moves no `updatedAt`, so the sweep that exists to catch ratings could not see one |
+| "Nothing plays after wifi to 5G" | Not the audio cache, which was the guess. A sticky re-resolve counted as a success and wiped the failure streak, and the cache's own HTTP client was invisible to everything |
 
-In three of those four, a competent-looking fix to the named component was within reach and
+In six of those seven, a competent-looking fix to the named component was within reach and
 would have been wrong. What works instead:
 
 - **Read the counters first.** That is what the Sync status screen is for, and it settled the
@@ -308,6 +311,14 @@ would have been wrong. What works instead:
   it snap back?" separates a disabled control from a latency problem, and they share no code.
 - **Prefer a question over a plausible fix.** Shipping the wrong fix costs more than asking,
   because it also removes the evidence.
+- **Build the instrument.** Three of the entries above were settled in one reading by
+  something built for the purpose: the Sync status counters, and the Delta filter probe. All
+  three had been guessed at wrongly first.
+- **Then make the instrument answer twice.** The probe's first version asked only "does this
+  filter narrow the result?", and `updatedAt>` answered zero, which reads as a perfect filter
+  and is equally consistent with one that matches nothing. Adopting it would have frozen the
+  library silently. A measurement with one plausible failure mode is not a measurement; ask
+  the question whose wrong answer looks different.
 
 ---
 
@@ -670,10 +681,21 @@ cellular, which is the expensive direction to be wrong in.
 
 ### Verified against the real server
 
+All confirmed against James's server, on the dates given. Anything not listed here is still
+under [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation).
+
 - Push sync delivers a newly added album **instantly**.
 - Ratings set in Plex arrive by poll, not push, and need the refresh button to appear at once.
-- **Artist ratings sync both ways** (#49), confirmed 6 August after the v7 cursor rewind.
-- **The playback and storage settings persist and take effect** (#43b), confirmed 6 August.
+- **Artist ratings sync both ways** (#49), 6 Aug, after the v7 cursor rewind.
+- **The playback and storage settings persist and take effect** (#43b), 6 Aug.
+- **`updatedAt>` is applied and `updatedAt>=` is ignored** (#51), 6 Aug, by the Delta filter
+  probe. Both measured twice, narrowing and widening.
+- **Adding music moves `updatedAt`; rating something does not** (#52), 6 Aug, same probe.
+  This is the fact the whole sync design now rests on.
+- **A rating set on the phone reaches the desktop** within the sweep interval (#51/#52),
+  6 Aug. It did not, for about an hour, which is what #52 fixed.
+- **A wifi to cellular handover recovers on its own**, without restarting the app (#41/#53),
+  6 Aug.
 
 ### Verified without the user, where it looked impossible
 

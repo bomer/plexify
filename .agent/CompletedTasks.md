@@ -736,10 +736,10 @@ edit to v6, because v6 has already run on installs that took the previous build.
 
 ## Still wanting live confirmation
 
-Done in code, and neither can be confirmed from a test:
+Done in code, and none of it confirmable from a test. Entries leave this list only when they
+have actually been watched working; see [PROJECT.md](PROJECT.md#verified-against-the-real-server)
+for what has.
 
-- **#41**, walk out of the house mid-track, then read "Route" and "Reconnects" on the Sync
-  status screen. There is a Reconnect button there that exercises the same path indoors.
 - **#25**, play a track to the end, then check Plex web → Status → Now Playing shows
   Plexify while it runs, and that the play count moved afterwards. "Plays recorded" on the
   Sync status screen says what the app thinks it sent.
@@ -761,14 +761,8 @@ Done in code, and neither can be confirmed from a test:
   debug-signed one uninstalled first**, which wipes the library cache and the token; Android
   refuses an upgrade across a signature change, and the error names neither cause nor cure.
 - **#43b**, that forcing a transcode on mobile data actually reaches the server. Plex web
-  Status is the place to read it. Confirmed working as a *setting* on 6 August, but the same
-  gap as #23 remains: requested is not the same as heard.
-- **#50**, that a relaunch inside five minutes now costs one request. Read "Rows in last
-  sync" straight after reopening: it should still show the previous pass's number rather than
-  13,704 again.
-- **#53**, the handover itself. Play something on wifi, walk out, and confirm it recovers
-  rather than needing a restart. "Reconnects" on the Sync status screen counts the attempts.
-- **#51/#52**, that a favourite set on one device now reaches the other within fifteen
-  minutes, or immediately on pressing refresh. Also that "Rows in last sync" reports a
-  handful after music is added, and the whole library after a sweep, which is now the
-  correct pair of readings rather than a symptom.
+  Status is the place to read it. The settings themselves were confirmed working on 6 August;
+  the same gap as #23 remains, in that requested is not the same as heard.
+- **#19**, not built yet, but noted here because it is the one task whose *test* matters more
+  than its behaviour: a reconcile that treats a partial fetch as authoritative deletes a chunk
+  of the library, and the first symptom is albums vanishing.
