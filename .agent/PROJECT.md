@@ -604,6 +604,8 @@ cellular, which is the expensive direction to be wrong in.
 
 - Push sync delivers a newly added album **instantly**.
 - Ratings set in Plex arrive by poll, not push, and need the refresh button to appear at once.
+- **Artist ratings sync both ways** (#49), confirmed 6 August after the v7 cursor rewind.
+- **The playback and storage settings persist and take effect** (#43b), confirmed 6 August.
 
 ### Verified without the user, where it looked impossible
 

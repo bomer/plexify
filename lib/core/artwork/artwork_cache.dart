@@ -80,8 +80,45 @@ class ArtworkCache {
       ? 64 * 1024 * 1024
       : 256 * 1024 * 1024;
 
-  final int maxBytes;
+  /// Mutable, because it is a setting. See [applyBudget].
+  int maxBytes;
   final http.Client _http;
+
+  /// Changes the budget and enforces it now.
+  ///
+  /// Mutating the live instance rather than rebuilding the provider with a new
+  /// one, because the index that makes eviction possible lives in memory: a
+  /// fresh cache would have to rescan the directory, and would do it while the
+  /// old instance's in-flight fetches were still writing into the same folder.
+  ///
+  /// Enforced immediately rather than at the next write, because someone who
+  /// has just chosen a smaller budget is asking for the space back, not
+  /// expressing a preference about the future.
+  Future<void> applyBudget(int? bytes) async {
+    final next = bytes ?? defaultMaxBytes;
+    if (next == maxBytes) return;
+    maxBytes = next;
+    // Scanned first, or the eviction below measures an index that has never
+    // been filled, concludes it is under budget, and deletes nothing. The
+    // settings screen is reachable from a cold start with no image ever
+    // loaded, which is exactly that case.
+    await ensureReady();
+    await _evict();
+  }
+
+  /// Opens the directory and rebuilds the index, if that has not happened yet.
+  ///
+  /// Normally the first image load does this. Exposed because the storage
+  /// settings report what is held, and asking before anything has been
+  /// displayed would otherwise report an empty cache that is not empty.
+  Future<void> ensureReady() async {
+    try {
+      await _open();
+    } on Object {
+      // Already recorded in lastError by _scan. A cache that cannot open holds
+      // nothing, which is what the caller will read.
+    }
+  }
 
   /// Where to put files, for tests. Null means ask the platform.
   ///

@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/artwork/artwork_cache.dart';
+import '../../core/audio/audio_cache.dart';
+import '../../core/audio/quality_policy.dart';
 import '../../core/plex/plex_identity.dart';
 import '../../core/providers.dart';
 import '../../core/settings/app_settings.dart';
@@ -10,14 +13,11 @@ import 'sync_status_screen.dart';
 
 /// The Settings destination.
 ///
-/// A shell, deliberately. Most of what will eventually live here — quality
-/// policy, cache sizes, data saver — belongs to tasks that have not happened
-/// yet, and a screen full of controls that change nothing is worse than a short
-/// one: it looks finished, so nobody notices the wiring is missing.
-///
-/// So this ships only what something already reads today, and gives the
-/// features that follow somewhere obvious to land. Sections appear as their
-/// contents do.
+/// The rule this screen was built under, and still keeps: **nothing here is
+/// shown unless something already reads it.** A screen full of controls that
+/// change nothing is worse than a short one, because it looks finished and
+/// nobody notices the wiring is missing. Sections appeared as their contents
+/// did, which is why Playback and Storage arrived two tasks after the rest.
 class SettingsScreen extends ConsumerWidget {
   const SettingsScreen({super.key});
 
@@ -29,10 +29,269 @@ class SettingsScreen extends ConsumerWidget {
         padding: const EdgeInsets.only(bottom: 24),
         children: const [
           _AccountSection(),
+          _PlaybackSection(),
+          _StorageSection(),
           _AppearanceSection(),
           _SyncSection(),
           _AboutSection(),
         ],
+      ),
+    );
+  }
+}
+
+/// Streaming quality, per kind of connection.
+///
+/// **There is no bitrate here, and that is a finding rather than an omission.**
+/// #8 asked Plex's music transcoder for 128kbps three different documented
+/// ways and got the natural rate back byte for byte each time. So the only
+/// lever that exists is whether transcoding happens at all, which makes this
+/// two choices rather than a quality ladder.
+///
+/// It also makes a separate "data saver" toggle pointless: forcing a transcode
+/// on mobile data *is* data saver, and a second control that set the same field
+/// under a friendlier name would be a second thing to keep in step for no gain.
+class _PlaybackSection extends ConsumerWidget {
+  const _PlaybackSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final controller = ref.read(settingsProvider.notifier);
+
+    return _Section(
+      title: 'Playback',
+      children: [
+        _QualityTile(
+          label: 'On wifi and ethernet',
+          value: settings.qualityUnmetered,
+          onChanged: controller.setQualityUnmetered,
+        ),
+        _QualityTile(
+          label: 'On mobile data',
+          value: settings.qualityMetered,
+          onChanged: controller.setQualityMetered,
+        ),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 4, 16, 4),
+          child: Text(
+            'Automatic streams the original file at home and on wifi, and asks '
+            'Plex to transcode over mobile data or a relay. It already skips '
+            'transcoding a file too small to be worth it.\n\n'
+            'A change applies to the next thing you play, not to what is '
+            'playing now.',
+            style: TextStyle(fontSize: 12),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One connection's quality choice.
+class _QualityTile extends StatelessWidget {
+  const _QualityTile({
+    required this.label,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String label;
+  final QualityDecision? value;
+  final ValueChanged<QualityDecision?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListTile(
+      title: Text(label),
+      trailing: DropdownButton<String>(
+        value: value?.name ?? _auto,
+        underline: const SizedBox.shrink(),
+        onChanged: (choice) => onChanged(
+          choice == _auto
+              ? null
+              : QualityDecision.values.firstWhere((d) => d.name == choice),
+        ),
+        items: const [
+          DropdownMenuItem(value: _auto, child: Text('Automatic')),
+          DropdownMenuItem(value: 'directPlay', child: Text('Original file')),
+          DropdownMenuItem(value: 'transcode', child: Text('Transcoded')),
+        ],
+      ),
+    );
+  }
+
+  /// Null is a real value here, and `DropdownButton` treats null as "nothing
+  /// selected" and shows a blank. Hence a sentinel string rather than a
+  /// `DropdownButton<QualityDecision?>`.
+  static const _auto = 'auto';
+}
+
+/// How much disk the two caches may take, and how to get it back.
+class _StorageSection extends ConsumerWidget {
+  const _StorageSection();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final settings = ref.watch(settingsProvider);
+    final controller = ref.read(settingsProvider.notifier);
+    final usage = ref.watch(cacheUsageProvider);
+
+    return _Section(
+      title: 'Storage',
+      children: [
+        if (AudioCache.supported) ...[
+          _BudgetTile(
+            label: 'Music',
+            value: settings.audioCacheMaxBytes,
+            options: const [512, 1024, 2048, 5120, 10240],
+            fallback: AudioCache.defaultMaxBytes,
+            onChanged: controller.setAudioCacheMaxBytes,
+          ),
+          _UsageLine(
+            usage: usage,
+            describe: (u) =>
+                '${u.audioFiles} ${u.audioFiles == 1 ? "track" : "tracks"}, '
+                '${_mb(u.audioBytes)} of ${_mb(u.audioBudget)}',
+          ),
+        ] else
+          const ListTile(
+            title: Text('Music'),
+            // Stated rather than hidden: an empty music cache on the desktop
+            // otherwise reads as a bug, and the reason is not guessable.
+            subtitle: Text(
+              'Not cached on this platform. Desktop listening is on the LAN '
+              'and streams the original, so a second copy on the same machine '
+              'buys nothing.',
+            ),
+          ),
+        _BudgetTile(
+          label: 'Artwork',
+          value: settings.artworkCacheMaxBytes,
+          options: const [64, 128, 256, 512],
+          fallback: ArtworkCache.defaultMaxBytes,
+          onChanged: controller.setArtworkCacheMaxBytes,
+        ),
+        _UsageLine(
+          usage: usage,
+          describe: (u) =>
+              '${u.artworkFiles} ${u.artworkFiles == 1 ? "image" : "images"}, '
+              '${_mb(u.artworkBytes)} of ${_mb(u.artworkBudget)}',
+        ),
+        ListTile(
+          leading: const Icon(Icons.delete_sweep_outlined),
+          title: const Text('Clear cached files'),
+          subtitle: const Text(
+            'Music and artwork only. Your library, ratings and sign-in are '
+            'untouched.',
+          ),
+          onTap: () => _clear(context, ref),
+        ),
+      ],
+    );
+  }
+
+  static Future<void> _clear(BuildContext context, WidgetRef ref) async {
+    // No confirmation dialog: everything this deletes is re-downloadable, and
+    // the button already says what it removes. Confirming a reversible action
+    // trains people to dismiss the dialogs that matter.
+    await ref.read(artworkCacheProvider).clear();
+    await ref.read(audioCacheProvider).clear();
+    ref.invalidate(cacheUsageProvider);
+    if (context.mounted) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Cached files cleared')));
+    }
+  }
+
+  static String _mb(int bytes) {
+    if (bytes >= 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
+    }
+    return '${(bytes / (1024 * 1024)).round()} MB';
+  }
+}
+
+/// A cache budget, chosen in megabytes.
+class _BudgetTile extends StatelessWidget {
+  const _BudgetTile({
+    required this.label,
+    required this.value,
+    required this.options,
+    required this.fallback,
+    required this.onChanged,
+  });
+
+  final String label;
+  final int? value;
+
+  /// Offered sizes, in megabytes.
+  final List<int> options;
+
+  /// What "Default" means on this platform. Shown so the default is a number
+  /// rather than a mystery, since it differs by an order of magnitude between
+  /// a phone and a desktop.
+  final int fallback;
+
+  final ValueChanged<int?> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    // A stored budget that is not one of the offered sizes (an older build's
+    // list, or a hand-edited preference) would make DropdownButton assert on a
+    // value with no item, so it is folded into the list rather than dropped.
+    final sizes = {
+      ...options,
+      if (value != null) value! ~/ (1024 * 1024),
+    }.toList()..sort();
+
+    return ListTile(
+      title: Text(label),
+      trailing: DropdownButton<int>(
+        value: value == null ? _default : value! ~/ (1024 * 1024),
+        underline: const SizedBox.shrink(),
+        onChanged: (mb) => onChanged(mb == _default ? null : mb! * 1024 * 1024),
+        items: [
+          DropdownMenuItem(
+            value: _default,
+            child: Text('Default (${_label(fallback ~/ (1024 * 1024))})'),
+          ),
+          for (final mb in sizes)
+            DropdownMenuItem(value: mb, child: Text(_label(mb))),
+        ],
+      ),
+    );
+  }
+
+  /// -1 rather than null, for the same reason [_QualityTile] uses a sentinel:
+  /// a null value makes `DropdownButton` render nothing at all.
+  static const _default = -1;
+
+  static String _label(int mb) => mb >= 1024
+      ? '${(mb / 1024).toStringAsFixed(mb % 1024 == 0 ? 0 : 1)} GB'
+      : '$mb MB';
+}
+
+/// The measured line under a budget, or a placeholder while it is measured.
+class _UsageLine extends StatelessWidget {
+  const _UsageLine({required this.usage, required this.describe});
+
+  final AsyncValue<CacheUsage> usage;
+  final String Function(CacheUsage) describe;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+      child: Text(
+        // Scanning a directory is quick but not instant, and an em-space keeps
+        // the row from collapsing and shifting everything below it.
+        usage.valueOrNull == null ? ' ' : describe(usage.value!),
+        style: theme.textTheme.bodySmall?.copyWith(
+          color: theme.colorScheme.onSurfaceVariant,
+        ),
       ),
     );
   }

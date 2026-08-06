@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **42 complete**
+**Last updated:** 6 August 2026 · **43 complete**
 
 ---
 
@@ -57,6 +57,7 @@ between the next reader and paying for it twice.
 | 48 | Desktop and mobile UI fixes | Mouse-scrollable shelves with a scrollbar, hover play on covers, "Reconnecting..." in the mini player; fixed its doubled height and the album header's star overflow |
 | 49 | Rate artists | Artist ratings are Plex's, on the same `/:/rate` endpoint. Reading was already wired; writing was not, so a rating would sync in and never out. Stars on the artist page, schema v7 rewinds the cursor so existing ones arrive |
 | 34 | Packaging and release | Real signing config that falls back to the debug key loudly, generated icons on both platforms, `tool/package.ps1` that refuses a debug-signed or oversized build. Version unified at 0.9.0 |
+| 43b | Settings: playback and storage | Quality override per connection, which *is* the data saver, there being no bitrate to lower. Both cache budgets, live usage, and one clear button. Budgets push into the running cache rather than rebuilding it |
 
 ---
 
@@ -443,6 +444,57 @@ Found by using it rather than by testing it, which is the point.
 
 ---
 
+### #43b - Settings: playback and storage *(done, 6 August 2026)*
+
+**The data-saver toggle was deliberately not built, and that is the finding.** #8 asked
+Plex's music transcoder for 128kbps three documented ways and got the natural rate back byte
+for byte each time, so there is no quality ladder to descend. The only lever is whether
+transcoding happens, and forcing it on mobile data is exactly what a data-saver switch would
+have done. A second control writing the same field under a friendlier name would be one more
+thing to keep in step for nothing. So the task shipped as *quality per connection*, and the
+mobile-data row is the data saver.
+
+Two overrides rather than one, on purpose. A single global override would make "save data on
+the train" also apply at home, which is the opposite of what anyone means by it.
+`packaging`-style copy-paste between the two rows is the plausible bug, so a test asserts
+each dropdown draws its own value, and another asserts the controller asks about the
+connection it is actually on, using overrides set to the *opposite* of each connection's
+automatic answer. Set them the same way round and both tests pass while the feature is
+inverted.
+
+**An override beats the source-rate floor.** That is the one interaction worth stating:
+`QualityPolicy.decide` returns `override` before it looks at anything else, including the
+~240kbps floor below which transcoding costs more data for worse audio. An override quietly
+overruled by a signal it is meant to replace would appear to do nothing on exactly the
+tracks someone is trying to economise on.
+
+**Cache budgets are pushed into the running cache, never rebuilt into a new one.** The
+providers `ref.read` the stored budget at construction and `ref.listen` for changes, because
+watching would replace the instance. The index that makes eviction possible lives in memory,
+and for audio so does the in-use set: a fresh instance starts with an empty one, so its first
+eviction pass could delete the file the engine is streaming from and stop the track mid-play
+with nothing pointing at the cache as the cause.
+
+`applyBudget` scans before it evicts. Measured against an index that has never been filled,
+eviction concludes it is under budget and deletes nothing, and the settings screen is
+reachable from a cold start with nothing played and no image shown, which is exactly that
+case.
+
+Null is the stored value for "automatic" and for "platform default", and the store *removes*
+those keys rather than writing a sentinel. A budget of zero would be a real, valid and
+catastrophic setting.
+
+`QualityPolicy.unmetered` is now the single definition of "not paying by the megabyte";
+`PlaybackController` had its own copy for deciding whether to fill the cache.
+
+**One test was killed rather than fixed.** A widget test that tapped the quality dropdown
+open never reached a quiescent frame, so `pumpAndSettle` sat for its full ten-minute timeout
+on every run. What tapping added over asserting what is drawn was already covered without a
+widget at all, by `qualityOverrideFor` and the controller's override tests. A ten-minute test
+run is a test suite nobody runs.
+
+---
+
 ### #34 - Packaging and release *(done, 6 August 2026)*
 
 `tool/package.ps1` is the deliverable, not the `flutter build` lines inside it. Every check
@@ -540,5 +592,6 @@ Done in code, and neither can be confirmed from a test:
   then `tool/package.ps1` end to end. **The first release-signed install needs the current
   debug-signed one uninstalled first**, which wipes the library cache and the token; Android
   refuses an upgrade across a signature change, and the error names neither cause nor cure.
-- **#49**, that existing Plex ratings appear after the v7 resync, and that a rating set on
-  the artist page shows up in the Plex web UI.
+- **#43b**, that forcing a transcode on mobile data actually reaches the server. Plex web
+  Status is the place to read it. Confirmed working as a *setting* on 6 August, but the same
+  gap as #23 remains: requested is not the same as heard.

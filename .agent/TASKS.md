@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 42 complete · 7 open · 365 tests passing
+**Status:** 43 complete · 6 open · 372 tests passing
 
 ---
 
@@ -23,7 +23,6 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | 31 | Sonic radio and autoplay | Needs Plex's sonic analysis to have run |
 | 32 | qBittorrent client | Gates #33 |
 | 33 | Acquisition flow | Needs #29 and #32 |
-| 43b | Settings: playback and storage | Next. #24 has landed, so these settings now read something real |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
 
 ---
@@ -37,13 +36,12 @@ Plexamp side by side while moving over.
 
 | | Task | Why here |
 |---|---|---|
-| 1 | **#43b** Settings: playback and storage | #24 landed the cache, so the size and clear controls now have something to control. `QualityPolicy.decide` already takes an override nothing passes yet. Plexamp offers 512MB as a comparison. |
-| 2 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
+| 1 | **#19** Deletion reconcile | Ghost rows 404 on play. Real, but rarer and more obvious than anything above it. |
 
-Six finished tasks still want live confirmation that no test can give, listed under
+Eight finished tasks still want live confirmation that no test can give, listed under
 [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation). #23's
-entry is the one that matters most before #24 builds on it: a transcode has never been heard
-playing on either platform, only requested.
+is the one that matters most, and #43b now depends on it too: a transcode has never been
+*heard* playing on either platform, only requested.
 
 ---
 
@@ -51,29 +49,6 @@ playing on either platform, only requested.
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
-
-### #43b, Settings: playback and storage
-
-Quality override per network, data-saver toggle, artwork and audio cache size and clear.
-Lands **with** #24, not after, that is what fills the two missing sections.
-
-`QualityPolicy.decide` already takes an `override` that wins over every other signal, and
-nothing passes one yet. That is the hook: a `QualityDecision?` on `AppSettings`, threaded
-through `PlaybackController`.
-
-Cache size has the same shape: `AudioCache` takes `maxBytes` and defaults to 2GB on Android
-and 10GB elsewhere. Plexamp offers 512MB, which is worth knowing as a comparison rather than
-copying, since a FLAC album is roughly 300MB and a budget that size holds one. Plexamp also
-bounds by track count; a size budget was chosen instead because fifteen FLACs and fifteen
-transcoded mp3s differ by most of a gigabyte, which is exactly what the setting is meant to
-control.
-
-**Considerations**
-
-- Do not build settings nothing reads yet. That rule is why #43a shipped four sections and
-  not six.
-- Android data-saver state is not exposed by `connectivity_plus`. Either a platform channel,
-  or far more cheaply a manual toggle. Suggest manual.
 
 ### #19, Deletion reconcile
 

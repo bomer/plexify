@@ -54,13 +54,37 @@ final audioHandlerProvider = Provider<PlexifyAudioHandler>(
 /// makes eviction possible, and rebuilding it would mean rescanning the
 /// directory. Not tied to the connection: cached images render with no server
 /// at all, which is what lets a grid draw while offline.
-final artworkCacheProvider = Provider<ArtworkCache>((ref) => ArtworkCache());
+///
+/// The budget is *read* at construction and *listened* to afterwards, never
+/// watched: watching would rebuild the cache on every change, which is the one
+/// thing the sentence above says must not happen. The listener is created with
+/// the instance and lives exactly as long as it does, so an instance that
+/// exists always has the current budget.
+final artworkCacheProvider = Provider<ArtworkCache>((ref) {
+  final settings = ref.read(settingsProvider);
+  final cache = ArtworkCache(maxBytes: settings.artworkCacheMaxBytes);
+  ref.listen(
+    settingsProvider.select((s) => s.artworkCacheMaxBytes),
+    (_, next) => unawaited(cache.applyBudget(next)),
+  );
+  return cache;
+});
 
 /// Audio on disk.
 ///
 /// One instance for the app's lifetime, like the artwork cache and for the
-/// same reason: it holds the in-memory index that makes eviction possible.
-final audioCacheProvider = Provider<AudioCache>((ref) => AudioCache());
+/// same reason: it holds the in-memory index that makes eviction possible. It
+/// also holds the in-use set, which is the stronger reason — see
+/// [AudioCache.applyBudget].
+final audioCacheProvider = Provider<AudioCache>((ref) {
+  final settings = ref.read(settingsProvider);
+  final cache = AudioCache(maxBytes: settings.audioCacheMaxBytes);
+  ref.listen(
+    settingsProvider.select((s) => s.audioCacheMaxBytes),
+    (_, next) => unawaited(cache.applyBudget(next)),
+  );
+  return cache;
+});
 
 /// The local library cache.
 ///
@@ -549,6 +573,65 @@ class SyncDiagnostics {
   final int audioEvictions;
   final String? audioError;
 }
+
+/// What each disk cache is holding, and what it is allowed to hold.
+class CacheUsage {
+  const CacheUsage({
+    required this.audioFiles,
+    required this.audioBytes,
+    required this.audioBudget,
+    required this.artworkFiles,
+    required this.artworkBytes,
+    required this.artworkBudget,
+  });
+
+  final int audioFiles;
+  final int audioBytes;
+  final int audioBudget;
+  final int artworkFiles;
+  final int artworkBytes;
+  final int artworkBudget;
+}
+
+/// Measures both caches, and enforces their budgets while it is at it.
+///
+/// Both indexes are built lazily by use, so on a cold start with nothing played
+/// and no image shown they are empty while the directories are not. Reporting
+/// that as "0 bytes" on the one screen whose job is to say how much space this
+/// app is taking would be worse than saying nothing.
+///
+/// Watching the two budgets is what makes the numbers move when one is lowered:
+/// the eviction below runs in the same pass, so the figure shown is what is
+/// left afterwards rather than what was there before.
+final cacheUsageProvider = FutureProvider<CacheUsage>((ref) async {
+  // Selected rather than watching the whole object, so changing the theme does
+  // not rescan two directories.
+  final audioBudget = ref.watch(
+    settingsProvider.select((s) => s.audioCacheMaxBytes),
+  );
+  final artworkBudget = ref.watch(
+    settingsProvider.select((s) => s.artworkCacheMaxBytes),
+  );
+
+  final audio = ref.watch(audioCacheProvider);
+  final artwork = ref.watch(artworkCacheProvider);
+
+  await audio.applyBudget(audioBudget);
+  await audio.ensureReady();
+  await audio.settle();
+
+  await artwork.applyBudget(artworkBudget);
+  await artwork.ensureReady();
+
+  return CacheUsage(
+    audioFiles: audio.entryCount,
+    audioBytes: audio.bytesHeld,
+    audioBudget: audio.maxBytes,
+    artworkFiles: artwork.entryCount,
+    artworkBytes: artwork.bytesHeld,
+    artworkBudget: artwork.maxBytes,
+  );
+});
 
 final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
   final db = ref.watch(databaseProvider);

@@ -81,7 +81,32 @@ class AudioCache {
       ? 2 * 1024 * 1024 * 1024
       : 10 * 1024 * 1024 * 1024;
 
-  final int maxBytes;
+  /// Mutable, because it is a setting. See [applyBudget].
+  int maxBytes;
+
+  /// Changes the budget and enforces it now.
+  ///
+  /// Mutating the live instance rather than rebuilding the provider with a new
+  /// one. Two reasons, and the second is the dangerous one: the index that
+  /// makes eviction possible lives in memory, *and* so does [_inUse]. A fresh
+  /// instance would start with an empty in-use set, so its first eviction pass
+  /// could delete the file the engine is currently streaming from, truncating
+  /// the download and stopping the track mid-play with nothing pointing at the
+  /// cache as the cause.
+  ///
+  /// Enforced immediately rather than at the next [settle], because someone who
+  /// has just chosen a smaller budget is asking for the space back.
+  Future<void> applyBudget(int? bytes) async {
+    final next = bytes ?? defaultMaxBytes;
+    if (next == maxBytes) return;
+    maxBytes = next;
+    // [settle] rather than [_evict] alone: nothing may have played this
+    // session, so the index can be empty while the directory is not, and
+    // eviction measured against an empty index concludes it is under budget
+    // and deletes nothing.
+    await ensureReady();
+    await settle();
+  }
 
   /// Where to put files, for tests. Only *where*: the scan still happens, so
   /// the cold-start path is the one tests exercise rather than the one they

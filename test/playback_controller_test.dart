@@ -3,6 +3,7 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:plexify/core/audio/quality_policy.dart';
 import 'package:plexify/core/audio/playback_handler.dart';
 import 'package:plexify/core/plex/plex_client.dart';
 import 'package:plexify/core/plex/plex_identity.dart';
@@ -127,6 +128,66 @@ void main() {
 
     final item = handler.calls.single.single;
     expect(item.extras?['qualityDecision'], 'directPlay');
+  });
+
+  group('the settings override', () {
+    /// Deliberately the opposite of what each connection would choose on its
+    /// own, so a result matching the override cannot also be the automatic
+    /// answer.
+    QualityDecision? contrarian({required bool unmetered}) =>
+        unmetered ? QualityDecision.transcode : QualityDecision.directPlay;
+
+    test('is asked about the connection actually in use', () async {
+      final onWifi = _RecordingHandler();
+      await PlaybackController(
+        handler: onWifi,
+        client: clientFor(lan),
+        qualityOverride: contrarian,
+        checkConnectivity: () async => const [ConnectivityResult.wifi],
+      ).playTracks([track('1', sourceKbps: 1000)]);
+
+      final onMobile = _RecordingHandler();
+      await PlaybackController(
+        handler: onMobile,
+        client: clientFor(remote),
+        qualityOverride: contrarian,
+        checkConnectivity: () async => const [ConnectivityResult.mobile],
+      ).playTracks([track('2', sourceKbps: 1000)]);
+
+      // Swap the two overrides and both of these still produce a valid-looking
+      // URL, because each is the *automatic* answer for its connection. The
+      // user-visible bug would be "save data on mobile" silently applying at
+      // home and never applying on the train, which nothing else here would
+      // catch.
+      expect(
+        onWifi.calls.single.single.extras?['qualityDecision'],
+        'transcode',
+      );
+      expect(
+        onMobile.calls.single.single.extras?['qualityDecision'],
+        'directPlay',
+      );
+    });
+
+    test('beats the source-rate floor, which nothing else does', () async {
+      final handler = _RecordingHandler();
+      await PlaybackController(
+        handler: handler,
+        client: clientFor(remote),
+        qualityOverride: ({required bool unmetered}) =>
+            QualityDecision.transcode,
+        checkConnectivity: () async => const [ConnectivityResult.mobile],
+      ).playTracks([track('4', sourceKbps: 190)]);
+
+      // A 190kbps source is below the floor, so every automatic path returns
+      // directPlay. An override that could be quietly overruled by one of the
+      // signals it is meant to replace would be a setting that appears to do
+      // nothing on exactly the tracks someone is trying to economise on.
+      expect(
+        handler.calls.single.single.extras?['qualityDecision'],
+        'transcode',
+      );
+    });
   });
 
   test(

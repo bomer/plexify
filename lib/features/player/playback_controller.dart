@@ -15,6 +15,7 @@ import '../../core/audio/quality_policy.dart';
 import '../../core/plex/plex_client.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../../core/settings/app_settings.dart';
 
 /// Turns Plex tracks into something the audio engine can play.
 ///
@@ -28,6 +29,7 @@ class PlaybackController {
     QualityPolicy quality = const QualityPolicy(),
     PlaybackStateStore? store,
     AudioCache? audioCache,
+    QualityDecision? Function({required bool unmetered})? qualityOverride,
     Future<List<ConnectivityResult>> Function()? checkConnectivity,
     String Function() newSession = _defaultSession,
   }) : _handler = handler,
@@ -35,6 +37,7 @@ class PlaybackController {
        _quality = quality,
        _store = store,
        _audioCache = audioCache,
+       _qualityOverride = qualityOverride,
        _checkConnectivity =
            checkConnectivity ?? Connectivity().checkConnectivity,
        _newSession = newSession {
@@ -55,6 +58,15 @@ class PlaybackController {
   /// Null in tests that do not care about caching, which keeps the filesystem
   /// off the path of everything else.
   final AudioCache? _audioCache;
+
+  /// What the settings screen chose for the connection this device is on, or
+  /// null to decide automatically.
+  ///
+  /// A callback rather than an [AppSettings] value, because the controller must
+  /// not be rebuilt when an unrelated setting changes; this is read at the
+  /// moment a queue is built and never held.
+  final QualityDecision? Function({required bool unmetered})? _qualityOverride;
+
   final Future<List<ConnectivityResult>> Function() _checkConnectivity;
   final String Function() _newSession;
 
@@ -99,7 +111,7 @@ class PlaybackController {
     if (playable.isEmpty) return;
 
     final connectivity = await _checkConnectivity();
-    _cacheFillAllowed = _unmetered(connectivity);
+    _cacheFillAllowed = QualityPolicy.unmetered(connectivity);
     // The previous queue's files stop being protected the moment it is
     // replaced; whatever is still in the new one is re-marked as it is built.
     _audioCache?.releaseAll();
@@ -176,7 +188,7 @@ class PlaybackController {
 
     final resumeAt = _handler.position;
     final connectivity = await _checkConnectivity();
-    _cacheFillAllowed = _unmetered(connectivity);
+    _cacheFillAllowed = QualityPolicy.unmetered(connectivity);
     _audioCache?.releaseAll();
     await _audioCache?.ensureReady();
 
@@ -303,6 +315,9 @@ class PlaybackController {
       connectivity: connectivity,
       server: _client.server,
       sourceKbps: sourceKbps,
+      override: _qualityOverride?.call(
+        unmetered: QualityPolicy.unmetered(connectivity),
+      ),
     );
 
     String? url;
@@ -390,14 +405,6 @@ class PlaybackController {
   /// cache over. Set alongside the quality decision, from the same reading.
   bool _cacheFillAllowed = false;
 
-  /// Wifi or ethernet anywhere in the report. Same test the quality policy
-  /// uses, and for the same reason: Android reports several transports at
-  /// once, and either of these means the traffic is not on cellular.
-  static bool _unmetered(List<ConnectivityResult> connectivity) =>
-      connectivity.any(
-        (r) => r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet,
-      );
-
   /// The same transcode, restarted at [offset].
   ///
   /// Reuses the session the track is already playing under rather than opening
@@ -457,7 +464,7 @@ class PlaybackController {
 
     final connectivity = await _checkConnectivity();
     if (_handler.queue.value.isNotEmpty) return;
-    _cacheFillAllowed = _unmetered(connectivity);
+    _cacheFillAllowed = QualityPolicy.unmetered(connectivity);
     _audioCache?.releaseAll();
     await _audioCache?.ensureReady();
 
@@ -553,6 +560,11 @@ final playbackControllerProvider = Provider<PlaybackController?>((ref) {
     client: client,
     store: ref.watch(playbackStateStoreProvider),
     audioCache: ref.watch(audioCacheProvider),
+    // Read at the moment a queue is built, not watched: the controller must
+    // not be rebuilt because someone changed the theme, and a queue already
+    // loaded holds URLs that a new decision could not change anyway.
+    qualityOverride: ({required bool unmetered}) =>
+        ref.read(settingsProvider).qualityOverrideFor(unmetered: unmetered),
   );
   ref.onDispose(controller.disposeSessions);
   return controller;

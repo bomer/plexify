@@ -48,9 +48,30 @@ class QualityPolicy {
   /// synced yet, which is treated as "nothing measured", not as a floor
   /// crossed.
   ///
-  /// [override] is the escape hatch #43b's settings screen will wire up.
-  /// Null means "decide automatically"; anything else always wins, skipping
-  /// every other signal.
+  /// Whether this device is on a connection it is not paying by the megabyte
+  /// for.
+  ///
+  /// Wifi or ethernet *anywhere* in the report is enough: Android can report
+  /// more than one transport at once, for instance wifi alongside a VPN, and
+  /// the presence of either means the traffic is not riding on cellular.
+  ///
+  /// Deliberately about the *device*, not the server. A laptop tethered to a
+  /// phone's hotspot reports as wifi and is still metered, which no API here
+  /// can tell us; that is the error this makes, and it makes it in the
+  /// direction the user can correct with the quality override.
+  static bool unmetered(List<ConnectivityResult> connectivity) =>
+      connectivity.any(
+        (r) => r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet,
+      );
+
+  /// [override] is what the settings screen chose for the connection this
+  /// device is currently on. Null means "decide automatically"; anything else
+  /// always wins, skipping every other signal, which is the point of it.
+  ///
+  /// It is applied to the queue that is *built* next, never to the one already
+  /// loaded: the engine holds URL strings, so changing this mid-song could only
+  /// take effect by rebuilding the queue and stuttering. Same reason the
+  /// playing track is not rescued when the connection re-resolves.
   QualityDecision decide({
     required List<ConnectivityResult> connectivity,
     required PlexServer server,
@@ -72,14 +93,8 @@ class QualityPolicy {
     if (server.isLocal) return QualityDecision.directPlay;
 
     // Remote and not relayed: what matters now is what this device is paying
-    // for, not how it reaches the server. Wifi or ethernet anywhere in the
-    // report is enough — Android can report more than one transport at once
-    // (e.g. wifi alongside a VPN), and the presence of either means the
-    // traffic isn't riding on cellular.
-    final onWifiOrEthernet = connectivity.any(
-      (r) => r == ConnectivityResult.wifi || r == ConnectivityResult.ethernet,
-    );
-    return onWifiOrEthernet
+    // for, not how it reaches the server.
+    return unmetered(connectivity)
         ? QualityDecision.directPlay
         : QualityDecision.transcode;
   }
