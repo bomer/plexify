@@ -128,7 +128,7 @@ void main() {
       void Function(Duration) advance,
     })
     build({
-      Future<void> Function()? reconnect,
+      Future<bool> Function()? reconnect,
       Duration cooldown = const Duration(seconds: 10),
     }) {
       final health = ConnectionHealth(failureThreshold: 2);
@@ -145,6 +145,10 @@ void main() {
             reconnect ??
             () async {
               reconnects.add(reconnects.length);
+              // The default fake moves to a new address, which is the ordinary
+              // case. Tests that care about a re-resolve landing back on the
+              // same one say so explicitly.
+              return true;
             },
       );
       monitor.start();
@@ -206,6 +210,7 @@ void main() {
           if (running > 1) overlapped = true;
           await gate.future;
           running--;
+          return true;
         },
       );
 
@@ -270,6 +275,32 @@ void main() {
       // Otherwise failures belonging to the address we just abandoned are
       // counted against its replacement, and the next single failure trips it.
       expect(t.health.consecutiveFailures, 0);
+      expect(t.monitor.lastChangedAddress, isTrue);
+    });
+
+    test('a re-resolve that lands on the same address is not a success', () async {
+      // Discovery is deliberately sticky: with nothing reachable it keeps the
+      // last address that worked, so the future completes just as happily as a
+      // real move. Resetting there throws away the only evidence that the
+      // connection is still dead, and the cooldown then holds off the next
+      // attempt.
+      //
+      // That is a wifi to cellular handover exactly: the re-resolve fires while
+      // the OS still reports the old transport, finds nothing, keeps the dead
+      // LAN address, and playback is left with nothing that can notice.
+      final t = build(reconnect: () async => false);
+
+      t.health.recordUnreachable();
+      t.health.recordUnreachable();
+      await pumpEventQueue();
+
+      expect(t.monitor.attempts, 1);
+      expect(t.monitor.lastChangedAddress, isFalse);
+      expect(
+        t.health.consecutiveFailures,
+        2,
+        reason: 'the streak must survive, or nothing triggers the next attempt',
+      );
     });
 
     test('a failed reconnect does not throw out of the listener', () async {

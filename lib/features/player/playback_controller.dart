@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:ui' show PlatformDispatcher;
 
 import 'package:audio_service/audio_service.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
@@ -591,6 +592,31 @@ final playbackRecoveryProvider = Provider<void>((ref) {
 
   handler.onPlaybackFailed = health.recordUnreachable;
   ref.onDispose(() => handler.onPlaybackFailed = null);
+
+  // **The audio cache has a third HTTP client, and it is invisible to both of
+  // the above.** `LockCachingAudioSource` does not hand the engine a URL; it
+  // runs a loopback server and fetches the bytes itself, in Dart. Those fetches
+  // fail outside any zone we own, so they never reach `errorStream` and never
+  // reach `HealthReportingClient` either. Logcat shows them as
+  // "Proxy request failed: SocketException ..." followed by an unhandled
+  // exception, and nothing in the app can see either.
+  //
+  // That broke recovery outright on a wifi to cellular handover: the engine
+  // failed once, a reconnect ran, and from then on every failure came from the
+  // cache proxy, so `ConnectionHealth` observed nothing and no further attempt
+  // was ever triggered. Playback stayed dead until the app was restarted. It is
+  // the rule in invariant 10 read backwards: a recovery mechanism driven by
+  // failures must leave something running that can still fail, and this is the
+  // only place those particular failures can be caught.
+  //
+  // Deliberately returns false, so Flutter still reports the error. This
+  // observes; it does not swallow.
+  final previousOnError = PlatformDispatcher.instance.onError;
+  PlatformDispatcher.instance.onError = (error, stack) {
+    if (error is SocketException) health.recordUnreachable();
+    return previousOnError?.call(error, stack) ?? false;
+  };
+  ref.onDispose(() => PlatformDispatcher.instance.onError = previousOnError);
 
   // Watched, not read: this rebuilds whenever the connection re-resolves,
   // which is precisely when the queue needs rebuilding too.

@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **46 complete**
+**Last updated:** 6 August 2026 · **47 complete**
 
 ---
 
@@ -61,6 +61,7 @@ between the next reader and paying for it twice.
 | 50 | Stop resyncing the library on every launch | Plex ignores `updatedAt>=`, so a forced launch pass plus an in-memory sweep clock meant 13,704 rows and ~70 requests every time. Schema v8 persists the clock; `start` asks instead of forcing. Ships the probe that will settle the filter itself |
 | 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
 | 52 | Filter the poll, never the sweep | A rating moves no timestamp, so a filtered sweep cannot find the one thing it exists for. Sweep and forced refresh go unfiltered, interval 5 → 15 min. The fake server now applies the filter, which is why the guard is real |
+| 53 | Recover from a handover that lands nowhere | A sticky re-resolve was clearing the failure streak, and the audio cache's own HTTP client was invisible to everything. Together they left playback dead until a restart |
 
 ---
 
@@ -447,6 +448,44 @@ Found by using it rather than by testing it, which is the point.
 
 ---
 
+### #53 - Recover from a handover that lands nowhere *(done, 6 August 2026)*
+
+Reported as "I switched wifi to 5G and now nothing will play", guessed as a cache problem,
+and settled by logcat rather than by guessing. Two faults, and the app needed both to get
+stuck.
+
+```
+19:17:17  ExoPlayerImplInternal  Playback error ... SocketTimeoutException
+19:17:17  ExoPlayerImpl          Release
+19:17:40  flutter  Proxy request failed: SocketException: Network is unreachable,
+                   address = 192-168-0-2...plex.direct, port = 32400   (x5)
+19:17:40  flutter  Unhandled Exception: SocketException ...
+```
+
+**The re-resolve landed back on the dead address, and that counted as success.** Discovery is
+deliberately sticky: with nothing reachable it keeps the last address that worked, which is
+right in general and exactly wrong here. `ConnectionMonitor` called `_health.reset()` on any
+completion, so the failure streak that had triggered the attempt was wiped, and the cooldown
+held off the next one. On a handover the re-resolve fires while the OS still reports the old
+transport, finds nothing, and keeps the LAN address. `reconnect` now returns **whether the
+address changed**, and the streak survives when it did not.
+
+**And then nothing could fail.** `LockCachingAudioSource` runs a loopback server and fetches
+bytes itself, in Dart. Those failures reach neither `errorStream` nor
+`HealthReportingClient`, so `ConnectionHealth` observed nothing and no further attempt was
+ever triggered. That the rebuild used the cache at all is itself informative: `_cacheFile`
+only returns a file on an unmetered connection, so Android was still reporting wifi seconds
+after it had gone. `playbackRecoveryProvider` now installs a
+`PlatformDispatcher.instance.onError` hook routing a `SocketException` into
+`recordUnreachable`, returning false so Flutter still reports it. It observes; it does not
+swallow.
+
+This is invariant 10 read backwards: **a recovery mechanism driven by failures must leave
+something running that can still fail.** #47 covered the ExoPlayer path, and the cache did
+not exist yet when it landed.
+
+---
+
 ### #52 - Filter the poll, never the sweep *(done, 6 August 2026)*
 
 Reported an hour after #51 shipped: a favourite set on the phone showed there and never
@@ -727,6 +766,8 @@ Done in code, and neither can be confirmed from a test:
 - **#50**, that a relaunch inside five minutes now costs one request. Read "Rows in last
   sync" straight after reopening: it should still show the previous pass's number rather than
   13,704 again.
+- **#53**, the handover itself. Play something on wifi, walk out, and confirm it recovers
+  rather than needing a restart. "Reconnects" on the Sync status screen counts the attempts.
 - **#51/#52**, that a favourite set on one device now reaches the other within fifteen
   minutes, or immediately on pressing refresh. Also that "Rows in last sync" reports a
   handful after music is added, and the whole library after a sweep, which is now the

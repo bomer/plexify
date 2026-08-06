@@ -265,8 +265,13 @@ final connectionMonitorProvider = Provider<ConnectionMonitor>((ref) {
       // scheduler against whichever address wins the race this time. The album
       // grid streams from drift, so the UI does not blank while that happens —
       // the additive-cache rule paying for itself.
+      final before = ref.read(plexServerProvider)?.baseUrl;
       ref.invalidate(connectServerProvider);
-      await ref.read(connectServerProvider.future);
+      final after = (await ref.read(connectServerProvider.future))?.baseUrl;
+      // Reported rather than assumed. Discovery keeps the last address that
+      // worked when nothing answers, so "the future resolved" is not the same
+      // as "we moved". See ConnectionMonitor.
+      return after != null && after != before;
     },
   );
   monitor.start();

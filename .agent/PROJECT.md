@@ -540,6 +540,27 @@ services.
 timeout, because the case where it is slowest, a server that has stopped answering, is
 exactly the case where the app must still close promptly.
 
+**The audio cache has a third HTTP client, and nothing could see it fail.**
+`LockCachingAudioSource` does not hand the engine a URL; it runs a loopback server and
+fetches the bytes itself, in Dart. Those fetches reach neither `errorStream` (so not
+`onPlaybackFailed`) nor `HealthReportingClient` (so not `ConnectionHealth`). Logcat shows
+`Proxy request failed: SocketException ...` followed by an unhandled exception, and the app
+observes neither. On a wifi to cellular handover this broke recovery outright: the engine
+failed once, a reconnect ran, and from then on every failure came from the cache proxy, so
+nothing triggered another attempt and playback stayed dead until a restart.
+`playbackRecoveryProvider` installs a `PlatformDispatcher.instance.onError` hook that routes
+a `SocketException` into `recordUnreachable`, and deliberately returns false so Flutter still
+reports it. Ugly, and the only place those failures exist.
+
+**A sticky re-resolve that lands on the same address must not count as a success.** Discovery
+keeps the last address that worked when nothing answers, so `connectServerProvider.future`
+completes just as happily whether it moved or not. `ConnectionMonitor` used to
+`_health.reset()` on any completion, which threw away the only evidence the connection was
+still dead, and the cooldown then held off the next attempt. `reconnect` now returns whether
+the address actually changed, and the failure streak survives when it did not. Related to but
+distinct from the trap below: that one is about never clearing the server, this one is about
+not mistaking stickiness for recovery.
+
 **Turning "not connected" into a state you cannot leave.** The first cut of #41 let a failed
 re-resolve clear the server. That reads as honest and is a dead end: no server means no
 client, no client means nothing makes requests, and no requests means `ConnectionHealth` can

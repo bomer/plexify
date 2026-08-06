@@ -27,7 +27,7 @@ enum ReconnectReason { networkChanged, connectionLost, manual }
 class ConnectionMonitor {
   ConnectionMonitor({
     required ConnectionHealth health,
-    required Future<void> Function() reconnect,
+    required Future<bool> Function() reconnect,
     Stream<void>? networkChanges,
     this.cooldown = const Duration(seconds: 10),
     DateTime Function()? now,
@@ -37,7 +37,14 @@ class ConnectionMonitor {
        _now = now ?? DateTime.now;
 
   final ConnectionHealth _health;
-  final Future<void> Function() _reconnect;
+
+  /// Re-races the connections and reports **whether the address changed**.
+  ///
+  /// The boolean is what stops a failed re-resolve from looking like a
+  /// successful one. Discovery is deliberately sticky: when nothing answers it
+  /// keeps the last address that worked, so the future completes happily with
+  /// the same dead address it started from.
+  final Future<bool> Function() _reconnect;
   final Stream<void>? _networkChanges;
   final DateTime Function() _now;
 
@@ -71,6 +78,14 @@ class ConnectionMonitor {
   int get attempts => _attempts;
   int _attempts = 0;
   bool get isReconnecting => _reconnecting;
+
+  /// Whether the last attempt actually landed somewhere new.
+  ///
+  /// Worth surfacing rather than inferring: "Reconnects: 4" beside an unchanged
+  /// address is a completely different situation from four real moves, and the
+  /// two look identical from the library screen.
+  bool get lastChangedAddress => _lastChangedAddress;
+  bool _lastChangedAddress = false;
 
   void start() {
     _lostSubscription ??= _health.lost.listen(
@@ -110,11 +125,18 @@ class ConnectionMonitor {
     _publish();
 
     try {
-      await _reconnect();
-      // Failures recorded against the address we just abandoned — including
-      // those caused by closing it mid-request — must not count against its
-      // replacement.
-      _health.reset();
+      _lastChangedAddress = await _reconnect();
+      // **Only when there is genuinely a replacement.** Failures recorded
+      // against an address we just abandoned, including those caused by closing
+      // it mid-request, must not count against the one that replaced it. But
+      // discovery is sticky: with nothing reachable it keeps the last address
+      // that worked, and the future completes just as happily. Resetting there
+      // throws away the evidence that the connection is still dead, and then
+      // the cooldown holds off the next attempt — so a re-resolve that ran a
+      // moment too early, while the OS was still reporting the old transport,
+      // leaves playback stuck on a dead address with nothing left to notice.
+      // That is exactly what a wifi to cellular handover produces.
+      if (_lastChangedAddress) _health.reset();
     } catch (_) {
       // Nothing reachable. Normal when genuinely offline; the next trigger
       // tries again. Deliberately not rethrown: this runs from a stream
