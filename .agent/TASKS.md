@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 40 complete · 8 open · 357 tests passing
+**Status:** 40 complete · 8 open · 361 tests passing
 
 ---
 
@@ -143,6 +143,12 @@ expectation.
 ---
 
 ## Known caveats
+
+**Artist ratings are Plex's, not local.** They live on the same `/:/rate` endpoint as albums
+and tracks and sync both ways: set one in the Plex web UI and it arrives on the next pass,
+set one on the artist page and it shows up in Plex. Schema v6 added the column and v7 rewinds
+the delta cursor so ratings set before Plexify existed actually come through, for the same
+reason v3 did. Expect one longer sync after upgrading.
 
 **Existing Plex ratings arrive on the next launch, once.** The v2 `userRating` columns start
 empty, and a delta sync cannot fill them, Plex's `updatedAt` for a track rated months ago

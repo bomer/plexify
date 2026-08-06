@@ -34,6 +34,22 @@ class RatingController {
     return _rate(album.ratingKey, album.userRating, stars, _db.setAlbumRating);
   }
 
+  /// Sets an artist's rating in stars. Zero clears it.
+  ///
+  /// Plex stores artist ratings the same way it stores album and track ones,
+  /// on the same endpoint, so this is a write-through like the others rather
+  /// than anything local. What was missing was the column to keep it in and
+  /// the control to set it.
+  Future<bool> rateArtist(PlexArtist artist, int stars) async {
+    await _writer.ensureArtist(artist);
+    return _rate(
+      artist.ratingKey,
+      artist.userRating,
+      stars,
+      _db.setArtistRating,
+    );
+  }
+
   /// Sets a track's rating in stars. Zero clears it.
   Future<bool> rateTrack(PlexTrack track, int stars) async {
     await _writer.ensureTrack(track);

@@ -64,6 +64,24 @@ class LibraryWriter {
         .insert(_albumRow(album), mode: InsertMode.insertOrIgnore);
   }
 
+  /// Inserts an artist only if the cache has never seen it. See [ensureAlbum].
+  Future<void> ensureArtist(PlexArtist artist) async {
+    await _db
+        .into(_db.artists)
+        .insert(
+          ArtistsCompanion.insert(
+            ratingKey: artist.ratingKey,
+            title: artist.title,
+            normalisedTitle: normalise(artist.title),
+            thumb: Value(artist.thumb),
+            updatedAt: Value(artist.updatedAt),
+            addedAt: Value(artist.addedAt),
+            userRating: Value(artist.userRating),
+          ),
+          mode: InsertMode.insertOrIgnore,
+        );
+  }
+
   /// Inserts a track only if the cache has never seen it. See [ensureAlbum].
   Future<void> ensureTrack(PlexTrack track) async {
     await _db

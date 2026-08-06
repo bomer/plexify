@@ -56,7 +56,7 @@ void main() {
       await dropPartSizeColumn(db);
       await dropArtistRating(db);
       final migrator = db.createMigrator();
-      await db.migration.onUpgrade(migrator, 2, 6);
+      await db.migration.onUpgrade(migrator, 2, 7);
 
       final state = await db.select(db.syncState).getSingle();
       expect(state.lastSyncedUpdatedAt, 0);
@@ -87,7 +87,7 @@ void main() {
     await dropPartSizeColumn(db);
     await dropArtistRating(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 3, 6);
+    await db.migration.onUpgrade(migrator, 3, 7);
 
     // Unlike v3 this deliberately does *not* rewind the sync cursor: a null
     // part size degrades to "nothing measured", which QualityPolicy treats
@@ -117,7 +117,7 @@ void main() {
     // must not be rewound a second time, which would cost a full sync pass on
     // every launch.
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 6, 6);
+    await db.migration.onUpgrade(migrator, 7, 7);
 
     final state = await db.select(db.syncState).getSingle();
     expect(state.lastSyncedUpdatedAt, 999999);
@@ -163,7 +163,7 @@ void main() {
 
     await dropArtistRating(db);
     final migrator = db.createMigrator();
-    await db.migration.onUpgrade(migrator, 5, 6);
+    await db.migration.onUpgrade(migrator, 5, 7);
 
     // No cursor rewind, unlike v3: an unrated artist and one whose rating has
     // not synced yet look identical to the filter, and the next pass that
@@ -171,5 +171,32 @@ void main() {
     final row = await db.select(db.artists).getSingle();
     expect(row.userRating, isNull);
     expect(row.title, 'Radiohead');
+  });
+
+  test('v7 rewinds the cursor so artist ratings actually arrive', () async {
+    final db = AppDatabase(NativeDatabase.memory());
+    addTearDown(db.close);
+
+    await db
+        .into(db.syncState)
+        .insert(
+          SyncStateCompanion.insert(
+            sectionKey: '3',
+            serverClientIdentifier: 'server-1',
+            lastSyncedUpdatedAt: const Value(999999),
+            initialSyncComplete: const Value(true),
+          ),
+        );
+
+    final migrator = db.createMigrator();
+    await db.migration.onUpgrade(migrator, 6, 7);
+
+    // v6 added the column and left the cursor alone, which was wrong in a way
+    // already learned at v3: a delta sync asks for rows changed since the
+    // cursor, and an artist rated months ago has not changed since. Without
+    // this the favourites filter stays empty and looks broken.
+    final state = await db.select(db.syncState).getSingle();
+    expect(state.lastSyncedUpdatedAt, 0);
+    expect(state.initialSyncComplete, isTrue);
   });
 }

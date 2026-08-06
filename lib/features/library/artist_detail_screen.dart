@@ -74,6 +74,8 @@ class ArtistDetailScreen extends ConsumerWidget {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                     ),
+                    const SizedBox(width: 12),
+                    _ArtistStars(artist: artist),
                     const Spacer(),
                     if (items.isNotEmpty)
                       FilledButton.icon(
@@ -280,6 +282,53 @@ class _AlbumCard extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+/// The artist's own star rating, written through to Plex.
+///
+/// Read from the cache rather than from the [PlexArtist] this screen was
+/// pushed with, so the stars reflect the optimistic local write immediately
+/// instead of the snapshot taken when the page opened.
+///
+/// Plex stores artist ratings on the same endpoint as albums and tracks, so
+/// setting one here shows up in the Plex web UI, and a rating set there
+/// arrives on the next sync that touches the row.
+class _ArtistStars extends ConsumerWidget {
+  const _ArtistStars({required this.artist});
+
+  final PlexArtist artist;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final live =
+        ref.watch(artistRatingProvider(artist.ratingKey)).valueOrNull ??
+        artist.userRating;
+
+    return StarRating(
+      rating: live,
+      size: 16,
+      onRate: (stars) async {
+        final ok = await ref
+            .read(ratingControllerProvider)
+            ?.rateArtist(
+              PlexArtist(
+                ratingKey: artist.ratingKey,
+                title: artist.title,
+                thumb: artist.thumb,
+                updatedAt: artist.updatedAt,
+                addedAt: artist.addedAt,
+                userRating: live,
+              ),
+              stars,
+            );
+        if (ok == false && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Could not save rating to Plex')),
+          );
+        }
+      },
     );
   }
 }

@@ -968,6 +968,20 @@ final albumByKeyProvider = FutureProvider.autoDispose
       return row?.toDomain();
     });
 
+/// One artist's rating, live.
+///
+/// Narrower than watching the whole row so the header does not rebuild on
+/// unrelated sync writes, and the same shape as `watchTrackRating`.
+final artistRatingProvider = StreamProvider.autoDispose.family<int?, String>((
+  ref,
+  ratingKey,
+) {
+  final db = ref.watch(databaseProvider);
+  final query = db.select(db.artists)
+    ..where((a) => a.ratingKey.equals(ratingKey));
+  return query.watchSingleOrNull().map((row) => row?.userRating).distinct();
+});
+
 /// One artist from the cache. See [albumByKeyProvider].
 final artistByKeyProvider = FutureProvider.autoDispose
     .family<PlexArtist?, String>((ref, ratingKey) async {

@@ -68,6 +68,74 @@ void main() {
       );
     }
 
+    group('artists', () {
+      test('write through to Plex and to the cache', () async {
+        final log = <Uri>[];
+        final controller = RatingController(
+          db: db,
+          client: clientThat(succeeds: true, log: log),
+        );
+
+        final ok = await controller.rateArtist(
+          const PlexArtist(ratingKey: 'ar1', title: 'Radiohead'),
+          5,
+        );
+
+        // Plex stores artist ratings on the same endpoint as albums and
+        // tracks. Nothing about this is local-only.
+        expect(ok, isTrue);
+        expect(log.single.queryParameters['key'], 'ar1');
+        expect(log.single.queryParameters['rating'], '10');
+
+        final row = await (db.select(
+          db.artists,
+        )..where((a) => a.ratingKey.equals('ar1'))).getSingle();
+        expect(row.userRating, 10);
+      });
+
+      test('create the row first, so a never-synced artist lands', () async {
+        final controller = RatingController(
+          db: db,
+          client: clientThat(succeeds: true),
+        );
+
+        await controller.rateArtist(
+          const PlexArtist(ratingKey: 'new', title: 'Someone New'),
+          4,
+        );
+
+        // The local write is an UPDATE. Without a row it matches nothing, Plex
+        // accepts the rating, and the artist never appears in the favourites
+        // filter even though the server has the stars.
+        final row = await (db.select(
+          db.artists,
+        )..where((a) => a.ratingKey.equals('new'))).getSingleOrNull();
+        expect(row, isNotNull);
+        expect(row!.userRating, 8);
+      });
+
+      test('put the old rating back when Plex refuses', () async {
+        final controller = RatingController(
+          db: db,
+          client: clientThat(succeeds: false),
+        );
+
+        final ok = await controller.rateArtist(
+          const PlexArtist(ratingKey: 'ar1', title: 'Radiohead', userRating: 6),
+          5,
+        );
+
+        // A rating that silently disagreed with the server would be worse
+        // than one that visibly failed, because ratings are what you browse
+        // by later.
+        expect(ok, isFalse);
+        final row = await (db.select(
+          db.artists,
+        )..where((a) => a.ratingKey.equals('ar1'))).getSingle();
+        expect(row.userRating, 6);
+      });
+    });
+
     Future<PlexAlbum> seedAlbum({int? rating}) async {
       await db
           .into(db.albums)

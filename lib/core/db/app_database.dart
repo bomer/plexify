@@ -33,7 +33,7 @@ class AppDatabase extends _$AppDatabase {
     : super(executor ?? driftDatabase(name: 'plexify'));
 
   @override
-  int get schemaVersion => 6;
+  int get schemaVersion => 7;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -104,6 +104,29 @@ class AppDatabase extends _$AppDatabase {
       if (from < 6) {
         await m.addColumn(artists, artists.userRating);
         await m.createIndex(idxArtistsRating);
+      }
+
+      // v7 rewinds the delta cursor so the artist ratings v6 added actually
+      // arrive.
+      //
+      // v6 shipped without this on the reasoning that an unrated artist and
+      // one whose rating had not synced look the same to a filter. That was
+      // wrong, and wrong in a way already learned once at v3: a delta sync
+      // asks Plex for rows changed since the cursor, and an artist rated
+      // months ago has not changed since. Without a rewind the filter would
+      // have stayed empty indefinitely and looked broken.
+      //
+      // Its own version rather than folding it into v6, because v6 has
+      // already run on installs that took the previous build; editing that
+      // branch would never execute for them.
+      //
+      // Safe to repeat: every sync write is an upsert, so the pass refreshes
+      // rows rather than duplicating them, and the cache stays browsable
+      // while it runs.
+      if (from < 7) {
+        await m.database
+            .update(syncState)
+            .write(const SyncStateCompanion(lastSyncedUpdatedAt: Value(0)));
       }
     },
     beforeOpen: (details) async {
@@ -201,6 +224,12 @@ class AppDatabase extends _$AppDatabase {
   Stream<int?> watchTrackRating(String ratingKey) {
     final query = select(tracks)..where((t) => t.ratingKey.equals(ratingKey));
     return query.watchSingleOrNull().map((row) => row?.userRating).distinct();
+  }
+
+  Future<void> setArtistRating(String ratingKey, int? rating) async {
+    await (update(artists)..where((a) => a.ratingKey.equals(ratingKey))).write(
+      ArtistsCompanion(userRating: Value(rating)),
+    );
   }
 
   Future<void> setTrackRating(String ratingKey, int? rating) async {
