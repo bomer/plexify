@@ -101,6 +101,34 @@ class _DeltaFilterScreenState extends ConsumerState<DeltaFilterScreen> {
                 label: result.filter,
                 value: result.verdictAgainst(report.baseline),
               ),
+            if (report.changes.isNotEmpty) ...[
+              const Divider(height: 32),
+              Text(
+                'What Plex says has changed',
+                style: theme.textTheme.titleSmall,
+              ),
+              const SizedBox(height: 4),
+              Text(
+                'Asked through the working filter. Rate an album in Plex, run '
+                'this again, and Albums should gain one in the 5 min column.\n\n'
+                'If it does not, Plex is not moving that row\'s updatedAt for a '
+                'rating, and no delta sync can ever carry it however well the '
+                'filter works.',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 12),
+              for (final change in report.changes)
+                _Row(
+                  label: change.label,
+                  value:
+                      change.error ??
+                      change.counts.entries
+                          .map((e) => '${e.key}: ${e.value}')
+                          .join('   '),
+                ),
+            ],
             const SizedBox(height: 24),
             OutlinedButton.icon(
               icon: const Icon(Icons.copy_all),
@@ -125,6 +153,12 @@ class _DeltaFilterScreenState extends ConsumerState<DeltaFilterScreen> {
       'unfiltered: ${report.baseline} tracks',
       for (final r in report.results)
         '${r.filter}: ${r.verdictAgainst(report.baseline)}',
+      if (report.changes.isNotEmpty) ...[
+        '',
+        'changed lately:',
+        for (final c in report.changes)
+          '${c.label}: ${c.error ?? c.counts.entries.map((e) => '${e.key}=${e.value}').join(' ')}',
+      ],
     ];
     return lines.join('\n');
   }

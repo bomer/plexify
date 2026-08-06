@@ -121,6 +121,39 @@ void main() {
     expect(alwaysEmpty.verdictAgainst(total), contains('do not use'));
   });
 
+  test('reports what changed lately, per type, once a filter works', () async {
+    final report = await DeltaFilterProbe(
+      client: serverApplying('updatedAt>'),
+    ).run(section);
+
+    // The question that actually matters, and the one the first two runs of
+    // this probe could not answer: a filter being applied says nothing about
+    // whether Plex ever moves the timestamp it filters on. If rating an album
+    // leaves updatedAt alone, a delta sync that genuinely filters can never
+    // carry that rating, and the app silently stops seeing stars set anywhere
+    // else. That was invisible while the filter was being ignored, because
+    // every sweep was accidentally a full sync.
+    expect(report.changes.map((c) => c.label), ['Artists', 'Albums', 'Tracks']);
+    for (final change in report.changes) {
+      expect(change.counts.keys, DeltaFilterProbe.changeWindows.keys);
+      expect(change.error, isNull);
+    }
+  });
+
+  test(
+    'does not ask what changed through a filter that does not work',
+    () async {
+      final report = await DeltaFilterProbe(
+        client: serverThat((_) => total),
+      ).run(section);
+
+      // Every window would report the whole library and mean nothing, which is
+      // worse than reporting nothing: it reads as "everything changed five
+      // minutes ago".
+      expect(report.changes, isEmpty);
+    },
+  );
+
   test('asks every spelling both questions', () async {
     await DeltaFilterProbe(client: serverThat((_) => total)).run(section);
 

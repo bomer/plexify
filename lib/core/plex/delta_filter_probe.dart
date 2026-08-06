@@ -61,6 +61,31 @@ class DeltaFilterResult {
   }
 }
 
+/// How many rows of one metadata type Plex says changed inside a window.
+///
+/// The second question the probe has to answer, and the one that matters more.
+/// Knowing a filter is applied says nothing about whether Plex ever moves the
+/// timestamp it filters on. If rating an album leaves `updatedAt` alone, a
+/// delta sync that genuinely filters can never carry that rating, and the app
+/// silently stops seeing stars set anywhere else. That was invisible while the
+/// filter was being ignored, because every sweep was accidentally a full sync.
+class RecentChanges {
+  const RecentChanges({
+    required this.label,
+    required this.type,
+    required this.counts,
+    this.error,
+  });
+
+  final String label;
+  final int type;
+
+  /// Window to row count, smallest window first.
+  final Map<String, int> counts;
+
+  final String? error;
+}
+
 /// What a probe run found.
 class DeltaFilterReport {
   const DeltaFilterReport({
@@ -68,6 +93,7 @@ class DeltaFilterReport {
     required this.since,
     required this.ancient,
     required this.results,
+    required this.changes,
   });
 
   /// Rows in the section with no filter at all. The number every ignored
@@ -81,6 +107,10 @@ class DeltaFilterReport {
   final int ancient;
 
   final List<DeltaFilterResult> results;
+
+  /// What Plex says has changed lately, per metadata type. Empty when no
+  /// spelling was usable, since there is nothing to ask through.
+  final List<RecentChanges> changes;
 
   /// The spellings that are safe to use.
   ///
@@ -209,12 +239,76 @@ class DeltaFilterProbe {
       }
     }
 
+    // Only worth asking through a spelling the server acts on. Through an
+    // ignored one every window would report the whole library and say nothing.
+    final working = results
+        .where((r) => r.usableAgainst(baseline))
+        .map((r) => r.filter)
+        .firstOrNull;
+
     return DeltaFilterReport(
       baseline: baseline,
       since: since,
       ancient: ancient,
       results: results,
+      changes: working == null
+          ? const []
+          : await _recentChanges(section, working, now),
     );
+  }
+
+  /// Windows to look back over, once a working spelling is known.
+  ///
+  /// Five minutes is the useful one: rate something in Plex, run this, and a
+  /// non-zero count for that type proves Plex moved its `updatedAt` and so a
+  /// delta sync can carry the change. A zero there with a non-zero day means
+  /// the timestamp is not moving for edits of that kind, which is a correctness
+  /// problem rather than a cost one.
+  static const changeWindows = <String, Duration>{
+    '5 min': Duration(minutes: 5),
+    '1 hour': Duration(hours: 1),
+    '1 day': Duration(days: 1),
+    '7 days': Duration(days: 7),
+  };
+
+  static const _types = <String, int>{
+    'Artists': PlexClient.typeArtist,
+    'Albums': PlexClient.typeAlbum,
+    'Tracks': PlexClient.typeTrack,
+  };
+
+  Future<List<RecentChanges>> _recentChanges(
+    PlexSection section,
+    String filter,
+    DateTime now,
+  ) async {
+    final out = <RecentChanges>[];
+    for (final type in _types.entries) {
+      final counts = <String, int>{};
+      String? error;
+      for (final window in changeWindows.entries) {
+        try {
+          counts[window.key] = await _client.sectionCount(
+            section.key,
+            type: type.value,
+            filter: filter,
+            filterValue: _epochSeconds(now.subtract(window.value)),
+          );
+        } on Object catch (e) {
+          error = '$e';
+          break;
+        }
+      }
+      out.add(
+        RecentChanges(
+          label: type.key,
+          type: type.value,
+          counts: counts,
+          error: error,
+        ),
+      );
+    }
+    return out;
   }
 
   Future<int> _count(PlexSection section, String filter, int value) =>
