@@ -33,15 +33,26 @@ class DeltaFilterResult {
 
   /// Whether this spelling both narrows *and* widens.
   ///
-  /// Narrowing alone is not enough, see the class comment. Widening alone means
-  /// the server ignored it and handed back everything twice.
+  /// One clause per failure mode, and nothing else:
+  ///
+  /// - `recent < baseline` rules out a filter the server dropped, which hands
+  ///   back the whole section however it is asked.
+  /// - `ancient > recent` rules out one the server turned into an empty set,
+  ///   which answers zero to every question.
+  ///
+  /// **Deliberately not `ancient >= baseline`.** That was the first rule, and
+  /// it was wrong: it assumes every row has an `updatedAt` inside the window,
+  /// and on James's library 1,504 of 11,492 tracks are older than ten years or
+  /// carry no timestamp at all. A perfectly good filter reported 9,988 and was
+  /// declared broken. A threshold would have the same problem one library
+  /// further along, so there is none.
   bool usableAgainst(int baseline) =>
       recent != null &&
       ancient != null &&
       recent! < baseline &&
-      ancient! >= baseline;
+      ancient! > recent!;
 
-  /// What went wrong, in the words of what was measured.
+  /// What happened, in the words of what was measured.
   String verdictAgainst(int baseline) {
     if (error != null) return 'failed: $error';
     if (usableAgainst(baseline)) return '$recent recent / $ancient ever, works';

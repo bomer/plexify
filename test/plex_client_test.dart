@@ -120,6 +120,47 @@ void main() {
     });
   });
 
+  group('the delta filter', () {
+    Future<Map<String, String>> queryFor(int? minUpdatedAt) async {
+      late http.Request captured;
+      final client = clientReturning(
+        jsonEncode({'MediaContainer': {}}),
+        onRequest: (r) => captured = r,
+      );
+      await client.sectionPage<Object>(
+        '3',
+        type: PlexClient.typeTrack,
+        parse: (json) => json,
+        minUpdatedAt: minUpdatedAt,
+      );
+      return captured.url.queryParameters;
+    }
+
+    test('asks one second earlier than the cursor', () async {
+      final query = await queryFor(1000);
+
+      // The filter is strict, measured (#51): `updatedAt>=` is silently ignored
+      // by Plex while `updatedAt>` is applied. The cursor is the newest
+      // updatedAt already stored, so asking for strictly-newer-than-it would
+      // skip a row stamped that same second which we have never seen. A bulk
+      // edit stamps many rows with one timestamp, so that is a real case.
+      //
+      // The cost of the compensation is one already-cached row coming back per
+      // pass, and every sync write is an upsert, so it lands on itself.
+      expect(query[PlexClient.deltaFilter], '999');
+    });
+
+    test('is left off entirely for a full sync', () async {
+      expect(await queryFor(0), isNot(contains(PlexClient.deltaFilter)));
+      expect(await queryFor(null), isNot(contains(PlexClient.deltaFilter)));
+
+      // Cursor zero means "fetch everything", which is what a fresh install and
+      // every migration rewind ask for. Sending `updatedAt>-1` instead would be
+      // harmless here but would quietly exclude rows carrying no timestamp at
+      // all, and roughly 1,500 of James's 11,492 tracks are in that state.
+    });
+  });
+
   group('errors', () {
     test('gives an actionable message on an expired token', () async {
       final client = clientReturning('', status: 401);

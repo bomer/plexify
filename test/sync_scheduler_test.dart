@@ -307,7 +307,7 @@ void main() {
     // minutes of needless traffic.
     expect(listingQueries, isNotEmpty);
     expect(
-      listingQueries.every((q) => q['updatedAt>='] == '4242'),
+      listingQueries.every((q) => q[PlexClient.deltaFilter] == '4241'),
       isTrue,
       reason: 'every listing should carry the stored cursor',
     );
@@ -334,7 +334,7 @@ void main() {
     // timestamp from an unrelated library.
     expect(listingQueries, isNotEmpty);
     expect(
-      listingQueries.any((q) => q.containsKey('updatedAt>=')),
+      listingQueries.any((q) => q.containsKey(PlexClient.deltaFilter)),
       isFalse,
       reason: 'a foreign cursor must not be reused',
     );

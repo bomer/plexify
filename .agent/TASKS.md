@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 6 August 2026
 
-**Status:** 44 complete · 7 open · 383 tests passing
+**Status:** 45 complete · 6 open · 386 tests passing
 
 ---
 
@@ -24,7 +24,6 @@ The index. One line each; the reasoning is under [Detail](#detail), and the sequ
 | 32 | qBittorrent client | Gates #33 |
 | 33 | Acquisition flow | Needs #29 and #32 |
 | 19 | Deletion reconcile | The one place that may treat absence as authoritative |
-| 51 | Use a delta filter Plex honours | Needs one run of the Delta filter probe to say which spelling works. Not slotted into Order, that is yours |
 
 ---
 
@@ -50,30 +49,6 @@ is the one that matters most, and #43b now depends on it too: a transcode has ne
 
 Near-term tasks are broken down properly; Phase 6–8 deliberately are not, because the design
 will have moved by the time they start.
-
-### #51, Use a delta filter Plex honours
-
-`updatedAt>=` is ignored, so every sweep refetches the library. #50 made a quiet relaunch
-cheap by sweeping less often; this would make the sweeps themselves cheap.
-
-Blocked on evidence, not on work. Run **Sync status → Delta filter probe** against the real
-server, read which spelling it reports as usable, and change the one line in
-`PlexClient.sectionPage`.
-
-**What the first run already established**, on 6 August 2026 against 11,492 tracks:
-`updatedAt>=` and `updatedAt>>=` returned all of them, so both are ignored. `updatedAt>` and
-`updatedAt>>` returned **zero**, which is either a working filter or one the server turns
-into an empty set, and those are not the same thing at all: adopting the second would stop
-the library ever gaining music, silently. The probe now asks each spelling twice, once where
-it must return nothing and once where it must return everything, so a second run settles it.
-
-**If `>` turns out to work, the cursor needs care.** It is strict, and the stored cursor is
-the newest `updatedAt` already held, so a row sharing that exact second and not yet seen would
-be skipped for ever. A bulk edit stamps many rows with one timestamp, so this is not
-hypothetical. Store `cursor - 1`.
-
-If the probe says nothing is usable, this task becomes "lengthen `deltaInterval` and let the
-section clocks carry it alone" instead.
 
 ### #19, Deletion reconcile
 
@@ -152,11 +127,10 @@ empty, and a delta sync cannot fill them, Plex's `updatedAt` for a track rated m
 has not moved. Schema v3 rewinds the delta cursor so the next run does one full pass. Expect
 a longer-than-usual sync exactly once after upgrading, then ratings appear on their own.
 
-**`updatedAt>=` is not honoured by Plex.** Answered 6 August 2026 by reading "Rows in last
-sync" after a five-second launch: cursor set, initial sync complete, **13,704 rows** came
-back, which is the whole library. Plex accepts the parameter, answers 200 and drops it, so an
-ignored filter looks exactly like a library where everything changed. #50 stopped the
-*launch* paying for that; #51 is finding a spelling the server acts on.
+**Plex applies `updatedAt>`, not `updatedAt>=`.** Found by reading "Rows in last sync" after
+a five-second launch, then settled by the Delta filter probe. `>=` and `>>=` are dropped
+silently, `>` and `>>` work. The operator is strict, so `PlexClient` asks one second earlier
+than the cursor. Re-run the probe after a server upgrade.
 
 **Repeating a track does not record a second play.** `TimelineReporter` resets its
 "already counted" mark when the media item changes, and repeat-one never changes it -

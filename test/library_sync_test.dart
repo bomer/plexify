@@ -199,7 +199,10 @@ void main() {
           )
           .drain();
 
-      expect(log.any((url) => url.contains('4242')), isTrue);
+      // 4241, not 4242: the filter Plex honours is strict, so the client asks
+      // one second earlier than the cursor rather than skipping a row stamped
+      // exactly at it. See PlexClient.deltaFilter.
+      expect(log.any((url) => url.contains('4241')), isTrue);
     },
   );
 

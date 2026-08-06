@@ -122,6 +122,24 @@ class PlexClient {
     return _listOf(container, 'Metadata').map(PlexAlbum.fromJson).toList();
   }
 
+  /// The delta filter this server actually applies.
+  ///
+  /// **Measured, not assumed.** `updatedAt>=` was sent from #18 until #51 and
+  /// did nothing at all: Plex accepts a filter parameter it does not recognise,
+  /// answers 200, and returns the whole section, so every launch refetched
+  /// 11,492 tracks while looking perfectly healthy. `DeltaFilterProbe` settled
+  /// it against the real server: `>=` and `>>=` are both ignored, `>` and `>>`
+  /// both work. Re-run the probe (Sync status → Delta filter probe) after a
+  /// server upgrade rather than trusting this constant.
+  ///
+  /// **It is strict, hence the `- 1` below.** The stored cursor is the newest
+  /// `updatedAt` already held, so asking for strictly-newer would skip a row
+  /// sharing that exact second which we have not seen yet. A bulk edit stamps
+  /// many rows with one timestamp, so that is a real case rather than a
+  /// theoretical one, and the cost of the alternative is one already-cached row
+  /// coming back per pass, which upserts to itself.
+  static const deltaFilter = 'updatedAt>';
+
   /// One page of a section's contents, for bulk sync.
   ///
   /// Sorted by `addedAt` ascending and paginated by container headers. Ordering
@@ -146,7 +164,7 @@ class PlexClient {
         'type': '$type',
         'sort': 'addedAt:asc',
         if (minUpdatedAt != null && minUpdatedAt > 0)
-          'updatedAt>=': '$minUpdatedAt',
+          deltaFilter: '${minUpdatedAt - 1}',
       },
       extraHeaders: {
         'X-Plex-Container-Start': '$start',

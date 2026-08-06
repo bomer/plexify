@@ -88,6 +88,23 @@ void main() {
     }
   });
 
+  test('a partial widening still counts as working', () {
+    // The real numbers from James's server, and the case that corrected this
+    // probe's own rule. `updatedAt>` returned 0 for the last minute and 9,988
+    // for the last ten years, out of 11,492. The first rule demanded the
+    // widening measurement return *everything*, which assumes every row has an
+    // updatedAt inside the window; about 1,500 tracks are older than that or
+    // carry no timestamp. A perfectly good filter was reported as broken.
+    const partial = DeltaFilterResult(
+      filter: 'updatedAt>',
+      recent: 0,
+      ancient: 9988,
+    );
+
+    expect(partial.usableAgainst(total), isTrue);
+    expect(partial.verdictAgainst(total), contains('works'));
+  });
+
   test('a filter that returns nothing is refused, however good it looks', () {
     // This is the case that made the second measurement necessary. On the real
     // server `updatedAt>` answered 0 for a one-minute window, which reads as a

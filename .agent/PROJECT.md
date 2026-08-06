@@ -429,6 +429,23 @@ hence the `PostMessage` bounce through the window proc.
 none. Any pull-to-refresh must be paired with an explicit button, which is what
 `SyncActions` is.
 
+**Plex applies `updatedAt>` and ignores `updatedAt>=`.** Measured, not read: the Delta filter
+probe asked all four spellings twice against the real server. `>=` and `>>=` both returned all
+11,492 tracks, so both are dropped. `>` and `>>` returned 0 for the last minute and 9,988 for
+the last decade, so both work. `PlexClient.deltaFilter` holds the choice; re-run the probe
+after a server upgrade rather than trusting it.
+
+**The working operator is strict, so the client asks one second earlier than the cursor.** The
+cursor is the newest `updatedAt` already stored, and strictly-newer-than-it would skip a row
+stamped that same second which we have never seen. A bulk edit stamps many rows with one
+timestamp. The cost of the compensation is one already-cached row per pass, upserting onto
+itself.
+
+**Roughly 1,500 of 11,492 tracks have an `updatedAt` older than a decade or none at all.**
+Worth knowing before writing any other `updatedAt` filter: a bounded window silently excludes
+them. It is also what corrected the probe's own verdict rule, which had demanded the widening
+measurement return *everything* and so reported a working filter as broken.
+
 **Plex ignores the `updatedAt>=` filter, silently.** It accepts the parameter, answers 200,
 and returns everything. There is no error to read, and an ignored filter is indistinguishable
 from a library where everything changed, which is how this survived from #18 to #50 while

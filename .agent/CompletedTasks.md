@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 6 August 2026 · **44 complete**
+**Last updated:** 6 August 2026 · **45 complete**
 
 ---
 
@@ -59,6 +59,7 @@ between the next reader and paying for it twice.
 | 34 | Packaging and release | Real signing config that falls back to the debug key loudly, generated icons on both platforms, `tool/package.ps1` that refuses a debug-signed or oversized build. Version unified at 0.9.0 |
 | 43b | Settings: playback and storage | Quality override per connection, which *is* the data saver, there being no bitrate to lower. Both cache budgets, live usage, and one clear button. Budgets push into the running cache rather than rebuilding it |
 | 50 | Stop resyncing the library on every launch | Plex ignores `updatedAt>=`, so a forced launch pass plus an in-memory sweep clock meant 13,704 rows and ~70 requests every time. Schema v8 persists the clock; `start` asks instead of forcing. Ships the probe that will settle the filter itself |
+| 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
 
 ---
 
@@ -445,6 +446,42 @@ Found by using it rather than by testing it, which is the point.
 
 ---
 
+### #51 - Use a delta filter Plex honours *(done, 6 August 2026)*
+
+**`updatedAt>` works. `updatedAt>=`, which this app had sent since #18, never did.**
+
+The probe took two runs, and the first one nearly produced a much worse bug than the one being
+fixed:
+
+| | 1 minute | 10 years |
+|---|---|---|
+| `updatedAt>=` | 11,492 | ignored |
+| `updatedAt>>=` | 11,492 | ignored |
+| `updatedAt>` | 0 | 9,988 |
+| `updatedAt>>` | 0 | 9,988 |
+
+The first run measured only the left column. Read from that alone, `>` returning zero is a
+perfect filter, and it is *equally* consistent with a spelling the server turns into an empty
+set. Adopting one of those would have meant a delta sync returning nothing for ever: the
+library would stop gaining music with no error anywhere, presenting as Plex having gone quiet.
+That is the additive-cache invariant broken outright, and strictly worse than the bandwidth
+bug. Hence the second measurement, where a working filter has to return *everything*.
+
+**And then the verdict rule itself was wrong.** It required the widening measurement to equal
+the unfiltered count, which assumes every row has an `updatedAt` inside the window. About
+1,500 of 11,492 tracks are older than a decade or carry no timestamp, so a working filter
+reported 9,988 and was declared broken. The rule is now `recent < baseline && ancient > recent`:
+one clause per failure mode, no threshold to be wrong about on the next library.
+
+**The operator is strict, so the client asks one second earlier than the cursor.** The cursor
+is the newest `updatedAt` already stored; asking for strictly-newer-than-it would skip a row
+stamped that same second which has never been seen, and a bulk edit stamps many rows with one
+timestamp. The compensation costs one already-cached row per pass, which upserts onto itself.
+
+Three tests fail if that `- 1` is removed, which is how it was verified.
+
+---
+
 ### #50 - Stop resyncing the library on every launch *(done, 6 August 2026)*
 
 Reported as "the sync that loads every time takes about five seconds for 11k songs". Settled
@@ -651,6 +688,6 @@ Done in code, and neither can be confirmed from a test:
 - **#50**, that a relaunch inside five minutes now costs one request. Read "Rows in last
   sync" straight after reopening: it should still show the previous pass's number rather than
   13,704 again.
-- **#51**, a second probe run, now that it asks both questions. The first run ruled out
-  `>=` and `>>=` as ignored and left `>` and `>>` unresolved between "works" and "matches
-  nothing".
+- **#51**, that "Rows in last sync" now reports roughly zero on a routine sweep rather than
+  11,492. The filter is proven to work at the server; what has not been watched is a real
+  sweep going through it.
