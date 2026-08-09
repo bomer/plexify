@@ -39,7 +39,11 @@ class Sidebar extends ConsumerWidget {
     final playlists = ref.watch(recentPlaylistsProvider);
 
     return Container(
-      width: 240,
+      // Widened when the playlist thumbnails grew from 28 to 48. The artwork
+      // takes that width out of the title beside it, and at 240 the longest
+      // real playlist names started truncating, which is a poor trade for a
+      // picture. Nothing else on this screen notices the extra 24 pixels.
+      width: 264,
       color: theme.colorScheme.surfaceContainer,
       child: SafeArea(
         right: false,
@@ -179,11 +183,11 @@ class _NavItem extends StatelessWidget {
 /// **The artwork is the point.** A dozen playlists as plain text rows is the
 /// most monotonous region on the screen: identical size, identical weight,
 /// identical colour, and the only thing distinguishing them is a word you have
-/// to read. A 28px thumbnail makes the list scannable by shape and colour
-/// instead, which is how anyone actually finds a playlist they use often.
+/// to read. Artwork makes the list scannable by shape and colour instead, which
+/// is how anyone actually finds a playlist they use often.
 ///
-/// Small enough to stay a list rather than become a second grid, and the whole
-/// row is only a few pixels taller than the text-only version was.
+/// Two lines rather than one, so the row is the height of its own artwork
+/// instead of a tall thumbnail with a short label floating beside it.
 class _PlaylistItem extends StatelessWidget {
   const _PlaylistItem({required this.playlist, required this.onTap});
 
@@ -191,7 +195,12 @@ class _PlaylistItem extends StatelessWidget {
   final VoidCallback onTap;
 
   /// Edge of the thumbnail.
-  static const _thumb = 28.0;
+  ///
+  /// Large enough that a mosaic of four sleeves is four recognisable sleeves
+  /// rather than a smudge, which is the entire reason for showing it. At 28 it
+  /// was a colour swatch: better than nothing, and not actually a picture of
+  /// anything.
+  static const _thumb = 48.0;
 
   @override
   Widget build(BuildContext context) {
@@ -200,15 +209,15 @@ class _PlaylistItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 6),
         child: Row(
           children: [
             ClipRRect(
-              borderRadius: BorderRadius.circular(3),
+              borderRadius: BorderRadius.circular(4),
               child: SizedBox(
                 width: _thumb,
                 height: _thumb,
-                // Requested at a size the shelves also use rather than at 28,
+                // Requested at a size the shelves also use rather than at 48,
                 // so this shares their cache entry instead of making Plex
                 // transcode a third copy of every playlist mosaic.
                 child: Artwork(
@@ -219,14 +228,29 @@ class _PlaylistItem extends StatelessWidget {
               ),
             ),
             const SizedBox(width: 12),
+            // Two lines against a 48px square, so the row is the height of its
+            // artwork rather than a tall thumbnail with a short label floating
+            // beside it.
             Expanded(
-              child: Text(
-                playlist.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    playlist.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodyMedium,
+                  ),
+                  Text(
+                    playlistSubtitle(playlist),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
               ),
             ),
           ],
@@ -234,6 +258,25 @@ class _PlaylistItem extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The second line under a playlist's name in the sidebar.
+///
+/// Two facts worth the room, in the order they are worth it. **Smart comes
+/// first** because it changes what the row means: those contents are generated
+/// from rules, so what is in there today is not what was in there last week,
+/// and that is the reason to open one. The count is the ordinary detail.
+///
+/// Falls back to naming the kind rather than showing an empty line, so every
+/// row is the same height. A playlist can legitimately report no count: Plex
+/// omits `leafCount` on some responses, and the sidebar renders from whatever
+/// the last sync stored.
+String playlistSubtitle(PlexPlaylist playlist) {
+  final count = playlist.itemCount;
+  final tracks = count > 0 ? '$count ${count == 1 ? 'track' : 'tracks'}' : null;
+
+  if (playlist.smart) return tracks == null ? 'Smart' : 'Smart · $tracks';
+  return tracks ?? 'Playlist';
 }
 
 /// Opens a playlist inside the given navigator.

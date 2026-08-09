@@ -40,11 +40,10 @@ void main() {
 
     test('the changelog has something to say about this version', () {
       final pubspec = File('pubspec.yaml').readAsStringSync();
-      final version = RegExp(r'^version:\s*(\S+)$', multiLine: true)
-          .firstMatch(pubspec)!
-          .group(1)!
-          .split('+')
-          .first;
+      final version = RegExp(
+        r'^version:\s*(\S+)$',
+        multiLine: true,
+      ).firstMatch(pubspec)!.group(1)!.split('+').first;
 
       final changelog = File('CHANGELOG.md').readAsStringSync();
 
@@ -78,7 +77,31 @@ void main() {
       expect(ignore, contains('*.jks'));
 
       // And the mistake has not already been made.
-      expect(File('android/key.properties').existsSync(), isFalse);
+      //
+      // **Asks git, rather than asserting the file is absent.** That was the
+      // first version and it was the wrong shape: it passed only while no key
+      // existed, so it failed the moment one was created, which is the point
+      // at which everything here starts working rather than the point at which
+      // something is wrong. Present and untracked is the correct state; a
+      // .gitignore entry can also be overridden by a force-add, and only git
+      // knows whether that happened.
+      final tracked = Process.runSync('git', [
+        'ls-files',
+        'android/key.properties',
+        '*.jks',
+        '*.keystore',
+      ]);
+
+      if (tracked.exitCode == 0) {
+        expect(
+          (tracked.stdout as String).trim(),
+          isEmpty,
+          reason:
+              'A signing secret is committed. The fix is issuing a new key, '
+              'and a new key cannot upgrade an install signed with the old '
+              'one.',
+        );
+      }
     });
 
     test('the release manifest declares INTERNET', () {
