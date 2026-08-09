@@ -35,9 +35,10 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Fixed
 
-- "Most played in {month}" now appears on Home. It never has: the request for play history
-  carried a filter the endpoint answers with an empty result rather than an error, so the row
-  had nothing to show and hid itself, on any server and for anyone.
+- "Most played in {month}" now appears on Home. It never has, for two reasons in a row: the
+  request for play history carried a filter the endpoint answers with an empty result rather
+  than an error, and the rows it then returns name the track rather than the album, so
+  counting them by album found nothing to count.
 - The discovery probe can now say *why* play history is empty, rather than only that it is.
   It asks the same question five ways, and an empty answer from every one of them is a
   different problem from an empty answer from just the one the app uses.

@@ -164,6 +164,13 @@ class DiscoveryProbe {
     final attempts = await _historyAttempts(section);
     final now = _now();
 
+    // Resolved the same way the shelf does it, or the month counts report zero
+    // albums against a month with plays in it and read as a second fault. Plex
+    // labels a history row with the track and not the album it came from.
+    final albumOfTrack = await _db.albumKeysForTracks(
+      plays.map((play) => play.trackRatingKey),
+    );
+
     return DiscoveryReport(
       hubs: hubs,
       genreCount: genres.length,
@@ -173,8 +180,18 @@ class DiscoveryProbe {
       oldestPlay: _at(plays.isEmpty ? null : plays.last.viewedAt),
       newestPlay: _at(plays.isEmpty ? null : plays.first.viewedAt),
       months: [
-        await _month(plays, DateTime(now.year, now.month), 'This month'),
-        await _month(plays, DateTime(now.year, now.month - 1), 'Last month'),
+        await _month(
+          plays,
+          albumOfTrack,
+          DateTime(now.year, now.month),
+          'This month',
+        ),
+        await _month(
+          plays,
+          albumOfTrack,
+          DateTime(now.year, now.month - 1),
+          'Last month',
+        ),
       ],
     );
   }
@@ -220,6 +237,7 @@ class DiscoveryProbe {
 
   Future<MonthSample> _month(
     List<PlexPlay> plays,
+    Map<String, String> albumOfTrack,
     DateTime month,
     String label,
   ) async {
@@ -233,7 +251,7 @@ class DiscoveryProbe {
     for (final play in plays) {
       if (play.viewedAt < from || play.viewedAt >= to) continue;
       count++;
-      final key = play.albumRatingKey;
+      final key = play.albumRatingKey ?? albumOfTrack[play.trackRatingKey];
       if (key != null) albums.add(key);
     }
 

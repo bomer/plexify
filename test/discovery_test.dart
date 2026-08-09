@@ -140,6 +140,59 @@ void main() {
       expect(shelf.albums.first.ratingKey, 'here');
     });
 
+    test('resolves the album from the track when Plex does not say', () {
+      // **What actually broke this on the real server.** Plex's history rows
+      // carry the track and no parentRatingKey at all: 43 plays in a month
+      // resolved to zero albums, so the shelf had nothing and hid itself. The
+      // cache knows which album each track belongs to, so the link comes from
+      // there.
+      PlexPlay bare(String trackKey, DateTime at) => PlexPlay(
+        trackRatingKey: trackKey,
+        albumRatingKey: null,
+        artistRatingKey: null,
+        viewedAt: at.millisecondsSinceEpoch ~/ 1000,
+      );
+
+      final shelf = mostPlayedShelf(
+        plays: [
+          for (var i = 0; i < 3; i++) bare('t1', DateTime(2026, 8, 2)),
+          bare('t2', DateTime(2026, 8, 3)),
+          bare('t3', DateTime(2026, 8, 4)),
+          bare('t4', DateTime(2026, 8, 5)),
+        ],
+        owned: {
+          for (final key in ['a', 'b', 'c', 'd']) key: album(key),
+        },
+        albumOfTrack: const {'t1': 'a', 't2': 'b', 't3': 'c', 't4': 'd'},
+        now: now,
+      );
+
+      expect(shelf, isNotNull);
+      expect(shelf!.albums.first.ratingKey, 'a');
+      expect(shelf.albums, hasLength(4));
+    });
+
+    test('a row that names its own album is still believed', () {
+      // The lookup is a fallback, not a replacement. A server that does send
+      // parentRatingKey keeps being taken at its word, and the map is not
+      // consulted for those rows at all.
+      final shelf = mostPlayedShelf(
+        plays: [
+          for (var i = 0; i < 4; i++) play('told', DateTime(2026, 8, 2)),
+          play('b', DateTime(2026, 8, 3)),
+          play('c', DateTime(2026, 8, 4)),
+          play('d', DateTime(2026, 8, 5)),
+        ],
+        owned: {
+          for (final key in ['told', 'wrong', 'b', 'c', 'd']) key: album(key),
+        },
+        albumOfTrack: const {'t': 'wrong'},
+        now: now,
+      );
+
+      expect(shelf!.albums.first.ratingKey, 'told');
+    });
+
     test('is absent rather than thin when neither month has enough', () {
       expect(
         mostPlayedShelf(

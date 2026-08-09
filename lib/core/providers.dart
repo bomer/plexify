@@ -1052,15 +1052,24 @@ final mostPlayedShelfProvider = FutureProvider<DiscoveryShelf?>((ref) async {
 
   // Artwork and titles come from the cache, not from the history rows, so this
   // costs one request however many albums come back.
+  //
+  // **And so does the album each play belongs to.** Plex's history rows carry
+  // the track and, on the server this was measured against, no
+  // `parentRatingKey`, so the link has to come from the synced tracks table.
   final db = ref.watch(databaseProvider);
+  final albumOfTrack = await db.albumKeysForTracks(
+    plays.map((play) => play.trackRatingKey),
+  );
+
   final rows = await db.albumsByKeys({
     for (final play in plays)
-      if (play.albumRatingKey != null) play.albumRatingKey!,
+      ?(play.albumRatingKey ?? albumOfTrack[play.trackRatingKey]),
   });
 
   return mostPlayedShelf(
     plays: plays,
     owned: {for (final row in rows) row.ratingKey: row.toDomain()},
+    albumOfTrack: albumOfTrack,
     now: DateTime.now(),
   );
 });

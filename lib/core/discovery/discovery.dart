@@ -63,10 +63,15 @@ const _months = <String>[
 /// and grows over four weeks reads as broken. If this month cannot fill
 /// [minimumAlbums], last month is offered instead, and the title says which,
 /// which is the whole reason the title is computed rather than fixed.
+/// [albumOfTrack] maps a track's ratingKey to its album's, for the servers
+/// that leave `parentRatingKey` off their history rows. Consulted only when the
+/// row does not carry one itself, so a server that does say keeps being
+/// believed.
 DiscoveryShelf? mostPlayedShelf({
   required List<PlexPlay> plays,
   required Map<String, PlexAlbum> owned,
   required DateTime now,
+  Map<String, String> albumOfTrack = const {},
   int minimumAlbums = 4,
   int limit = 20,
 }) {
@@ -79,6 +84,7 @@ DiscoveryShelf? mostPlayedShelf({
     final shelf = _mostPlayedIn(
       plays: plays,
       owned: owned,
+      albumOfTrack: albumOfTrack,
       month: month,
       limit: limit,
     );
@@ -90,6 +96,7 @@ DiscoveryShelf? mostPlayedShelf({
 DiscoveryShelf? _mostPlayedIn({
   required List<PlexPlay> plays,
   required Map<String, PlexAlbum> owned,
+  required Map<String, String> albumOfTrack,
   required DateTime month,
   required int limit,
 }) {
@@ -101,7 +108,7 @@ DiscoveryShelf? _mostPlayedIn({
   final firstSeen = <String, int>{};
   for (final (index, play) in plays.indexed) {
     if (play.viewedAt < from || play.viewedAt >= to) continue;
-    final key = play.albumRatingKey;
+    final key = play.albumRatingKey ?? albumOfTrack[play.trackRatingKey];
     if (key == null || !owned.containsKey(key)) continue;
     counts[key] = (counts[key] ?? 0) + 1;
     firstSeen.putIfAbsent(key, () => index);

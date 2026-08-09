@@ -571,6 +571,35 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
+  /// Which album each of these tracks belongs to.
+  ///
+  /// **Plex's play history does not say.** Its rows carry the track's own
+  /// ratingKey and, measured against James's server on 10 August 2026, no
+  /// `parentRatingKey` at all: 43 plays in a month resolved to zero albums.
+  /// The cache already holds the link for every track it has synced, so the
+  /// answer is here rather than in another request.
+  ///
+  /// Tracks the cache has never seen are absent from the result rather than
+  /// mapped to null, so a caller iterating the map only ever sees links that
+  /// exist.
+  Future<Map<String, String>> albumKeysForTracks(
+    Iterable<String> trackRatingKeys,
+  ) async {
+    final keys = trackRatingKeys.toList();
+    if (keys.isEmpty) return const {};
+
+    final rows =
+        await (selectOnly(tracks)
+              ..addColumns([tracks.ratingKey, tracks.albumRatingKey])
+              ..where(tracks.ratingKey.isIn(keys)))
+            .get();
+
+    return {
+      for (final row in rows)
+        row.read(tracks.ratingKey)!: ?row.read(tracks.albumRatingKey),
+    };
+  }
+
   /// Albums by ratingKey, for joining a server-side result back to local rows.
   ///
   /// The play-history shelf gets counts from Plex and everything else from
