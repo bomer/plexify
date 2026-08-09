@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 52 complete · 2 open · 486 tests passing
+**Status:** 53 complete · 2 open · 518 tests passing
 
 ---
 
@@ -192,6 +192,26 @@ acquisition group and four rounds of recovery fixes. `test/packaging_test.dart` 
 pubspec and `PlexIdentity` in step with each other but neither of them with reality.
 
 **Mouse button five is unbound.** Back is wired, forward is not. Two lines if it is wanted.
+
+**The play history is not filtered to one account.** `/status/sessions/history/all` returns
+every user of the server, so on a shared library "Most played in August" counts other
+people's listening as well. Harmless on a single-user server and wrong on any other.
+`accountID` is the parameter, and finding the right value for the owner is the work.
+
+**Nothing renders the server's own hubs.** `PlexClient.sectionHubs` exists and only
+`DiscoveryProbe` calls it. Deliberate: a hub identifier that is present on one server version
+and absent on the next is not something to build a row on before seeing what this one has.
+Run the probe and the answer decides whether it is worth wiring.
+
+**The two server-backed shelves are fetched once and never again.** They are `FutureProvider`s,
+so they resolve on the first Home build of a session and hold that answer until something
+invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
+until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
+
+**The genre row needs the network and vanishes without it.** Genres are not synced into
+drift, because they are a many-to-many that would want its own table and its own delta path
+for one shelf. The cost is that the row is missing on a cold start off the LAN, where the two
+local rows are not.
 
 ### Testing gaps worth closing
 

@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
 import 'delta_filter_screen.dart';
+import 'discovery_screen.dart';
 import 'transcode_spike_screen.dart';
 
 /// What the sync layer is actually doing.
@@ -228,6 +229,16 @@ class SyncStatusScreen extends ConsumerWidget {
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
                         builder: (_) => const DeltaFilterScreen(),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  OutlinedButton.icon(
+                    icon: const Icon(Icons.explore_outlined),
+                    label: const Text('Discovery probe'),
+                    onPressed: () => Navigator.of(context).push(
+                      MaterialPageRoute<void>(
+                        builder: (_) => const DiscoveryScreen(),
                       ),
                     ),
                   ),

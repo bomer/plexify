@@ -459,6 +459,58 @@ class AppDatabase extends _$AppDatabase {
     return query.watch();
   }
 
+  /// Albums nothing has ever played, oldest first.
+  ///
+  /// Two sources of "played", and both are needed. Plex's `lastViewedAt` covers
+  /// every other client and everything before this app existed; the local
+  /// history table covers this app, which deliberately does not write
+  /// `lastViewedAt` (see [PlaybackHistory]). Checking only one would call an
+  /// album buried the day after it was listened to.
+  ///
+  /// [addedBefore] keeps this week's arrivals out of it. They have their own
+  /// shelf, and an album that showed up on Tuesday is not buried treasure.
+  ///
+  /// Oldest first, and deliberately more rows than any shelf shows: the caller
+  /// shuffles the result, so the limit is the pool to draw from rather than the
+  /// row itself.
+  Stream<List<Album>> watchNeverPlayedAlbums({
+    int? addedBefore,
+    int limit = 300,
+  }) {
+    final played = selectOnly(playbackHistory)
+      ..addColumns([playbackHistory.ratingKey])
+      ..where(playbackHistory.kind.equals('album'));
+
+    final query = select(albums)
+      ..where((a) {
+        var where = a.lastViewedAt.isNull() & a.ratingKey.isNotInQuery(played);
+        if (addedBefore != null) {
+          // Nulls kept: an album with no addedAt at all is old enough by any
+          // reading, and dropping it would quietly shrink the pool on
+          // libraries scanned by older agents.
+          where =
+              where &
+              (a.addedAt.isNull() | a.addedAt.isSmallerThanValue(addedBefore));
+        }
+        return where;
+      })
+      ..orderBy([(a) => OrderingTerm.asc(a.addedAt)])
+      ..limit(limit);
+    return query.watch();
+  }
+
+  /// Albums by ratingKey, for joining a server-side result back to local rows.
+  ///
+  /// The play-history shelf gets counts from Plex and everything else from
+  /// here: titles, artists, artwork. Anything the cache does not hold is
+  /// absent from the result rather than an error, which is also how an album
+  /// deleted since it was played drops out of the row on its own.
+  Future<List<Album>> albumsByKeys(Iterable<String> ratingKeys) {
+    final keys = ratingKeys.toList();
+    if (keys.isEmpty) return Future.value(const []);
+    return (select(albums)..where((a) => a.ratingKey.isIn(keys))).get();
+  }
+
   /// Tracks in a playlist, in stored playlist order.
   Stream<List<Track>> watchPlaylistTracks(String playlistRatingKey) {
     final query =

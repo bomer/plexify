@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/db/recently_played.dart';
+import '../../core/discovery/discovery.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../../shell/horizontal_scroll.dart';
@@ -48,12 +49,23 @@ class HomeScreen extends ConsumerWidget {
                     title: 'Recently added',
                     items: _albums(recentlyAdded),
                   ),
+                  // The discovery rows, in the order they are most likely to
+                  // have something in them. Each is absent rather than empty
+                  // when it has nothing, so the screen closes up around the
+                  // gap instead of showing four "Nothing here yet" labels on a
+                  // fresh install or an offline start.
+                  _DiscoveryShelf(shelf: ref.watch(moreByArtistShelfProvider)),
+                  _DiscoveryShelf(shelf: ref.watch(mostPlayedShelfProvider)),
+                  _DiscoveryShelf(shelf: ref.watch(genreShelfProvider)),
                   _Shelf(
                     title: 'Favourites',
                     items: _albums(ref.watch(favouriteAlbumsProvider)),
                     // Nothing rated yet is the normal state on day one, and an
                     // empty row would read as broken rather than unused.
                     hideWhenEmpty: true,
+                  ),
+                  _DiscoveryShelf(
+                    shelf: ref.watch(buriedTreasureShelfProvider),
                   ),
                 ],
               ),
@@ -76,6 +88,33 @@ AsyncValue<List<RecentlyPlayed>> _albums(AsyncValue<List<PlexAlbum>> albums) =>
       // date, rating — and never sort on it.
       (list) => [for (final a in list) RecentlyPlayed.album(a, 0)],
     );
+
+/// A row whose title the provider worked out, and which is not there at all
+/// when there is nothing to put in it.
+///
+/// Separate from [_Shelf] because the two differ in the thing that matters:
+/// a fixed shelf that is empty is worth saying so about, since "Recently added"
+/// with nothing under it means the sync has not run. A discovery shelf that is
+/// empty has no title to show either, and saying "Nothing here yet" under a
+/// heading nobody asked for is worse than silence.
+class _DiscoveryShelf extends StatelessWidget {
+  const _DiscoveryShelf({required this.shelf});
+
+  final AsyncValue<DiscoveryShelf?> shelf;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = shelf.valueOrNull;
+    if (value == null) return const SizedBox.shrink();
+    return _Shelf(
+      title: value.title,
+      items: AsyncValue.data([
+        for (final album in value.albums) RecentlyPlayed.album(album, 0),
+      ]),
+      hideWhenEmpty: true,
+    );
+  }
+}
 
 /// A horizontally scrolling row of albums and playlists.
 class _Shelf extends ConsumerWidget {

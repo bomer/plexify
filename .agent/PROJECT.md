@@ -799,6 +799,42 @@ volunteering a connectivity event. The connection is now sticky: it keeps the la
 that worked, and only signing out clears it. Generally, **a recovery mechanism driven by
 failures must leave something running that can still fail.**
 
+**A Home row seeded by `Random()` reshuffles itself under the reader's finger.** Home is
+backed by four live database streams and rebuilds several times a second while a sync is
+running. Any row whose order is drawn fresh on each build is unusable: the album you were
+reaching for moves before you reach it. Rotation that is *meant* to happen daily has to be
+seeded on the date, which is what `daySeed` is, and the test for it asserts two calls in one
+day match exactly rather than merely both being shuffled.
+
+**`List.sort` is not stable in Dart above about thirty-two elements.** Below that it is an
+insertion sort and ties keep their order; above it, a dual-pivot quicksort throws that away.
+A ranked shelf therefore needs an explicit tie-break or it arrives in a different order every
+time it is rebuilt, on exactly the months with enough listening to be worth looking at. Note
+what this does to a test: a fixture of eight albums passes with no tie-break at all and
+proves nothing. The one in `discovery_test.dart` uses forty on purpose, and it was written
+after the eight-album version was confirmed to pass against the broken comparator.
+
+**An id parsed out of a Plex path must be the *last* number, not the first.** Genre keys come
+back as `/library/sections/3/genre/13` on some versions and a bare `27` on others. `\d+`
+matches the section id in the first case, so every genre in the library resolves to the same
+wrong key and the row silently fills with whatever genre 3 happens to be. The regex is
+`(\d+)(?!.*\d)` for that reason, and the test feeds it both spellings.
+
+**Empty and forbidden look identical on `/status/sessions/history/all`.** It needs server
+owner access and answers everyone else with an empty `MediaContainer` rather than a 403, so
+"nothing has been played" and "you may not ask" are the same response. Nothing in the app can
+tell them apart, which is why the discovery probe reports the row count rather than a verdict
+and says in words what an empty one means.
+
+**Plexamp's extra rows are not hubs.** Worth writing down because it looks like an endpoint
+problem and is not. Plexamp shows rows Plex Web does not, and the two disagree about their
+contents, because the rows are *aggregates somebody computes* rather than lists the server
+hands out: Plexamp computes its own from records it keeps locally and nobody else can read.
+Chasing a hub identifier that produces "Most played in January" is chasing something that
+does not exist. The server's contribution is the raw play history, and the counting is the
+client's job. `DiscoveryProbe` exists to keep that conclusion re-checkable rather than
+remembered.
+
 ---
 
 ## The music transcode endpoint

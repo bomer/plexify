@@ -165,6 +165,106 @@ class PlexPlaylist {
   }
 }
 
+/// A hub, which is Plex's own word for a titled row of things.
+///
+/// Only used by the discovery probe. What a music section offers here varies by
+/// server version and by whether sonic analysis has run, and there is no
+/// documentation worth trusting, so nothing on the Home screen is built on a
+/// hub identifier being present. The probe exists to find out what this server
+/// actually has before anything depends on it.
+class PlexHub {
+  const PlexHub({
+    required this.hubIdentifier,
+    required this.title,
+    required this.type,
+    required this.size,
+    this.context,
+  });
+
+  /// e.g. `home.music.recent`. Stable enough to key on, if it is there at all.
+  final String hubIdentifier;
+
+  final String title;
+
+  /// `album`, `artist`, `track`, `playlist`, or `mixed`.
+  final String type;
+
+  /// How many items the hub carried.
+  final int size;
+
+  /// Plex's own hint at why the hub exists, e.g. `hub.music.recentlyAdded`.
+  final String? context;
+
+  factory PlexHub.fromJson(Map<String, dynamic> json) {
+    final items = json['Metadata'];
+    return PlexHub(
+      hubIdentifier: _str(json['hubIdentifier']) ?? '',
+      title: _str(json['title']) ?? '',
+      type: _str(json['type']) ?? '',
+      size: _int(json['size']) ?? (items is List ? items.length : 0),
+      context: _str(json['context']),
+    );
+  }
+}
+
+/// One genre in a library section.
+///
+/// [key] is what `?genre=` wants. Plex returns it either bare (`13`) or as a
+/// whole path (`/library/sections/3/genre/13`) depending on version, so it is
+/// reduced to the trailing id here rather than at every call site.
+class PlexGenre {
+  const PlexGenre({required this.key, required this.title});
+
+  final String key;
+  final String title;
+
+  factory PlexGenre.fromJson(Map<String, dynamic> json) {
+    final raw = _str(json['fastKey']) ?? _str(json['key']) ?? '';
+    // A fastKey is a query string, a key may be a path; either way the id is
+    // the last thing that looks like a number.
+    final id = RegExp(r'(\d+)(?!.*\d)').firstMatch(raw)?.group(1);
+    return PlexGenre(
+      key: id ?? raw,
+      title: _str(json['title']) ?? 'Unknown genre',
+    );
+  }
+}
+
+/// One play, as the *server* recorded it.
+///
+/// This is what makes "most played in January" possible at all. Nothing local
+/// can answer it: `PlaybackHistory` keeps one row per thing so it has no
+/// counts, and it only knows about this device and only since it was written.
+/// The server has every play from every client, going back years.
+class PlexPlay {
+  const PlexPlay({
+    required this.trackRatingKey,
+    required this.albumRatingKey,
+    required this.artistRatingKey,
+    required this.viewedAt,
+  });
+
+  final String trackRatingKey;
+
+  /// `parentRatingKey`. Null on rows that are not tracks.
+  final String? albumRatingKey;
+
+  /// `grandparentRatingKey`.
+  final String? artistRatingKey;
+
+  /// Epoch seconds.
+  final int viewedAt;
+
+  factory PlexPlay.fromJson(Map<String, dynamic> json) {
+    return PlexPlay(
+      trackRatingKey: _str(json['ratingKey']) ?? '',
+      albumRatingKey: _str(json['parentRatingKey']),
+      artistRatingKey: _str(json['grandparentRatingKey']),
+      viewedAt: _int(json['viewedAt']) ?? 0,
+    );
+  }
+}
+
 /// An artist. Plex calls these type=8 metadata items.
 class PlexArtist {
   const PlexArtist({

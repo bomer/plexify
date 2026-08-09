@@ -358,6 +358,111 @@ class PlexClient {
     return _listOf(container, 'Metadata').map(PlexAlbum.fromJson).toList();
   }
 
+  /// The hubs this server offers for a section.
+  ///
+  /// Diagnostic only. `includeStations=1` is what Plexamp sends and is the
+  /// suspected source of its sonic rows; Plex drops query parameters it does
+  /// not recognise rather than rejecting them (the same behaviour that let
+  /// `updatedAt>=` do nothing for thirty-odd commits), so asking costs nothing
+  /// on a server that has never heard of it.
+  ///
+  /// Returns empty rather than throwing. Nothing depends on this yet, and a
+  /// server that will not answer it is itself the finding.
+  Future<List<PlexHub>> sectionHubs(String sectionKey) async {
+    try {
+      final container = await _getContainer(
+        '/hubs/sections/$sectionKey',
+        query: {'includeStations': '1'},
+      );
+      return _listOf(container, 'Hub').map(PlexHub.fromJson).toList();
+    } on Object {
+      return const [];
+    }
+  }
+
+  /// Every genre in a section, as Plex has tagged it.
+  ///
+  /// Genres are not synced into drift: they are a many-to-many that would need
+  /// its own table and its own delta path, and this is the only thing that
+  /// wants them. One small request per shelf, hidden when it fails, is the
+  /// cheaper trade.
+  Future<List<PlexGenre>> genres(String sectionKey) async {
+    try {
+      final container = await _getContainer('/library/sections/$sectionKey/genre');
+      return _listOf(container, 'Directory')
+          .map(PlexGenre.fromJson)
+          .where((g) => g.key.isNotEmpty)
+          .toList();
+    } on Object {
+      return const [];
+    }
+  }
+
+  /// One page of a genre's albums, with the total so a caller can pick a window
+  /// into it.
+  ///
+  /// [size] may be zero, which asks the server for the count alone. That is the
+  /// first half of the "show a different corner of Rock each day" shelf: the
+  /// second is a seeded offset, because without one the row would show the same
+  /// twenty alphabetically-first albums for ever.
+  Future<PlexPage<PlexAlbum>> genreAlbums(
+    String sectionKey,
+    String genreKey, {
+    int start = 0,
+    int size = 20,
+  }) async {
+    final container = await _getContainer(
+      '/library/sections/$sectionKey/all',
+      query: {'type': '$typeAlbum', 'genre': genreKey},
+      extraHeaders: {
+        'X-Plex-Container-Start': '$start',
+        'X-Plex-Container-Size': '$size',
+      },
+    );
+    return PlexPage<PlexAlbum>(
+      items: _listOf(container, 'Metadata').map(PlexAlbum.fromJson).toList(),
+      totalSize:
+          _asInt(container['totalSize']) ?? _asInt(container['size']) ?? 0,
+    );
+  }
+
+  /// The server's own play history for a section, newest first.
+  ///
+  /// **Deliberately unfiltered by date.** A `viewedAt>` parameter would be the
+  /// obvious thing to send and is exactly the shape Plex silently ignores; an
+  /// ignored filter here would not error, it would quietly return the whole
+  /// history and make every month look identical. Newest-first plus a bounded
+  /// page is a filter the server cannot get wrong, and the caller cuts the
+  /// window itself.
+  ///
+  /// Requires server-owner access. Returns empty for anyone else, and for any
+  /// other failure, because a Home shelf must never be the thing that shows an
+  /// error.
+  Future<List<PlexPlay>> playHistory(String sectionKey, {int limit = 1000}) async {
+    try {
+      final container = await _getContainer(
+        '/status/sessions/history/all',
+        query: {
+          'librarySectionID': sectionKey,
+          'sort': 'viewedAt:desc',
+          // Tracks only. History also carries the album and artist rollups on
+          // some versions, which would double-count every play.
+          'type': '$typeTrack',
+        },
+        extraHeaders: {
+          'X-Plex-Container-Start': '0',
+          'X-Plex-Container-Size': '$limit',
+        },
+      );
+      return _listOf(container, 'Metadata')
+          .map(PlexPlay.fromJson)
+          .where((p) => p.viewedAt > 0)
+          .toList();
+    } on Object {
+      return const [];
+    }
+  }
+
   /// Audio playlists on the server.
   ///
   /// Not scoped to a library section — playlists live at the account level, so
