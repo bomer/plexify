@@ -11,12 +11,25 @@ prereleases on GitHub, because that is what they are.
 `pubspec.yaml` as the release notes and refuses to run if there is no such section, so a
 release cannot go out with nothing said about it.
 
+**Write entries under `Unreleased` as changes land, not at release time.** Reconstructing
+this from thirty commits afterwards is how things get missed, and the commits that most
+deserve a line are the ones least likely to be remembered a fortnight later.
+
+Two things do not belong here, and leaving them out is what keeps it readable:
+
+- **Anything a user cannot see.** Refactors, test changes, tooling. The audience is someone
+  deciding whether to update.
+- **A bug introduced and fixed before either shipped.** It never existed for anyone, so
+  listing it under Fixed invents a problem the release did not have.
+
 ## [Unreleased]
 
-Nothing yet. Add entries here as they land, and move them under a version heading when one is
-cut.
+### Changed
 
-## [0.9.0]
+- Playlist thumbnails in the sidebar are larger, with the track count under the name. A
+  mosaic at the old size was a colour swatch rather than a picture of anything.
+
+## [0.9.0] - 2026-08-10
 
 First release. Everything below is new, so it is grouped by what it does rather than by
 added, changed and fixed.
