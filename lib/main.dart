@@ -29,6 +29,11 @@ Future<void> main() async {
   final settings = await SettingsStore.load();
   final playbackState = await PlaybackStateStore.load();
 
+  // Before the first frame and before anything is restored, so the queue that
+  // resumes on launch comes back at the level it was left at rather than at
+  // full and then correcting itself audibly.
+  await audioHandler.setVolume(settings.read().volume);
+
   runApp(
     ProviderScope(
       overrides: [

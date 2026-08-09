@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/playback_handler.dart';
 import '../../core/providers.dart';
+import '../../core/settings/app_settings.dart';
 import '../../shell/layout.dart';
 import '../library/artwork.dart';
 import 'player_providers.dart';
@@ -251,18 +254,27 @@ class _DesktopBar extends StatelessWidget {
             ),
           ),
           Expanded(
-            child: Align(
-              alignment: Alignment.centerRight,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 16),
-                child: IconButton(
-                  tooltip: 'Queue',
-                  icon: const Icon(Icons.queue_music),
-                  // The same place the queue has always lived: Up Next inside
-                  // the expanded player. This is a way in that says so, rather
-                  // than a second copy of the list to keep in step.
-                  onPressed: onExpand,
-                ),
+            child: Padding(
+              padding: const EdgeInsets.only(right: 16),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    tooltip: 'Queue',
+                    icon: const Icon(Icons.queue_music),
+                    // The same place the queue has always lived: Up Next inside
+                    // the expanded player. This is a way in that says so,
+                    // rather than a second copy of the list to keep in step.
+                    onPressed: onExpand,
+                  ),
+                  // **Flexible, or the slider inside it cannot shrink.** A Row
+                  // gives its non-flex children unbounded main-axis
+                  // constraints, so a nested `Flexible` resolves against
+                  // infinity, takes its full width, and overflows the parent
+                  // instead. Caught at 801px, which is the narrowest this
+                  // layout is ever built at.
+                  Flexible(child: _Volume(handler: handler)),
+                ],
               ),
             ),
           ),
@@ -321,6 +333,96 @@ class _DesktopTransport extends StatelessWidget {
         ),
         RepeatButton(handler: handler, state: state, iconSize: 18),
       ],
+    );
+  }
+}
+
+/// Speaker and slider, desktop only.
+///
+/// **Not offered on a phone at all, deliberately.** There the hardware keys and
+/// the OS mixer already own the level, and every competent player leaves them
+/// to it; an app-local level alongside them is a second number to get out of
+/// step, and the symptom is volume being wrong in a place nobody thinks to
+/// look. On a desktop there are no volume keys to speak of and the system mixer
+/// is several clicks away, which is the whole reason this earns its place.
+///
+/// Follows the engine rather than the setting. The two are kept in step by
+/// writing both, and reading the one that actually makes the sound means the
+/// control cannot lie about what is happening.
+class _Volume extends ConsumerStatefulWidget {
+  const _Volume({required this.handler});
+
+  final PlexifyAudioHandler handler;
+
+  @override
+  ConsumerState<_Volume> createState() => _VolumeState();
+}
+
+class _VolumeState extends ConsumerState<_Volume> {
+  /// Where to go back to when unmuting.
+  ///
+  /// Muting by dragging to zero and muting by pressing the speaker are the same
+  /// state to the engine, so the level to restore has to be remembered here.
+  /// Kept for the life of the bar, which is the life of the app.
+  double _beforeMute = 1;
+
+  void _set(double volume) {
+    unawaited(widget.handler.setVolume(volume));
+    ref.read(settingsProvider.notifier).setVolume(volume);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<double>(
+      stream: widget.handler.volumeStream,
+      builder: (context, snapshot) {
+        final volume = (snapshot.data ?? 1).clamp(0.0, 1.0);
+        final muted = volume <= 0;
+
+        return Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              tooltip: muted ? 'Unmute' : 'Mute',
+              icon: Icon(switch (volume) {
+                <= 0 => Icons.volume_off,
+                < 0.5 => Icons.volume_down,
+                _ => Icons.volume_up,
+              }),
+              onPressed: () {
+                if (muted) {
+                  // A restore to zero would be a button that does nothing,
+                  // which is what happens when the app starts up muted.
+                  _set(_beforeMute <= 0 ? 1 : _beforeMute);
+                } else {
+                  _beforeMute = volume;
+                  _set(0);
+                }
+              },
+            ),
+            // Loose rather than fixed so a narrow window shortens the slider
+            // instead of overflowing the bar. Everything to the left of it has
+            // a floor; this is the one thing here that can give.
+            Flexible(
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 96),
+                child: SliderTheme(
+                  data: SliderTheme.of(context).copyWith(
+                    trackHeight: 4,
+                    thumbShape: const RoundSliderThumbShape(
+                      enabledThumbRadius: 5,
+                    ),
+                    overlayShape: const RoundSliderOverlayShape(
+                      overlayRadius: 10,
+                    ),
+                  ),
+                  child: Slider(value: volume, onChanged: _set),
+                ),
+              ),
+            ),
+          ],
+        );
+      },
     );
   }
 }

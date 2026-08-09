@@ -27,7 +27,23 @@ class AppSettings {
     this.artworkCacheMaxBytes,
     this.catalogEnabled = false,
     this.qbitUrl,
+    this.volume = 1,
   });
+
+  /// Output level, 0 to 1.
+  ///
+  /// Persisted because the alternative is a slider that reads full every launch
+  /// while the last thing you did was turn it down, and the first track of the
+  /// morning is then as loud as the engine can make it.
+  ///
+  /// **Desktop only, and that is a decision rather than an omission.** On a
+  /// phone the hardware keys and the OS mixer already own this, and every
+  /// competent player leaves them to it; a second, app-local level to get out
+  /// of step with them is a way to have the volume be wrong in a place nobody
+  /// thinks to look. The setting is stored on both platforms because it costs
+  /// nothing and one number that means the same thing everywhere is simpler
+  /// than one that only exists sometimes.
+  final double volume;
 
   /// Whether to look up records the library does not hold.
   ///
@@ -108,7 +124,9 @@ class AppSettings {
     Object? artworkCacheMaxBytes = _unchanged,
     bool? catalogEnabled,
     Object? qbitUrl = _unchanged,
+    double? volume,
   }) => AppSettings(
+    volume: volume ?? this.volume,
     catalogEnabled: catalogEnabled ?? this.catalogEnabled,
     qbitUrl: identical(qbitUrl, _unchanged) ? this.qbitUrl : qbitUrl as String?,
     themeMode: themeMode ?? this.themeMode,
@@ -141,7 +159,8 @@ class AppSettings {
       other.audioCacheMaxBytes == audioCacheMaxBytes &&
       other.artworkCacheMaxBytes == artworkCacheMaxBytes &&
       other.catalogEnabled == catalogEnabled &&
-      other.qbitUrl == qbitUrl;
+      other.qbitUrl == qbitUrl &&
+      other.volume == volume;
 
   @override
   int get hashCode => Object.hash(
@@ -153,6 +172,7 @@ class AppSettings {
     artworkCacheMaxBytes,
     catalogEnabled,
     qbitUrl,
+    volume,
   );
 }
 
@@ -179,6 +199,7 @@ class SettingsStore {
   static const _artworkCacheMaxKey = 'settings_artwork_cache_max_bytes';
   static const _catalogEnabledKey = 'settings_catalog_enabled';
   static const _qbitUrlKey = 'settings_qbit_url';
+  static const _volumeKey = 'settings_volume';
 
   AppSettings read() => AppSettings(
     catalogEnabled:
@@ -191,6 +212,12 @@ class SettingsStore {
     qualityMetered: _quality(_qualityMeteredKey),
     audioCacheMaxBytes: _prefs.getInt(_audioCacheMaxKey),
     artworkCacheMaxBytes: _prefs.getInt(_artworkCacheMaxKey),
+    // Clamped on the way in as well as on the way out. This file is plain text
+    // on both platforms, and a hand-edited 40 would be a very loud surprise.
+    volume: (_prefs.getDouble(_volumeKey) ?? const AppSettings().volume).clamp(
+      0.0,
+      1.0,
+    ),
   );
 
   Future<void> write(AppSettings settings) async {
@@ -206,6 +233,7 @@ class SettingsStore {
     await _writeInt(_artworkCacheMaxKey, settings.artworkCacheMaxBytes);
     await _prefs.setBool(_catalogEnabledKey, settings.catalogEnabled);
     await _write(_qbitUrlKey, settings.qbitUrl);
+    await _prefs.setDouble(_volumeKey, settings.volume);
   }
 
   Future<void> _write(String key, String? value) async =>
@@ -307,6 +335,14 @@ class SettingsController extends Notifier<AppSettings> {
     }
     _apply(state.copyWith(qbitUrl: cleaned));
   }
+
+  /// Sets the output level, 0 to 1.
+  ///
+  /// Clamped rather than asserted: this is driven by a slider whose bounds are
+  /// set elsewhere, and a rounding error at the end of a drag should not be
+  /// able to hand the engine a number outside its range.
+  void setVolume(double volume) =>
+      _apply(state.copyWith(volume: volume.clamp(0.0, 1.0)));
 
   void _apply(AppSettings next) {
     if (next == state) return;

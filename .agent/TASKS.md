@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 54 complete · 2 open · 545 tests passing
+**Status:** 55 complete · 2 open · 548 tests passing
 
 ---
 
@@ -208,10 +208,8 @@ so they resolve on the first Home build of a session and hold that answer until 
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
 
-**The desktop bar has no volume control, no lyrics and no device picker.** Spotify's right
-column carries four things and Plexify's carries one. Volume is the one worth having: the
-engine exposes it, and the OS mixer is a poor substitute when the point is to duck one app.
-The others have nothing behind them.
+**The desktop bar has no lyrics button and no device picker.** Spotify's right column carries
+four things and Plexify's carries two. Neither of the missing ones has anything behind it.
 
 **Nothing tests the gradient end to end.** `dominantColour` is covered thoroughly as a pure
 function and `colourOfImage` is not covered at all, because it needs a real decoded image and

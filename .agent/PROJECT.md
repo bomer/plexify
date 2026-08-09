@@ -834,6 +834,13 @@ caught this on its first run, reporting 400 where 600 was expected, and the code
 whole time. `tester.view.physicalSize` is the other half, and asserting against
 `tester.getRect` of the widget rather than against a constant is better still.
 
+**A `Row` gives its non-flex children unbounded main-axis constraints, so a `Flexible` nested
+inside one of them cannot shrink.** It resolves against infinity, takes its full width, and
+overflows the parent instead, which looks exactly like the constraint having been ignored.
+The volume slider hit this: `Flexible` inside a `Row` inside a `Row`, where only the inner one
+was flexible. Both levels have to be, and the symptom appears only at the narrowest width the
+layout is ever built at, which is why there is a test pinned to 801px.
+
 **A background colour taken from artwork must be a histogram, not an average.** Averaging a
 sleeve returns grey almost every time, because opposite hues cancel: a black metal cover and a
 Motown one come out the same murk, and the feature reads as broken rather than subtle. Three

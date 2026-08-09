@@ -4,8 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plexify/core/audio/playback_handler.dart';
 import 'package:plexify/core/providers.dart';
+import 'package:plexify/core/settings/app_settings.dart';
 import 'package:plexify/features/player/mini_player.dart';
 import 'package:plexify/features/player/player_providers.dart';
+
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_just_audio.dart';
 
@@ -51,10 +54,17 @@ void main() {
       ),
     );
 
+    // Real preferences over a mock store, because the volume control writes to
+    // them on every change and a preference that never reaches disk works
+    // perfectly until the next launch.
+    SharedPreferences.setMockInitialValues(const {});
+    final store = SettingsStore(await SharedPreferences.getInstance());
+
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
           audioHandlerProvider.overrideWithValue(handler),
+          settingsStoreProvider.overrideWithValue(store),
           reconnectingProvider.overrideWith(
             (ref) => reconnecting ?? Stream.value(false),
           ),
@@ -148,8 +158,9 @@ void main() {
 
       // The whole point of the desktop shape. A pointer makes a thin scrub bar
       // usable, so the track position stops being something you have to open a
-      // window to change.
-      expect(find.byType(Slider), findsOneWidget);
+      // window to change. Two sliders: this one and volume, in that order down
+      // the tree.
+      expect(find.byType(Slider), findsNWidgets(2));
       // Elapsed and total, the way Spotify reads. Four minutes exactly here.
       expect(find.text('0:00'), findsOneWidget);
       expect(find.text('4:00'), findsOneWidget);
@@ -216,6 +227,66 @@ void main() {
       final play = tester.getCenter(find.byIcon(Icons.play_arrow));
       final bar = tester.getRect(find.byType(MiniPlayer));
       expect(play.dx, closeTo(bar.center.dx, 1));
+    });
+
+    testWidgets('volume is on the desktop bar and not on the phone', (
+      tester,
+    ) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+      expect(find.byIcon(Icons.volume_up), findsOneWidget);
+
+      // A phone's hardware keys and OS mixer already own this. A second,
+      // app-local level alongside them is a way for the volume to be wrong in
+      // a place nobody thinks to look.
+      await pumpHeight(tester, aboveNavigationBar: true);
+      expect(find.byIcon(Icons.volume_up), findsNothing);
+      expect(find.byIcon(Icons.volume_off), findsNothing);
+    });
+
+    testWidgets('muting and unmuting comes back to where it was', (
+      tester,
+    ) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MiniPlayer)),
+      );
+
+      // Somewhere that is neither end, so "restored" cannot be confused with
+      // "reset to full".
+      final volume = find.byType(Slider).last;
+      await tester.drag(volume, const Offset(-24, 0));
+      await tester.pump();
+      final before = container.read(settingsProvider).volume;
+      expect(before, lessThan(1));
+      expect(before, greaterThan(0));
+
+      await tester.tap(find.byIcon(Icons.volume_down));
+      await tester.pump();
+      expect(container.read(settingsProvider).volume, 0);
+      expect(find.byIcon(Icons.volume_off), findsOneWidget);
+
+      await tester.tap(find.byIcon(Icons.volume_off));
+      await tester.pump();
+      // Dragging to zero and pressing the speaker are the same state to the
+      // engine, so the level to come back to has to be remembered by the
+      // control itself.
+      expect(container.read(settingsProvider).volume, before);
+    });
+
+    testWidgets('the level reaches disk, not just the engine', (tester) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MiniPlayer)),
+      );
+
+      await tester.tap(find.byIcon(Icons.volume_up));
+      await tester.pump();
+
+      // The failure this guards is silent: a volume that works all session and
+      // is back at full the next morning.
+      final prefs = await SharedPreferences.getInstance();
+      expect(prefs.getDouble('settings_volume'), 0);
+      expect(container.read(settingsStoreProvider).read().volume, 0);
     });
 
     testWidgets('nothing overflows at the narrowest desktop width', (

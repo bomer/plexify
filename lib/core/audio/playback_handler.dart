@@ -223,6 +223,25 @@ class PlexifyAudioHandler extends BaseAudioHandler
   @override
   Future<void> pause() => _player.pause();
 
+  /// Output level, 0 to 1.
+  ///
+  /// Applies to this app's own stream only. It is not the system volume and
+  /// deliberately does not try to be: the OS mixer is where a phone's hardware
+  /// keys land, and an app that fought it would leave two numbers to be wrong
+  /// independently.
+  ///
+  /// Not part of the `audio_service` interface, which has no general volume
+  /// call. `androidSetRemoteVolume` exists and is a different thing entirely:
+  /// it is for casting to a device whose volume the phone does not own.
+  Future<void> setVolume(double volume) =>
+      _player.setVolume(volume.clamp(0.0, 1.0));
+
+  /// The level the engine is actually at, which is what the slider follows.
+  ///
+  /// Read from the player rather than from settings so the control cannot drift
+  /// from the thing it controls, in either direction.
+  Stream<double> get volumeStream => _player.volumeStream;
+
   /// Seeks within the current track.
   ///
   /// Ordinary files seek the way anyone would expect. A **transcode cannot**:

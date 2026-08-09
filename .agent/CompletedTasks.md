@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 9 August 2026 · **54 complete**
+**Last updated:** 9 August 2026 · **55 complete**
 
 ---
 
@@ -67,6 +67,7 @@ between the next reader and paying for it twice.
 | 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
 | 52 | Filter the poll, never the sweep | A rating moves no timestamp, so a filtered sweep cannot find the one thing it exists for. Sweep and forced refresh go unfiltered, interval 5 → 15 min. The fake server now applies the filter, which is why the guard is real |
 | 53 | Recover from a handover that lands nowhere | A sticky re-resolve was clearing the failure streak, and the audio cache's own HTTP client was invisible to everything. Together they left playback dead until a restart |
+| 57 | Volume on the desktop bar | Desktop only, because a phone's hardware keys and OS mixer already own the level and a second app-local one is a way for it to be wrong somewhere nobody looks. Persisted, or the slider reads full every launch. Follows the engine rather than the setting, so the control cannot lie about what is making the sound. Mute remembers where it was, since dragging to zero and pressing the speaker are the same state to the player |
 | 56 | Desktop transport bar, Spotify-shaped | Two shapes rather than one that stretches: the phone bar is untouched, the desktop one is three columns with the transport centred against the window and a real scrub bar on it. Left and right carry equal flex, or a long title pushes the play button off-centre and moves it on every track change. Now Playing's sleeve drops to 300 logical, because 420 against a 600px source is a third of upscaling in the place it is looked at hardest, and gains a gradient taken from the artwork's own colours by histogram rather than by averaging, which returns grey for every record ever pressed |
 | 55 | Discovery shelves on Home | Four rows Plex does not publish, because it publishes almost nothing: two computed from the local cache and on screen before the first frame, two from the server and absent when it says no. "Most played in {month}" is counted from `/status/sessions/history/all`, which is the endpoint Plexamp's equivalent row and Plex Web's history both read, and which needs owner access and answers everyone else with an empty container rather than a 403. Ships `DiscoveryProbe` under Sync status, because what a given server offers here is a measurement, not a fact |
 
@@ -780,6 +781,9 @@ for what has.
   edition-word list either earns its keep or reports albums he owns as missing. And that a
   queued torrent lands, gets scanned, and appears — the one path that crosses three systems and
   is only ever end-to-end.
+- **#57**, that the level actually changes on Windows. libmpv is a different engine from
+  ExoPlayer and `setVolume` goes through it; a fake player answers the call and makes no
+  sound either way.
 - **#56**, the two things a test cannot see. That the sleeve on the expanded player is
   actually *sharp* now on James's display, which is the complaint that started it and is a
   judgement about pixels; and that the gradient picks a colour worth having across a real
