@@ -778,6 +778,12 @@ for what has.
   edition-word list either earns its keep or reports albums he owns as missing. And that a
   queued torrent lands, gets scanned, and appears — the one path that crosses three systems and
   is only ever end-to-end.
+- **The recovery work of 9 August**, which is three fixes deep and has been wrong twice. A
+  network that *fades* is the case to try — switching wifi off is carried by the OS event and
+  passes even when the app's own recovery is broken, which is exactly how the one-shot
+  failure report survived #53. Also worth watching: that artwork for albums synced away from
+  home now arrives, and that opening the app cold with no reachable network recovers on its
+  own rather than needing a restart.
 - **#19**, not built yet, but noted here because it is the one task whose *test* matters more
   than its behaviour: a reconcile that treats a partial fetch as authoritative deletes a chunk
   of the library, and the first symptom is albums vanishing.

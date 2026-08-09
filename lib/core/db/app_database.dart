@@ -639,6 +639,10 @@ class AppDatabase extends _$AppDatabase {
       await delete(albums).go();
       await delete(artists).go();
       await delete(syncState).go();
+      // Deliberately not the catalog tables. MBIDs are global, so unlike
+      // ratingKeys there is nothing here that could collide with another
+      // server — and a test asserts they survive, because adding them looks
+      // tidy and nothing else would notice.
     });
   }
 }

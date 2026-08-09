@@ -302,6 +302,50 @@ crosses the scrobble threshold, so the play silently never reaches Plex's histor
 - Tests assert *behaviour that would fail silently*, not coverage for its own sake. Each one
   carries a comment explaining what breaks if it regresses.
 
+### Widget tests, and the four ways they lie
+
+Every one of these cost time in a single session, and none of them presents as a failing
+assertion.
+
+**`pumpAndSettle` never returns while a `CircularProgressIndicator` is on screen.** It spins
+forever by design, so settling waits out the full ten-minute timeout and is reported as a
+hang rather than as a test that should be written differently. Pump explicit durations
+instead. This has now cost two separate rat-holes; `test/acquire_flow_test.dart` shows the
+shape.
+
+**A pending timer fails the test, whatever the assertions said.** `just_audio` runs a
+periodic position timer while playing, so a test that leaves the player going fails at the
+end with a stack trace pointing at `fake_async` and nothing to do with what it was testing.
+Pause before the test ends. The same rule caught a `ConnectionMonitor` heartbeat that had no
+business existing.
+
+**`playbackState` lags the engine by more than a frame.** It is fed from the player through
+`pipe`, so asserting on it immediately after an action reads the state *before*. Assert
+against `FakeJustAudio.player` — which is set synchronously — or the test measures the
+plumbing rather than the behaviour. Note also that the fake only creates a player once a
+queue is loaded, so a bare `mediaItem.add(...)` leaves `players` empty.
+
+**Anything touching `just_audio` needs `tester.runAsync`.** It waits on locks that never
+resolve inside `testWidgets`' fake-async zone. Constructing the handler, loading a queue and
+pausing all have to happen there.
+
+`simulateKeyDownEvent` returns whether the framework claimed the key, which is a precise
+instrument for anything about shortcuts: it distinguishes "handled" from "deliberately
+passed through" without inspecting widget state.
+
+### When a guard's test passes with the guard removed
+
+**The environment is doing the work, not your code.** This happened for real with the
+space-to-play typing guard: a widget test asserted a space in the search box does not pause
+the music, and it passed with the guard deleted, because in a test the framework stops the
+key below the shell. On a device with a live text input connection it does not.
+
+Three tests would have shipped green against code that did nothing. The rule that catches it
+is already here — break what a test guards and confirm it fails — and the resolution when
+the environment cannot be made to discriminate is to **extract the decision and test it
+directly**, then say plainly in the higher-level test that it guards the outcome rather than
+the guard. `lib/shell/typing.dart` and the two tests around it are the worked example.
+
 ---
 
 ## Reading a bug report
@@ -412,6 +456,22 @@ artwork. mpv is failing to create its own file-backed stream cache and falling b
 in-memory demuxer buffer, which `audio_init.dart` sets to 8 MB. Harmless, and worth
 recording because it reads like a Plexify cache error and is the sort of thing that gets
 chased twice.
+
+**Browsing a MusicBrainz discography needs `inc=artist-credits` or every row is anonymous.**
+The search endpoint includes the credit; the browse endpoint does not unless asked. Without
+it every release group comes back attributed to nobody, which then matches nothing in the
+library and reports a complete discography as entirely missing — a wrong answer that looks
+like a working feature.
+
+**A Cover Art Archive 404 is the normal case, not a failure.** Plenty of release groups have
+no uploaded art. It reaches the same placeholder as a Plex item with no thumb, and must not
+be logged or retried as an error.
+
+**Plex records a MusicBrainz id three different ways, and usually not at all.** The modern
+agent puts a `Guid` array on the item with one entry per source; the legacy agent puts a
+single `guid` string; most libraries have neither. `PlexAlbum._mbid` reads both shapes, and
+nothing may depend on the result being present — matching falls back to normalised artist
+and title, which is the path most albums take.
 
 **MusicBrainz rejects a generic user agent with a 503, the same code it uses for rate
 limiting.** Two rules, one status, and neither says which it meant. `MusicBrainzClient` names

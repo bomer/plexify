@@ -63,6 +63,42 @@ void main() {
     ],
   };
 
+  test('signing out does not throw away what MusicBrainz told us', () async {
+    final store = CatalogStore(db);
+    await store.saveAnswer('artist:mb-artist', const [
+      CatalogRelease(mbid: 'mb-1', title: 'OK Computer', artist: 'Radiohead'),
+    ]);
+    await store.saveArtist('Radiohead', mbid: 'mb-artist');
+    await db
+        .into(db.albums)
+        .insert(
+          AlbumsCompanion.insert(
+            ratingKey: 'a1',
+            title: 'In Rainbows',
+            normalisedTitle: 'in rainbows',
+            artistTitle: 'Radiohead',
+            normalisedArtist: 'radiohead',
+          ),
+        );
+
+    // What sign-out and a change of server both run.
+    await db.clearLibrary();
+
+    // **The deliberate exception to "signing out clears every cache".** Every
+    // other table here is keyed on Plex ratingKeys, which are server-scoped, so
+    // keeping them would blend two libraries. MBIDs are global — they name the
+    // same record on any server and to any other tool — so there is nothing to
+    // collide, and wiping them would cost a fresh round of rate-limited lookups
+    // for discographies that have not changed.
+    //
+    // Guarded because it is one line to undo: adding the catalog tables to
+    // `clearLibrary` looks tidy and nothing else would notice.
+    expect(await db.countAlbums(), 0);
+    expect(await db.countCatalogReleases(), 1);
+    expect((await store.answerFor('artist:mb-artist'))?.releases, hasLength(1));
+    expect((await store.artistFor('Radiohead'))?.mbid, 'mb-artist');
+  });
+
   test('a repeated search is answered from the cache', () async {
     final fake = build(
       (_) => {

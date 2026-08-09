@@ -5,9 +5,9 @@ already diverged, so this file wins. See [docs/PLAN.md](../docs/PLAN.md) for the
 rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps, and
 [CompletedTasks.md](CompletedTasks.md) for finished work.
 
-**Last updated:** 7 August 2026
+**Last updated:** 9 August 2026
 
-**Status:** 52 complete · 2 open · 448 tests passing
+**Status:** 52 complete · 2 open · 486 tests passing
 
 ---
 
@@ -150,6 +150,61 @@ metadata edit that produces no such entry, and it moves no timestamp either. The
 unfiltered sweep catches it; the refresh button catches it now. Accepted rather than fixed:
 the alternative is watching another notification type, and James has asked that the sync
 logic not grow more paths.
+
+---
+
+## Loose ends
+
+**Not tasks, and deliberately not in either table above** — [Order](#order) is James's and
+nothing here has been put in it. This is the list to draw from when picking what is next,
+written down so it stops living in one session's head. Each is a real gap with a real
+symptom, roughly by how much it would be missed.
+
+**The failure path is gated by the poll, not by the timeout.** With nothing playing, the
+only thing making requests is the 30-second poll, so three consecutive failures take a
+minute and a half however short the request timeout is. Fine while a transport change is
+reported — that path is immediate — and slow in exactly the case that has no OS signal: a
+network fading. Probing faster while `ConnectionHealth` is already failing would close it
+without adding a mechanism.
+
+**The notification socket drops on a handover and nobody hears it.** It reconnects on its
+own backoff and never tells `ConnectionHealth`, so the earliest and clearest evidence that
+the network moved is discarded. A candidate *trigger* on the existing path, not a fourth
+mechanism (invariant 10).
+
+**"Queued" is never verified.** qBittorrent answers `Ok.` to an add it will later fail, and
+the page-URL case is only the one that was found — a dead tracker or a rejected `.torrent`
+would look identical. Polling `/torrents/info` for the hash a few seconds after adding would
+turn a hopeful message into a true one.
+
+**Artwork that failed while away is not retried in the background.** The `ImageProvider`
+retries when a tile rebuilds, so scrolling past it again works, but a shelf you do not
+revisit stays blank until something forces it. Worth a sweep, or worth deciding explicitly
+that it is not.
+
+**A wrongly matched artist can only be fixed by forgetting every lookup.** Settings has one
+button and it clears the lot. A per-artist "not this person" would be a row in
+`CatalogArtists` and a menu item, and it is the difference between correcting one page and
+re-fetching a library's worth of discographies.
+
+**The version has said 0.9.0 since packaging landed**, through the whole catalog and
+acquisition group and four rounds of recovery fixes. `test/packaging_test.dart` keeps
+pubspec and `PlexIdentity` in step with each other but neither of them with reality.
+
+**Mouse button five is unbound.** Back is wired, forward is not. Two lines if it is wanted.
+
+### Testing gaps worth closing
+
+- **Compact layout navigation is untested.** The pop-to-root behaviour is asserted at
+  desktop width only; the phone's `NavigationBar` goes through the same callback but nothing
+  proves it.
+- **Nothing asserts that the catalog switched off is genuinely off.** The providers return
+  early and `downloadMonitorProvider` resolves to null, but no test walks an artist page with
+  it disabled — and "unobtrusive on the phone" is the whole point of that switch.
+- **The web-page branch of the download sheet has no test.** Tapping one opens a browser
+  rather than queueing; the ranking is covered, the tap is not.
+- **No test covers a second Plex server**, which is why #42 still wants live confirmation.
+  Unchanged, and unfixable without a second server.
 
 ---
 
