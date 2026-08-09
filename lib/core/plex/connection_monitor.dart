@@ -5,7 +5,19 @@ import 'connection_health.dart';
 /// Why a reconnect was attempted. Shown on the Sync status screen, because
 /// "it reconnected" is far less useful when diagnosing than "it reconnected
 /// because the network changed".
-enum ReconnectReason { networkChanged, connectionLost, manual }
+enum ReconnectReason {
+  networkChanged,
+  connectionLost,
+
+  /// There is no connection at all, and never was one this session.
+  ///
+  /// Distinct from [connectionLost] because nothing failed — a launch that
+  /// could not resolve a server has no client, makes no requests, and so can
+  /// never produce a failure to notice.
+  neverConnected,
+
+  manual,
+}
 
 /// Decides when to throw away the current server connection and pick again.
 ///
@@ -22,18 +34,31 @@ enum ReconnectReason { networkChanged, connectionLost, manual }
 /// * **Requests stopped arriving.** Trustworthy but slower, and the only signal
 ///   available on a desktop whose transport never changes.
 ///
-/// Neither is sufficient alone, which is why both feed the same single
+/// * **There is no connection at all.** The third trigger, and the one that
+///   closes a genuine dead end: both of the above need something to be
+///   *happening*. A launch that resolved nothing has no server, therefore no
+///   client, therefore no requests, therefore no failures — so neither of the
+///   other two can ever fire, and the app sits disconnected until the OS
+///   volunteers an event or the user finds the button. Reachable on a cold
+///   start with the network still settling, which is exactly a phone opened
+///   moments after wifi was switched off.
+///
+/// Neither is sufficient alone, which is why all three feed the same single
 /// re-resolve rather than each getting its own recovery path.
 class ConnectionMonitor {
   ConnectionMonitor({
     required ConnectionHealth health,
     required Future<bool> Function() reconnect,
     Stream<void>? networkChanges,
+    bool Function()? needsConnection,
     this.cooldown = const Duration(seconds: 10),
+    this.retryWhenDisconnected = const Duration(seconds: 15),
+    this.maxRetryDelay = const Duration(minutes: 5),
     DateTime Function()? now,
   }) : _health = health,
        _reconnect = reconnect,
        _networkChanges = networkChanges,
+       _needsConnection = needsConnection,
        _now = now ?? DateTime.now;
 
   final ConnectionHealth _health;
@@ -55,8 +80,30 @@ class ConnectionMonitor {
   /// single reconnect can feed itself indefinitely.
   final Duration cooldown;
 
+  /// How soon to try again when there is no connection at all.
+  ///
+  /// Shorter than the cooldown would be pointless and longer would make a
+  /// launch that missed by a second feel broken. Doubles up to
+  /// [maxRetryDelay] for as long as nothing is reachable, so a phone genuinely
+  /// out of signal is not re-racing LAN, remote and relay every fifteen seconds
+  /// for an hour.
+  final Duration retryWhenDisconnected;
+  final Duration maxRetryDelay;
+
+  /// Whether the app wants a connection and does not have one.
+  ///
+  /// A callback rather than a stream because it is asked, never awaited: the
+  /// answer is read at the moment of a tick and never held. Signed out counts
+  /// as *not* needing one, or the retry would run forever on the login screen.
+  final bool Function()? _needsConnection;
+
   StreamSubscription<void>? _lostSubscription;
   StreamSubscription<void>? _networkSubscription;
+  Timer? _retryTimer;
+
+  /// How long the *next* disconnected retry will wait. Doubles while nothing is
+  /// reachable and resets the moment something is.
+  Duration _retryBackoff = Duration.zero;
 
   bool _reconnecting = false;
   DateTime? _lastAttemptAt;
@@ -94,14 +141,63 @@ class ConnectionMonitor {
     _networkSubscription ??= _networkChanges?.listen(
       (_) => unawaited(_attempt(ReconnectReason.networkChanged)),
     );
+    // Armed only while a connection is actually missing, never as a standing
+    // heartbeat. On the login screen and on a healthy launch there is nothing
+    // to retry, and a timer running anyway is one more thing keeping a phone
+    // awake for no reason.
+    if (_needsConnection?.call() ?? false) {
+      _retryBackoff = retryWhenDisconnected;
+      _arm(retryWhenDisconnected);
+    }
   }
 
   Future<void> stop() async {
     await _lostSubscription?.cancel();
     await _networkSubscription?.cancel();
+    _retryTimer?.cancel();
     _lostSubscription = null;
     _networkSubscription = null;
+    _retryTimer = null;
     await _reconnectingChanges.close();
+  }
+
+  /// Checks now whether a connection is still missing, ignoring the schedule.
+  ///
+  /// Exposed for the app-resume hook and for tests, which would otherwise have
+  /// to wait out a real timer.
+  /// Tries again from a standing start, and keeps trying while there is nothing
+  /// to lose.
+  ///
+  /// Self-arming while disconnected and self-cancelling once something answers.
+  /// Called by [start] when a launch has no server, by the timer it sets, and
+  /// by whoever notices the app has dropped back to having none — see
+  /// `connectionMonitorProvider`, which watches for exactly that.
+  Future<void> retryIfDisconnected() async {
+    if (!(_needsConnection?.call() ?? false)) {
+      _retryTimer?.cancel();
+      _retryTimer = null;
+      _retryBackoff = retryWhenDisconnected;
+      return;
+    }
+
+    await _attempt(ReconnectReason.neverConnected);
+
+    // Re-checked after the attempt, so a successful one stops the loop here
+    // rather than arming a timer that will only cancel itself later.
+    if (!(_needsConnection?.call() ?? false)) {
+      _retryBackoff = retryWhenDisconnected;
+      return;
+    }
+
+    final next = _retryBackoff * 2;
+    _retryBackoff = next > maxRetryDelay ? maxRetryDelay : next;
+    _arm(_retryBackoff);
+  }
+
+  void _arm(Duration delay) {
+    if (_reconnectingChanges.isClosed) return;
+    _retryTimer?.cancel();
+    _retryTimer = Timer(delay, () => unawaited(retryIfDisconnected()));
   }
 
   /// Reconnects on demand, ignoring the cooldown.

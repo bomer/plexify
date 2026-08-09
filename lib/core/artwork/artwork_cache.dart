@@ -65,10 +65,25 @@ class ArtworkKey {
 /// costs no writes on the read path. A cache that wrote a row per thumbnail
 /// would put a database write into every scroll frame.
 class ArtworkCache {
-  ArtworkCache({Directory? directory, int? maxBytes, http.Client? httpClient})
-    : _override = directory,
-      maxBytes = maxBytes ?? defaultMaxBytes,
-      _http = httpClient ?? http.Client();
+  ArtworkCache({
+    Directory? directory,
+    int? maxBytes,
+    http.Client? httpClient,
+    this.fetchTimeout = const Duration(seconds: 15),
+  }) : _override = directory,
+       maxBytes = maxBytes ?? defaultMaxBytes,
+       _http = httpClient ?? http.Client();
+
+  /// How long one image may take before it is given up on.
+  ///
+  /// **The concurrency limit is what makes this necessary.** Only four fetches
+  /// run at once and the rest queue behind them, so four requests that hang —
+  /// which is what a degrading connection produces, rather than four that fail
+  /// — block every image for the rest of the session. `package:http` has no
+  /// default timeout, so without this the queue simply never drains, and the
+  /// symptom is a grid of placeholders that never fills even after the network
+  /// comes back.
+  final Duration fetchTimeout;
 
   /// Deliberately modest. Artwork is thumbnails, not audio — the 300px grid
   /// images are a few tens of kilobytes each, so this holds thousands. The
@@ -297,7 +312,9 @@ class ArtworkCache {
     try {
       for (var attempt = 0; attempt < 2; attempt++) {
         try {
-          final response = await _http.get(Uri.parse(url));
+          final response = await _http
+              .get(Uri.parse(url))
+              .timeout(fetchTimeout);
           if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
             return response.bodyBytes;
           }

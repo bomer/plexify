@@ -43,7 +43,7 @@ void main() {
       expect(lost, isEmpty);
     });
 
-    test('reports once per streak, not once per failure', () async {
+    test('keeps reporting while it keeps failing, at a widening gap', () async {
       final health = ConnectionHealth(failureThreshold: 2);
       final lost = <void>[];
       health.lost.listen(lost.add);
@@ -53,9 +53,60 @@ void main() {
       }
       await pumpEventQueue();
 
-      // A genuinely offline device fails every poll forever. Emitting each time
-      // would have the monitor re-racing connections that cannot answer.
-      expect(lost, hasLength(1));
+      // **Once per streak was a dead end**, and it is the bug behind "walking
+      // out of wifi range never recovered". `ConnectionMonitor` deliberately
+      // stops calling `reset()` when a re-resolve lands on the same address, so
+      // with a one-shot emitter the streak survived and the latch survived with
+      // it: nothing was ever reported again and nothing tried a second time.
+      //
+      // Not every failure either. At 2, 4, 8, 16 a device that is genuinely
+      // offline is not re-racing LAN, remote and relay on every poll for as
+      // long as it stays that way.
+      expect(lost, hasLength(3));
+
+      for (var i = 0; i < 6; i++) {
+        health.recordUnreachable();
+      }
+      await pumpEventQueue();
+      expect(lost, hasLength(4), reason: 'the eighth doubling, at 16');
+    });
+
+    test('the gap stops widening rather than drifting towards never', () async {
+      final health = ConnectionHealth(failureThreshold: 1);
+      final lost = <void>[];
+      health.lost.listen(lost.add);
+
+      for (var i = 0; i < 200; i++) {
+        health.recordUnreachable();
+      }
+      await pumpEventQueue();
+
+      // Capped, so a phone left offline overnight still notices within a poll
+      // or two of the network returning rather than hours later.
+      expect(lost.length, greaterThan(5));
+    });
+
+    test('reaching the server re-arms the immediate report', () async {
+      final health = ConnectionHealth(failureThreshold: 2);
+      final lost = <void>[];
+      health.lost.listen(lost.add);
+
+      health.recordUnreachable();
+      health.recordUnreachable();
+      health.recordUnreachable();
+      health.recordUnreachable();
+      await pumpEventQueue();
+      expect(lost, hasLength(2), reason: 'reported at 2 and 4');
+
+      health.recordReachable();
+      health.recordUnreachable();
+      health.recordUnreachable();
+      await pumpEventQueue();
+
+      // Back to the short interval. A connection that worked a moment ago and
+      // has just gone should be retried promptly, not on whatever schedule the
+      // last outage had backed off to.
+      expect(lost, hasLength(3));
     });
 
     test('reset forgets the streak without reporting', () async {
@@ -87,6 +138,28 @@ void main() {
       // 404 means the server answered. Treating it as unreachable would have
       // the app re-racing connections over a missing item.
       expect(health.consecutiveFailures, 0);
+    });
+
+    test('a request that hangs counts as unreachable', () async {
+      final health = ConnectionHealth();
+      final client = HealthReportingClient(
+        MockClient((_) => Completer<http.Response>().future),
+        health,
+        timeout: const Duration(milliseconds: 20),
+      );
+
+      await expectLater(
+        client.get(Uri.parse('http://server/library/sections')),
+        throwsA(anything),
+      );
+
+      // **The difference between walking out of range and switching wifi off.**
+      // A network you are leaving does not refuse connections, it accepts them
+      // and then says nothing, and `package:http` waits indefinitely. Without a
+      // bound the failure count that drives recovery barely moved, so the app
+      // looked like it had given up — while dropping the wifi outright failed
+      // fast and always worked.
+      expect(health.consecutiveFailures, 1);
     });
 
     test('a transport failure counts as unreachable', () async {
@@ -313,6 +386,108 @@ void main() {
       // from a stream listener with nobody to catch it.
       expect(t.monitor.isReconnecting, isFalse);
       expect(t.monitor.attempts, 1);
+    });
+
+    group('never connected at all', () {
+      /// A monitor whose "do we have a server?" answer the test controls.
+      ({ConnectionMonitor monitor, List<int> reconnects}) buildDisconnected({
+        required bool Function() needsConnection,
+        // Long enough that the timer never fires on its own unless a test asks
+        // for a short one. Counting attempts is meaningless if a background
+        // timer is adding to the total mid-assertion.
+        Duration retry = const Duration(seconds: 30),
+      }) {
+        final reconnects = <int>[];
+        final monitor = ConnectionMonitor(
+          health: ConnectionHealth(failureThreshold: 2),
+          needsConnection: needsConnection,
+          retryWhenDisconnected: retry,
+          maxRetryDelay: const Duration(seconds: 60),
+          cooldown: Duration.zero,
+          reconnect: () async {
+            reconnects.add(reconnects.length);
+            return false;
+          },
+        );
+        monitor.start();
+        addTearDown(monitor.stop);
+        return (monitor: monitor, reconnects: reconnects);
+      }
+
+      test('retries when a launch never resolved a server', () async {
+        final t = buildDisconnected(needsConnection: () => true);
+
+        await t.monitor.retryIfDisconnected();
+        await t.monitor.retryIfDisconnected();
+
+        // **The dead end this closes.** Both other triggers need something to
+        // be happening: no server means no client, no client means no
+        // requests, and no requests means nothing can ever fail. A cold start
+        // that missed — the network still settling a second after wifi went
+        // off — sat disconnected until the OS volunteered an event or the app
+        // was killed and reopened.
+        expect(t.reconnects, hasLength(2));
+        expect(t.monitor.lastReason, ReconnectReason.neverConnected);
+      });
+
+      test('does nothing once something has answered', () async {
+        final t = buildDisconnected(needsConnection: () => false);
+
+        await t.monitor.retryIfDisconnected();
+        await t.monitor.retryIfDisconnected();
+
+        // Connected, or signed out. Either way there is nothing to resolve, and
+        // re-racing connections that are working would tear down a client
+        // mid-request for no reason.
+        expect(t.reconnects, isEmpty);
+      });
+
+      test('keeps trying on its own until something answers', () async {
+        var connected = false;
+        final t = buildDisconnected(
+          needsConnection: () => !connected,
+          retry: const Duration(milliseconds: 5),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+        final whileOffline = t.reconnects.length;
+        expect(whileOffline, greaterThan(1), reason: 'it re-armed itself');
+
+        connected = true;
+        await Future<void>.delayed(const Duration(milliseconds: 60));
+
+        // And stops. A loop that kept re-racing after something answered would
+        // tear down a working client mid-request, forever.
+        expect(t.reconnects, hasLength(whileOffline));
+      });
+
+      test('arms nothing at all when there is nothing to connect', () async {
+        final t = buildDisconnected(
+          needsConnection: () => false,
+          retry: const Duration(milliseconds: 5),
+        );
+
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+
+        // A standing heartbeat on the login screen keeps a phone awake for a
+        // question with no answer. It also leaked into every widget test that
+        // built the shell, which is how it was noticed.
+        expect(t.reconnects, isEmpty);
+      });
+
+      test('stops retrying once stopped', () async {
+        final t = buildDisconnected(
+          needsConnection: () => true,
+          retry: const Duration(milliseconds: 5),
+        );
+        await t.monitor.stop();
+
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+
+        // A timer that outlives the monitor would keep invalidating providers
+        // after sign-out, which is the one moment the graph is being torn down.
+        expect(t.reconnects, isEmpty);
+      });
     });
 
     test('stop unsubscribes from both triggers', () async {

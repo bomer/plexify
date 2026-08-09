@@ -270,6 +270,11 @@ final connectionMonitorProvider = Provider<ConnectionMonitor>((ref) {
   final monitor = ConnectionMonitor(
     health: ref.watch(connectionHealthProvider),
     networkChanges: ref.watch(networkChangesProvider),
+    // True when the app wants a connection and has never got one. Signing out
+    // makes it false, so the retry does not run on the login screen.
+    needsConnection: () =>
+        ref.read(authTokenProvider) != null &&
+        ref.read(plexServerProvider) == null,
     reconnect: () async {
       // Invalidating rebuilds the client, the notification socket and the sync
       // scheduler against whichever address wins the race this time. The album
@@ -285,6 +290,13 @@ final connectionMonitorProvider = Provider<ConnectionMonitor>((ref) {
     },
   );
   monitor.start();
+  // Re-arms the disconnected retry whenever the app drops back to having no
+  // server — signing out and back into one that will not answer, most of all.
+  // Without this the retry loop could only ever be started by a launch that
+  // failed, and every later route to having nothing would be a dead end again.
+  ref.listen(plexServerProvider, (_, next) {
+    if (next == null) unawaited(monitor.retryIfDisconnected());
+  });
   ref.onDispose(monitor.stop);
   return monitor;
 });
@@ -683,6 +695,7 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
     lastReconnectReason: switch (monitor.lastReason) {
       ReconnectReason.networkChanged => 'The network changed',
       ReconnectReason.connectionLost => 'Requests stopped arriving',
+      ReconnectReason.neverConnected => 'Never connected this session',
       ReconnectReason.manual => 'Asked for it',
       null => null,
     },

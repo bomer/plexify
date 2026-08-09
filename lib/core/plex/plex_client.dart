@@ -394,16 +394,27 @@ class PlexClient {
   /// Plex's thumb paths aren't directly fetchable — they must go through the
   /// photo transcoder, which also lets us request a sensible size instead of
   /// pulling full-resolution art into a list cell.
+  /// **The `url` parameter is relative, and that is not cosmetic.** It used to
+  /// be absolute — `{baseUrl}{thumb}` — which asks the server to fetch the
+  /// image *from itself over the address this client happens to be using*. On
+  /// the LAN that is harmless. Off it, the server is told to reach its own
+  /// public address, which needs hairpin NAT, or its plex.tv relay address,
+  /// which it has no business dialling at all. Either way the transcoder
+  /// fails, and it fails the same way every time — so artwork for anything
+  /// synced while away never appeared, and never appeared later either,
+  /// because there was nothing transient about it.
+  ///
+  /// A relative path is resolved inside the server with no network hop, which
+  /// is what Plex's own clients send.
   String? artworkUrl(String? thumb, {int width = 300, int height = 300}) {
     if (thumb == null || thumb.isEmpty) return null;
-    final inner = '${_server.baseUrl}$thumb';
     final uri = Uri.parse('${_server.baseUrl}/photo/:/transcode').replace(
       queryParameters: {
         'width': '$width',
         'height': '$height',
         'minSize': '1',
         'upscale': '1',
-        'url': inner,
+        'url': thumb,
         'X-Plex-Token': _server.token,
       },
     );

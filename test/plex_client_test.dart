@@ -255,11 +255,29 @@ void main() {
       final uri = Uri.parse(url!);
       expect(uri.path, '/photo/:/transcode');
       expect(uri.queryParameters['width'], '300');
+      // **Relative, and this is the fix for "artwork never arrived off the
+      // LAN".** It used to be `{baseUrl}{thumb}`, which asks the server to
+      // fetch the image from itself over whichever address this client happens
+      // to hold. At home that is harmless. Away, it tells the server to dial
+      // its own public address — needing hairpin NAT — or its plex.tv relay,
+      // which it has no business calling at all. The transcoder fails the same
+      // way every time, so anything synced while away had no artwork then and
+      // no artwork after a restart either.
       expect(
         uri.queryParameters['url'],
-        'https://tower.example:32400/library/metadata/45820/thumb/1699887',
+        '/library/metadata/45820/thumb/1699887',
       );
       expect(uri.queryParameters['X-Plex-Token'], 'servertoken');
+    });
+
+    test('the artwork URL carries no address but its own', () {
+      // The server's address appears once, as the host being asked. A second
+      // copy inside the query is what made this route-dependent.
+      final url = clientReturning(
+        '',
+      ).artworkUrl('/library/metadata/45820/thumb/1699887')!;
+
+      expect(url.indexOf('tower.example'), url.lastIndexOf('tower.example'));
     });
 
     test('artwork is null when the item has no thumb', () {

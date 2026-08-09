@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -36,6 +37,40 @@ void main() {
       }),
     );
   }
+
+  test('a hung fetch gives up rather than blocking the queue', () async {
+    final started = <String>[];
+    final cache = ArtworkCache(
+      directory: directory,
+      httpClient: MockClient((request) {
+        started.add(request.url.toString());
+        // Never answers. A degrading connection produces this rather than a
+        // clean failure: the socket opens and then nothing comes back.
+        return Completer<http.Response>().future;
+      }),
+      fetchTimeout: const Duration(milliseconds: 20),
+    );
+
+    // One more than the concurrency limit, so the last one can only run if the
+    // hung ones have released their slots.
+    final waiting = [
+      for (var i = 0; i <= ArtworkCache.maxConcurrentFetches; i++)
+        cache.load(ArtworkKey('/thumb/$i', 300), 'https://tower/$i'),
+    ];
+    final results = await Future.wait(waiting);
+
+    // **Without a timeout this never returns.** `package:http` waits
+    // indefinitely, so four hung requests hold every slot and every image
+    // behind them waits for the rest of the session — a grid of placeholders
+    // that stays empty even after the network comes back.
+    expect(results.every((bytes) => bytes == null), isTrue);
+    expect(
+      started.length,
+      greaterThan(ArtworkCache.maxConcurrentFetches),
+      reason: 'the queue drained rather than jamming',
+    );
+    expect(cache.lastError, isNotNull);
+  });
 
   /// The URL for a thumb, as `PlexClient.artworkUrl` builds it: base address
   /// and token both embedded, and both liable to change.

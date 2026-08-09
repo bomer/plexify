@@ -323,6 +323,9 @@ routinely not the place at fault:
 | "qBittorrent says 403 but works in a browser" | Almost never the password. Either `Referer` does not match `Host` down to the port, or the address is banned for repeated failed logins — and retrying, the obvious response, is what extends the ban |
 | "It said Queued and nothing downloaded" | Not the add call, which returned `Ok.` The plugin handed back a *page* URL and qBittorrent failed decoding it in its own log, where the app cannot see |
 | "Clicking a song queues it but does not play" | Not the queue. `skipToQueueItem` seeked and never called `play`, so it inherited whatever state the player was in — and launch restores **paused** on purpose |
+| "Wifi off recovers, walking out of range does not" | Not two symptoms of one bug. Switching wifi off is carried by the OS event; drifting out fires none and hangs instead of failing, so it needed the failure path to work — and that had been one-shot since #53 |
+| "Artwork never arrived for albums synced on 5G" | Not the cache, and not the network. The transcoder was being told to fetch the image from the server's own remote address |
+| "Opened it on cellular and it never connected" | Not discovery. Nothing retried, because with no server there is no client and therefore no failure for anything to notice |
 | "Home does not take me home from an album" | Not the button. Each tab owns a navigator, so an album opened from a Home shelf sits on Home's stack; tapping Home changed no state, so nothing moved |
 
 In six of the first seven, a competent-looking fix to the named component was within reach and
@@ -669,6 +672,49 @@ still dead, and the cooldown then held off the next attempt. `reconnect` now ret
 the address actually changed, and the failure streak survives when it did not. Related to but
 distinct from the trap below: that one is about never clearing the server, this one is about
 not mistaking stickiness for recovery.
+
+**A one-shot "connection lost" report is a dead end, and #53 created one.**
+`ConnectionHealth` emitted once per streak and re-armed only on `reset()` — which
+#53 correctly stopped calling when a re-resolve landed on the same address. Streak
+preserved *and* latch preserved means the failure is never reported again, so the
+second attempt never happens and recovery falls entirely to the OS volunteering a
+connectivity event. It reports at 3, 6, 12, 24… failures now, capped, so a
+connection that has just gone is retried promptly and a phone offline for an hour
+is not re-racing LAN, remote and relay all hour.
+
+**Switching wifi off and walking out of range are not the same test.** Switching
+it off fires an OS connectivity event and a fast connection refusal; drifting out
+of range often fires *no* event — Android keeps the interface associated long
+after the route has gone — and requests hang rather than fail. Anything claiming
+to fix reconnection has to be tried the second way, because the first way is
+carried entirely by the OS signal and passes even when the app's own recovery is
+broken.
+
+**`package:http` has no default timeout, and a degrading network is what that
+costs.** A wifi you are leaving accepts connections and then says nothing, so
+every request hung for however long the OS eventually decided. The failure count
+that drives recovery barely moved. `HealthReportingClient` bounds each request at
+12s; `ArtworkCache` bounds each fetch at 15s, where it matters more than it looks
+because only four run at once — four hung fetches held every slot and no image
+loaded again for the rest of the session.
+
+**The artwork URL must carry a *relative* path.** `artworkUrl` used to pass
+`{baseUrl}{thumb}` as the transcoder's `url` parameter, which asks the server to
+fetch the image from itself over whichever address the client happens to hold. On
+the LAN that is harmless; off it, the server is told to dial its own public
+address (needing hairpin NAT) or its plex.tv relay. It fails identically every
+time, so artwork for anything synced while away never appeared and never appeared
+after a restart either — which is what distinguishes it from a flaky network.
+
+**A launch that never connected has nothing that can fail.** Both other recovery
+triggers need something to be happening: no server means no client, no client
+means no requests, no requests means no failures. A cold start with the network
+still settling — a phone opened moments after wifi went off — sat disconnected
+until the OS spoke up or the app was killed. `ConnectionMonitor` now retries from
+a standing start, armed only while a connection is genuinely missing and backing
+off while it stays that way. **Never as a standing heartbeat**: that leaked a
+pending timer into every widget test building the shell, which is how the first
+version was caught.
 
 **Turning "not connected" into a state you cannot leave.** The first cut of #41 let a failed
 re-resolve clear the server. That reads as honest and is a dead end: no server means no
