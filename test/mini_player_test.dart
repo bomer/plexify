@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:plexify/core/audio/playback_handler.dart';
 import 'package:plexify/core/providers.dart';
 import 'package:plexify/features/player/mini_player.dart';
+import 'package:plexify/features/player/player_providers.dart';
 
 import 'support/fake_just_audio.dart';
 
@@ -17,12 +18,24 @@ void main() {
 
   /// A phone-shaped viewport with a gesture-bar inset, which is the condition
   /// the height bug needed — on a device with no inset it looked fine.
+  ///
+  /// [width] decides which of the bar's two shapes is built, since the split is
+  /// on available width rather than on platform.
   Future<double> pumpHeight(
     WidgetTester tester, {
     required bool aboveNavigationBar,
     double bottomInset = 34,
     Stream<bool>? reconnecting,
+    double width = 400,
   }) async {
+    // **The surface has to be resized, not just the MediaQuery.** Overriding
+    // MediaQuery alone decides which shape gets built and leaves it laid out
+    // in the default 800x600 window, so a "1200px" test measured a 800px bar
+    // and the first centring assertion failed against a number that was right.
+    tester.view.physicalSize = Size(width, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+
     // Built inside `runAsync` because `AudioPlayer`'s initialisation waits on
     // locks that never resolve in `testWidgets`' fake-async zone — the whole
     // test hangs rather than failing.
@@ -48,7 +61,7 @@ void main() {
         ],
         child: MediaQuery(
           data: MediaQueryData(
-            size: const Size(400, 900),
+            size: Size(width, 900),
             padding: EdgeInsets.only(bottom: bottomInset),
           ),
           child: MaterialApp(
@@ -120,5 +133,99 @@ void main() {
     // grew and shrank as the connection came and went would shift everything
     // above it.
     expect(during, settled);
+  });
+
+  /// The desktop bar, which is a different widget tree rather than the phone
+  /// one stretched. Width decides which is built, so a narrow window on a
+  /// desktop gets the phone shape and these are all width tests.
+  group('with room for the full transport', () {
+    const wide = 1200.0;
+
+    testWidgets('scrubbing is on the bar itself, not only in Now Playing', (
+      tester,
+    ) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+
+      // The whole point of the desktop shape. A pointer makes a thin scrub bar
+      // usable, so the track position stops being something you have to open a
+      // window to change.
+      expect(find.byType(Slider), findsOneWidget);
+      // Elapsed and total, the way Spotify reads. Four minutes exactly here.
+      expect(find.text('0:00'), findsOneWidget);
+      expect(find.text('4:00'), findsOneWidget);
+    });
+
+    testWidgets('the phone bar has no scrub bar', (tester) async {
+      await pumpHeight(tester, aboveNavigationBar: true);
+
+      // Deliberate rather than missing: a 2px-tall target is not something a
+      // thumb can hit, and getting it wrong stops playback where it is.
+      expect(find.byType(Slider), findsNothing);
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+    });
+
+    testWidgets('shuffle and repeat reach the bar', (tester) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+
+      // Both were expanded-player-only, which meant turning shuffle on was
+      // three interactions from a screen that had the room for one.
+      expect(find.byIcon(Icons.shuffle), findsOneWidget);
+      expect(find.byIcon(Icons.repeat), findsOneWidget);
+      expect(find.byIcon(Icons.skip_previous), findsOneWidget);
+      expect(find.byIcon(Icons.skip_next), findsOneWidget);
+      expect(find.byIcon(Icons.play_arrow), findsOneWidget);
+    });
+
+    testWidgets('the phone bar keeps its three buttons and no more', (
+      tester,
+    ) async {
+      await pumpHeight(tester, aboveNavigationBar: true);
+
+      expect(find.byIcon(Icons.shuffle), findsNothing);
+      expect(find.byIcon(Icons.repeat), findsNothing);
+      expect(find.byIcon(Icons.queue_music), findsNothing);
+    });
+
+    testWidgets('the queue button opens Now Playing, where the queue is', (
+      tester,
+    ) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(MiniPlayer)),
+      );
+      expect(container.read(nowPlayingExpandedProvider), isFalse);
+
+      await tester.tap(find.byIcon(Icons.queue_music));
+      await tester.pump();
+
+      // Up Next has always lived inside the expanded player. This is a way in
+      // that says so, rather than a second copy of the list to keep in step.
+      expect(container.read(nowPlayingExpandedProvider), isTrue);
+    });
+
+    testWidgets('the transport stays centred whatever the title is', (
+      tester,
+    ) async {
+      await pumpHeight(tester, aboveNavigationBar: false, width: wide);
+
+      // Left and right carry equal flex for this reason. Centred against
+      // what is left over after the title takes what it wants, the play
+      // button would sit visibly off to one side and move on every track
+      // change.
+      final play = tester.getCenter(find.byIcon(Icons.play_arrow));
+      final bar = tester.getRect(find.byType(MiniPlayer));
+      expect(play.dx, closeTo(bar.center.dx, 1));
+    });
+
+    testWidgets('nothing overflows at the narrowest desktop width', (
+      tester,
+    ) async {
+      // One pixel above the breakpoint, where the three columns have least to
+      // work with and the centre one still has to fit five buttons, two
+      // timestamps and a slider.
+      await pumpHeight(tester, aboveNavigationBar: false, width: 801);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

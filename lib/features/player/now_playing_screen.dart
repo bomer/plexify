@@ -4,10 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/audio/playback_handler.dart';
 import '../../core/providers.dart';
+import '../../shell/layout.dart';
 import '../library/artist_detail_screen.dart';
 import '../library/library_screen.dart' show openAlbum;
 import '../library/artwork.dart';
 import 'player_providers.dart';
+import 'seek_control.dart';
+import 'transport_buttons.dart';
 
 /// The expanded player.
 ///
@@ -24,44 +27,102 @@ class NowPlayingScreen extends ConsumerWidget {
 
     return Material(
       color: theme.colorScheme.surface,
-      child: SafeArea(
-        child: StreamBuilder<MediaItem?>(
-          stream: handler.mediaItem,
-          builder: (context, snapshot) {
-            final item = snapshot.data;
-            if (item == null) return const SizedBox.shrink();
+      child: StreamBuilder<MediaItem?>(
+        stream: handler.mediaItem,
+        builder: (context, snapshot) {
+          final item = snapshot.data;
+          if (item == null) return const SizedBox.shrink();
 
-            return Column(
-              children: [
-                _DragHandle(
-                  onCollapse: () =>
-                      ref.read(nowPlayingExpandedProvider.notifier).state =
-                          false,
-                ),
-                Expanded(
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: Column(
-                      children: [
-                        _Artwork(item: item),
-                        const SizedBox(height: 32),
-                        _TrackInfo(item: item),
-                        const SizedBox(height: 24),
-                        _SeekBar(handler: handler, duration: item.duration),
-                        const SizedBox(height: 8),
-                        _TransportControls(handler: handler),
-                        const SizedBox(height: 24),
-                        _UpNext(handler: handler),
-                        const SizedBox(height: 24),
-                      ],
+          return _Backdrop(
+            thumb: item.extras?['thumb'] as String?,
+            child: SafeArea(
+              child: Column(
+                children: [
+                  _DragHandle(
+                    onCollapse: () =>
+                        ref.read(nowPlayingExpandedProvider.notifier).state =
+                            false,
+                  ),
+                  Expanded(
+                    child: SingleChildScrollView(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: Column(
+                        children: [
+                          _Artwork(item: item),
+                          const SizedBox(height: 32),
+                          _TrackInfo(item: item),
+                          const SizedBox(height: 24),
+                          SeekControl(
+                            handler: handler,
+                            duration: item.duration,
+                          ),
+                          const SizedBox(height: 8),
+                          _TransportControls(handler: handler),
+                          const SizedBox(height: 24),
+                          _UpNext(handler: handler),
+                          const SizedBox(height: 24),
+                        ],
+                      ),
                     ),
                   ),
-                ),
-              ],
-            );
-          },
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+/// A wash of colour taken from the sleeve, behind everything else.
+///
+/// The colour is asked for asynchronously and is null until it arrives, and
+/// null again for a cover that is genuinely monochrome, so this has to look
+/// deliberate with no colour at all rather than merely unfinished. It fades in
+/// over a third of a second: appearing instantly on every track change reads as
+/// a flicker, and the eye notices a hard cut in a large flat area far more than
+/// it notices a slow one.
+///
+/// Stops well short of the bottom. A full-height tint is a coloured screen
+/// rather than a lit one, and the queue at the bottom needs ordinary contrast
+/// to stay readable.
+class _Backdrop extends ConsumerWidget {
+  const _Backdrop({required this.thumb, required this.child});
+
+  final String? thumb;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final path = thumb;
+    final colour = path == null
+        ? null
+        : ref.watch(artworkColourProvider(path)).valueOrNull;
+
+    // Kept well under half opacity: the sleeve's own colour at full strength
+    // fights the artwork it came from, and light covers would leave white text
+    // on a pale wash.
+    final tint = colour == null
+        ? theme.colorScheme.surface
+        : Color.alphaBlend(
+            colour.withValues(alpha: 0.38),
+            theme.colorScheme.surface,
+          );
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [tint, theme.colorScheme.surface],
+          stops: const [0, 0.65],
         ),
       ),
+      child: child,
     );
   }
 }
@@ -114,6 +175,18 @@ class _DragHandle extends StatelessWidget {
   }
 }
 
+/// The sleeve.
+///
+/// **Smaller on the desktop than the space allows, deliberately.** It used to
+/// fill 420 logical pixels, which on any modern display is 840 physical, and
+/// Plex is asked for 600 — so the picture was upscaled by a third and looked
+/// soft in exactly the place it is being looked at hardest. Plenty of covers on
+/// the server are not much above 600 to begin with, so asking for more would
+/// often be asking Plex to upscale instead, which is worse. 300 logical against
+/// a 600px source is crisp at 2x and merely correct at 1x.
+///
+/// A phone has no such choice: 300 in the middle of a 400-wide screen is a
+/// stamp, so it keeps the full width it always had.
 class _Artwork extends StatelessWidget {
   const _Artwork({required this.item});
 
@@ -121,14 +194,31 @@ class _Artwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final maxWidth = isCompactLayout(context) ? 420.0 : 300.0;
+
     return Center(
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 420),
+        constraints: BoxConstraints(maxWidth: maxWidth),
         child: AspectRatio(
           aspectRatio: 1,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(12),
-            child: Artwork(thumb: item.extras?['thumb'] as String?, size: 600),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  blurRadius: 32,
+                  offset: const Offset(0, 12),
+                ),
+              ],
+            ),
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Artwork(
+                thumb: item.extras?['thumb'] as String?,
+                size: 600,
+              ),
+            ),
           ),
         ),
       ),
@@ -161,99 +251,6 @@ class _TrackInfo extends StatelessWidget {
   }
 }
 
-/// Scrub bar.
-///
-/// While dragging, the slider follows the finger rather than the position
-/// stream — otherwise every incoming position tick would yank the thumb back
-/// and scrubbing would be unusable.
-class _SeekBar extends StatefulWidget {
-  const _SeekBar({required this.handler, required this.duration});
-
-  final PlexifyAudioHandler handler;
-  final Duration? duration;
-
-  @override
-  State<_SeekBar> createState() => _SeekBarState();
-}
-
-class _SeekBarState extends State<_SeekBar> {
-  double? _dragValue;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final total = widget.duration ?? Duration.zero;
-    final totalMs = total.inMilliseconds.toDouble();
-
-    return StreamBuilder<Duration>(
-      stream: widget.handler.player.positionStream,
-      builder: (context, snapshot) {
-        final position = snapshot.data ?? Duration.zero;
-        final positionMs = position.inMilliseconds.toDouble().clamp(
-          0.0,
-          totalMs,
-        );
-        final value = _dragValue ?? positionMs;
-
-        return Column(
-          children: [
-            SliderTheme(
-              data: SliderTheme.of(context).copyWith(
-                trackHeight: 3,
-                thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 6),
-                overlayShape: const RoundSliderOverlayShape(overlayRadius: 16),
-              ),
-              child: Slider(
-                min: 0,
-                // A zero max would make the Slider assert; keep it valid until
-                // the duration is known.
-                max: totalMs <= 0 ? 1 : totalMs,
-                value: totalMs <= 0 ? 0 : value.clamp(0.0, totalMs),
-                onChanged: totalMs <= 0
-                    ? null
-                    : (v) => setState(() => _dragValue = v),
-                onChangeEnd: (v) {
-                  widget.handler.seek(Duration(milliseconds: v.round()));
-                  setState(() => _dragValue = null);
-                },
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(
-                    _format(Duration(milliseconds: value.round())),
-                    style: theme.textTheme.bodySmall,
-                  ),
-                  Text(
-                    // Remaining rather than total — more useful mid-track.
-                    '-${_format(total - Duration(milliseconds: value.round()))}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
-    );
-  }
-
-  static String _format(Duration d) {
-    if (d.isNegative) return '0:00';
-    final minutes = d.inMinutes;
-    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    if (minutes >= 60) {
-      final hours = d.inHours;
-      final mins = minutes.remainder(60).toString().padLeft(2, '0');
-      return '$hours:$mins:$seconds';
-    }
-    return '$minutes:$seconds';
-  }
-}
-
 class _TransportControls extends StatelessWidget {
   const _TransportControls({required this.handler});
 
@@ -273,7 +270,7 @@ class _TransportControls extends StatelessWidget {
         return Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            _ShuffleButton(handler: handler, state: state),
+            ShuffleButton(handler: handler, state: state),
             const SizedBox(width: 8),
             IconButton(
               iconSize: 40,
@@ -305,73 +302,10 @@ class _TransportControls extends StatelessWidget {
               onPressed: handler.skipToNext,
             ),
             const SizedBox(width: 8),
-            _RepeatButton(handler: handler, state: state),
+            RepeatButton(handler: handler, state: state),
           ],
         );
       },
-    );
-  }
-}
-
-/// Shuffle, reading its state from the session rather than holding its own.
-///
-/// The handler is the only place that knows whether shuffle is on, and it
-/// publishes that in `playbackState` so the lock screen agrees. A button
-/// holding its own boolean would disagree with the lock screen the first time
-/// either one was used.
-class _ShuffleButton extends StatelessWidget {
-  const _ShuffleButton({required this.handler, required this.state});
-
-  final PlexifyAudioHandler handler;
-  final PlaybackState? state;
-
-  @override
-  Widget build(BuildContext context) {
-    final on = state?.shuffleMode == AudioServiceShuffleMode.all;
-    return IconButton(
-      tooltip: on ? 'Shuffle on' : 'Shuffle off',
-      isSelected: on,
-      color: on ? Theme.of(context).colorScheme.primary : null,
-      icon: const Icon(Icons.shuffle),
-      onPressed: () => handler.setShuffleMode(
-        on ? AudioServiceShuffleMode.none : AudioServiceShuffleMode.all,
-      ),
-    );
-  }
-}
-
-/// Repeat, cycling off, all, one.
-///
-/// Three states on one button because that is the order people expect, and
-/// two controls for one idea would take room the transport needs.
-class _RepeatButton extends StatelessWidget {
-  const _RepeatButton({required this.handler, required this.state});
-
-  final PlexifyAudioHandler handler;
-  final PlaybackState? state;
-
-  @override
-  Widget build(BuildContext context) {
-    final mode = state?.repeatMode ?? AudioServiceRepeatMode.none;
-    final primary = Theme.of(context).colorScheme.primary;
-
-    return IconButton(
-      tooltip: switch (mode) {
-        AudioServiceRepeatMode.one => 'Repeat this track',
-        AudioServiceRepeatMode.none => 'Repeat off',
-        _ => 'Repeat all',
-      },
-      isSelected: mode != AudioServiceRepeatMode.none,
-      color: mode == AudioServiceRepeatMode.none ? null : primary,
-      icon: Icon(
-        mode == AudioServiceRepeatMode.one ? Icons.repeat_one : Icons.repeat,
-      ),
-      onPressed: () => handler.setRepeatMode(switch (mode) {
-        AudioServiceRepeatMode.none => AudioServiceRepeatMode.all,
-        AudioServiceRepeatMode.all ||
-        AudioServiceRepeatMode.group => AudioServiceRepeatMode.one,
-        AudioServiceRepeatMode.one => AudioServiceRepeatMode.none,
-      }),
     );
   }
 }

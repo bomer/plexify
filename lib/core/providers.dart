@@ -5,7 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../features/acquire/acquire_controller.dart';
+import 'package:flutter/painting.dart' show Color, ImageProvider;
+
 import 'artwork/artwork_cache.dart';
+import 'artwork/artwork_image.dart';
+import 'artwork/dominant_colour.dart';
 import 'audio/audio_cache.dart';
 import 'audio/playback_handler.dart';
 import 'audio/timeline_reporter.dart';
@@ -1036,6 +1040,33 @@ final genreShelfProvider = FutureProvider<DiscoveryShelf?>((ref) async {
     }
   }
   return null;
+});
+
+/// A colour taken from one piece of artwork, for tinting behind it.
+///
+/// Asks for the artwork at the size the transport bar already uses, so this is
+/// a hit on an image that is almost always decoded already rather than a second
+/// fetch of the same sleeve at a size nothing displays.
+///
+/// Null is a normal answer, not a failure to handle: no artwork, a sleeve that
+/// will not decode, a disconnected server, or a cover with nothing in it but
+/// black and white. Every caller falls back to the theme.
+final artworkColourProvider = FutureProvider.family<Color?, String>((
+  ref,
+  thumb,
+) async {
+  if (thumb.isEmpty) return null;
+  final url = ref
+      .watch(plexClientProvider)
+      ?.artworkUrl(thumb, width: 300, height: 300);
+
+  final ImageProvider provider = PlexArtwork(
+    thumb: thumb,
+    size: 300,
+    cache: ref.watch(artworkCacheProvider),
+    url: url,
+  );
+  return colourOfImage(provider);
 });
 
 /// Tracks in a playlist, cached with write-through on open.

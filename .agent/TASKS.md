@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 53 complete · 2 open · 518 tests passing
+**Status:** 54 complete · 2 open · 545 tests passing
 
 ---
 
@@ -207,6 +207,16 @@ Run the probe and the answer decides whether it is worth wiring.
 so they resolve on the first Home build of a session and hold that answer until something
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
+
+**The desktop bar has no volume control, no lyrics and no device picker.** Spotify's right
+column carries four things and Plexify's carries one. Volume is the one worth having: the
+engine exposes it, and the OS mixer is a poor substitute when the point is to duck one app.
+The others have nothing behind them.
+
+**Nothing tests the gradient end to end.** `dominantColour` is covered thoroughly as a pure
+function and `colourOfImage` is not covered at all, because it needs a real decoded image and
+a resolved `ImageProvider`. The join between them is one call, but it is the part that
+silently returns null for the whole library if the artwork cache changes shape.
 
 **The genre row needs the network and vanishes without it.** Genres are not synced into
 drift, because they are a many-to-many that would want its own table and its own delta path

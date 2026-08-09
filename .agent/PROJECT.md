@@ -826,6 +826,29 @@ owner access and answers everyone else with an empty `MediaContainer` rather tha
 tell them apart, which is why the discovery probe reports the row count rather than a verdict
 and says in words what an empty one means.
 
+**Overriding `MediaQuery` in a widget test decides the layout but does not resize the
+window.** A test that hands the tree a 1200px `MediaQueryData` gets the desktop branch built
+and then laid out inside the default 800x600 surface, so anything measured against the number
+the test passed in is measured against a lie. The centring assertion in `mini_player_test`
+caught this on its first run, reporting 400 where 600 was expected, and the code was right the
+whole time. `tester.view.physicalSize` is the other half, and asserting against
+`tester.getRect` of the widget rather than against a constant is better still.
+
+**A background colour taken from artwork must be a histogram, not an average.** Averaging a
+sleeve returns grey almost every time, because opposite hues cancel: a black metal cover and a
+Motown one come out the same murk, and the feature reads as broken rather than subtle. Three
+further rules, each bought by a real kind of cover: near-black and near-white are excluded,
+since borders and letterboxing are often the largest single block of pixels on the image;
+saturation is *weighted* rather than required, so a large muted field beats a small vivid one
+and monochrome covers still get an answer; and the winning bucket's own mean is returned
+rather than its centre, because 4-bit quantisation visibly misses on skin tones.
+
+**Blurry artwork is usually an upscale, and asking for more pixels can make it worse.** The
+expanded player drew the sleeve at 420 logical pixels while asking Plex for 600, which on any
+2x display is 840 physical against a 600 source. The fix is a smaller draw, not a bigger
+request: many covers on the server are not much above 600 to begin with, so raising the ask
+just moves the upscaling into Plex's transcoder.
+
 **Plexamp's extra rows are not hubs.** Worth writing down because it looks like an endpoint
 problem and is not. Plexamp shows rows Plex Web does not, and the two disagree about their
 contents, because the rows are *aggregates somebody computes* rather than lists the server

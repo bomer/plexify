@@ -12,6 +12,7 @@ import 'artwork.dart';
 import '../player/playing_indicator.dart';
 import 'star_rating.dart';
 import 'track_rating_sheet.dart';
+import 'track_totals.dart';
 
 /// Track list for one album. Tapping a track replaces the queue and plays from
 /// that point — the flat replace semantics agreed for v1.
@@ -42,7 +43,12 @@ class AlbumDetailScreen extends ConsumerWidget {
           itemCount: items.length + 1,
           itemBuilder: (context, i) {
             if (i == 0) {
-              return _Header(album: album, artUrl: art, theme: theme);
+              return _Header(
+                album: album,
+                artUrl: art,
+                theme: theme,
+                tracks: items,
+              );
             }
             final index = i - 1;
             final track = items[index];
@@ -204,11 +210,13 @@ class _Header extends ConsumerWidget {
     required this.album,
     required this.artUrl,
     required this.theme,
+    required this.tracks,
   });
 
   final PlexAlbum album;
   final String? artUrl;
   final ThemeData theme;
+  final List<PlexTrack> tracks;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -237,10 +245,16 @@ class _Header extends ConsumerWidget {
                 Text(album.title, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 4),
                 _ArtistLink(album: album, theme: theme),
-                if (album.year != null) ...[
-                  const SizedBox(height: 2),
-                  Text('${album.year}', style: theme.textTheme.bodySmall),
-                ],
+                const SizedBox(height: 2),
+                Text(
+                  [
+                    if (album.year != null) '${album.year}',
+                    describeTracks(tracks.length, totalDuration(tracks)),
+                  ].join(' · '),
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
                 const SizedBox(height: 6),
 
                 // Reads the album back out of the cache so the stars reflect

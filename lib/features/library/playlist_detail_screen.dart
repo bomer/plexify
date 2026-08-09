@@ -6,6 +6,7 @@ import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../player/playing_indicator.dart';
 import '../player/playback_controller.dart';
+import 'track_totals.dart';
 
 /// A playlist's tracks, in playlist order.
 ///
@@ -45,7 +46,7 @@ class PlaylistDetailScreen extends ConsumerWidget {
                   child: Row(
                     children: [
                       Text(
-                        '${items.length} tracks',
+                        describeTracks(items.length, totalDuration(items)),
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurfaceVariant,
                         ),
