@@ -7,6 +7,7 @@ import 'package:plexify/core/plex/plex_models.dart';
 import 'package:plexify/core/providers.dart';
 import 'package:plexify/core/settings/app_settings.dart';
 import 'package:plexify/features/library/cover_frame.dart';
+import 'package:plexify/features/library/detail_back.dart';
 import 'package:plexify/features/library/playlist_detail_screen.dart';
 import 'package:plexify/features/library/star_rating.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -88,8 +89,11 @@ void main() {
     // The header is the whole point of the change. A playlist has artwork in
     // the sidebar and had none on its own page.
     expect(find.byType(CoverFrame), findsOneWidget);
-    // Title appears twice: app bar and header, the same as the album page.
-    expect(find.text('SockRocking'), findsNWidgets(2));
+    // Once, not twice. The app bar printed the title a second time six lines
+    // above the header that already said it, and cost a band of chrome and a
+    // hard line across the gradient to do it.
+    expect(find.byType(AppBar), findsNothing);
+    expect(find.text('SockRocking'), findsOneWidget);
     expect(find.text('Playlist'), findsOneWidget);
     expect(find.text('2 songs · 6 min 45 sec'), findsOneWidget);
     expect(find.widgetWithText(FilledButton, 'Play'), findsOneWidget);
@@ -133,6 +137,22 @@ void main() {
     expect(find.byType(CoverFrame), findsOneWidget);
     expect(find.text('This playlist is empty.'), findsOneWidget);
     expect(find.text('0 songs · 0 sec'), findsOneWidget);
+  });
+
+  testWidgets('back is reachable without scrolling to the top', (tester) async {
+    await pump(
+      tester,
+      tracks: [for (var i = 0; i < 60; i++) track('Track $i', 200000)],
+    );
+
+    // Pinned rather than scrolled away with the header: back is the control
+    // you reach for at any point down a long list, and having to scroll up to
+    // find it would be worse than the bar it replaced.
+    await tester.drag(find.byType(ListView), const Offset(0, -2000));
+    await tester.pump();
+
+    expect(find.byType(DetailBack), findsOneWidget);
+    expect(find.text('SockRocking'), findsNothing);
   });
 
   testWidgets('a smart playlist says so, because its contents move', (

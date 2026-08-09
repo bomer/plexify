@@ -11,6 +11,7 @@ import 'rating_controller.dart';
 import 'artwork.dart';
 import 'artwork_backdrop.dart';
 import 'cover_frame.dart';
+import 'detail_back.dart';
 import '../player/playing_indicator.dart';
 import 'star_rating.dart';
 import 'track_rating_sheet.dart';
@@ -31,13 +32,10 @@ class AlbumDetailScreen extends ConsumerWidget {
     final art = client?.artworkUrl(album.thumb, width: 600, height: 600);
     final compact = isCompactLayout(context);
 
+    // No app bar. It held one control and a copy of the title printed six
+    // lines below it, and cost a band of chrome plus a hard line straight
+    // across the gradient. See [DetailBack].
     return Scaffold(
-      // Transparent, so the backdrop's colour runs behind the bar rather than
-      // stopping at a hard line under it.
-      appBar: AppBar(
-        title: Text(album.title),
-        backgroundColor: Colors.transparent,
-      ),
       // The page takes its colour from the record it is showing. Shorter and
       // weaker than the expanded player's: that one is a single object on a
       // dark field, this one has a track list to keep legible.
@@ -45,111 +43,120 @@ class AlbumDetailScreen extends ConsumerWidget {
         thumb: album.thumb,
         strength: 0.30,
         stop: 0.45,
-        child: tracks.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text('$error', textAlign: TextAlign.center),
-            ),
-          ),
-          data: (items) => ListView.builder(
-            itemCount: items.length + 1,
-            itemBuilder: (context, i) {
-              if (i == 0) {
-                return _Header(
-                  album: album,
-                  artUrl: art,
-                  theme: theme,
-                  tracks: items,
-                );
-              }
-              final index = i - 1;
-              final track = items[index];
-
-              final playing = isNowPlaying(ref, track.ratingKey);
-
-              return ListTile(
-                // Selected rather than a hand-rolled colour, so the highlight
-                // follows the theme and stays legible in both.
-                selected: playing,
-                // The marker replaces the track number rather than crowding in
-                // beside it: in a numbered list the number is how you find your
-                // place, and the one row you do not need it for is the one you
-                // are listening to.
-                leading: SizedBox(
-                  width: 28,
-                  child: playing
-                      ? const Align(
-                          alignment: Alignment.centerRight,
-                          child: PlayingIndicator(),
-                        )
-                      : Text(
-                          '${track.index}',
-                          textAlign: TextAlign.end,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurfaceVariant,
-                          ),
-                        ),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              tracks.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text('$error', textAlign: TextAlign.center),
+                  ),
                 ),
-                title: Text(
-                  track.title,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: track.isPlayable
-                    ? null
-                    : Text(
-                        'Unavailable',
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Five stars per row eats most of a phone's width and pushes
-                    // the title — the thing being scanned for — into an ellipsis.
-                    // Long press opens the same rating instead.
-                    if (!compact)
-                      StarRating(
-                        rating: track.userRating,
-                        size: 15,
-                        onRate: (stars) async {
-                          final ok = await ref
-                              .read(ratingControllerProvider)
-                              ?.rateTrack(track, stars);
-                          if (ok == false && context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text('Could not save rating to Plex'),
+                data: (items) => ListView.builder(
+                  itemCount: items.length + 1,
+                  itemBuilder: (context, i) {
+                    if (i == 0) {
+                      return _Header(
+                        album: album,
+                        artUrl: art,
+                        theme: theme,
+                        tracks: items,
+                      );
+                    }
+                    final index = i - 1;
+                    final track = items[index];
+
+                    final playing = isNowPlaying(ref, track.ratingKey);
+
+                    return ListTile(
+                      // Selected rather than a hand-rolled colour, so the highlight
+                      // follows the theme and stays legible in both.
+                      selected: playing,
+                      // The marker replaces the track number rather than crowding in
+                      // beside it: in a numbered list the number is how you find your
+                      // place, and the one row you do not need it for is the one you
+                      // are listening to.
+                      leading: SizedBox(
+                        width: 28,
+                        child: playing
+                            ? const Align(
+                                alignment: Alignment.centerRight,
+                                child: PlayingIndicator(),
+                              )
+                            : Text(
+                                '${track.index}',
+                                textAlign: TextAlign.end,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
-                            );
-                          }
-                        },
                       ),
-                    if (!compact) const SizedBox(width: 8),
-                    Text(
-                      formatClock(track.duration),
-                      style: theme.textTheme.bodySmall,
-                    ),
-                  ],
+                      title: Text(
+                        track.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: track.isPlayable
+                          ? null
+                          : Text(
+                              'Unavailable',
+                              style: TextStyle(color: theme.colorScheme.error),
+                            ),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          // Five stars per row eats most of a phone's width and pushes
+                          // the title — the thing being scanned for — into an ellipsis.
+                          // Long press opens the same rating instead.
+                          if (!compact)
+                            StarRating(
+                              rating: track.userRating,
+                              size: 15,
+                              onRate: (stars) async {
+                                final ok = await ref
+                                    .read(ratingControllerProvider)
+                                    ?.rateTrack(track, stars);
+                                if (ok == false && context.mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text(
+                                        'Could not save rating to Plex',
+                                      ),
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          if (!compact) const SizedBox(width: 8),
+                          Text(
+                            formatClock(track.duration),
+                            style: theme.textTheme.bodySmall,
+                          ),
+                        ],
+                      ),
+                      enabled: track.isPlayable,
+                      onTap: () {
+                        final controller = ref.read(playbackControllerProvider);
+                        controller?.playTracks(
+                          items,
+                          startIndex: index,
+                          source: PlaybackSource(
+                            PlaybackSourceKind.album,
+                            album.ratingKey,
+                          ),
+                        );
+                      },
+                      onLongPress: compact
+                          ? () => showTrackRatingSheet(context, ref, track)
+                          : null,
+                    );
+                  },
                 ),
-                enabled: track.isPlayable,
-                onTap: () {
-                  final controller = ref.read(playbackControllerProvider);
-                  controller?.playTracks(
-                    items,
-                    startIndex: index,
-                    source: PlaybackSource(
-                      PlaybackSourceKind.album,
-                      album.ratingKey,
-                    ),
-                  );
-                },
-                onLongPress: compact
-                    ? () => showTrackRatingSheet(context, ref, track)
-                    : null,
-              );
-            },
+              ),
+              const DetailBack(),
+            ],
           ),
         ),
       ),
@@ -230,7 +237,9 @@ class _Header extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      // Clears the floating back button, which is pinned rather than scrolled
+      // with this.
+      padding: const EdgeInsets.fromLTRB(16, detailHeaderTop, 16, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

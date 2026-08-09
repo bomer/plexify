@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 58 complete · 2 open · 563 tests passing
+**Status:** 59 complete · 2 open · 564 tests passing
 
 ---
 
@@ -208,12 +208,10 @@ so they resolve on the first Home build of a session and hold that answer until 
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
 
-**Per-row stars and durations render in a test and were not visible in a screenshot of the
-running desktop app.** `playlist_detail_test` asserts both at 1400 logical px and passes;
-a capture of the real window at roughly 1700 logical showed neither, on rows that were
-otherwise plainly the new code. The album page uses the identical construction and has never
-been checked either, so this may predate the playlist work entirely rather than be caused by
-it. Unresolved, and worth one look at the album page before theorising further.
+**A detail page loses its title once scrolled.** The app bar that used to carry it is gone,
+and nothing replaces it on the way down a long track list. Spotify re-shows the title in a bar
+after you scroll past the header; that needs a `SliverAppBar` and a scroll listener, and it was
+not worth it before seeing whether the absence is actually felt.
 
 **An accent picker was deferred, not rejected.** The audit that would decide it: the app uses
 **one** hard-coded colour (the seed) and **12** `colorScheme` roles, of which

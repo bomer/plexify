@@ -10,6 +10,7 @@ import '../player/playback_controller.dart';
 import 'artwork.dart';
 import 'artwork_backdrop.dart';
 import 'cover_frame.dart';
+import 'detail_back.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
 import 'track_rating_sheet.dart';
@@ -38,149 +39,159 @@ class PlaylistDetailScreen extends ConsumerWidget {
     final tracks = ref.watch(playlistTracksProvider(playlist.ratingKey));
     final compact = isCompactLayout(context);
 
+    // No app bar, for the same reason the album page has none: it held one
+    // control and a copy of the title printed six lines below it. See
+    // [DetailBack].
     return Scaffold(
-      appBar: AppBar(
-        title: Text(playlist.title),
-        backgroundColor: Colors.transparent,
-      ),
       // Plex generates a mosaic for every playlist, so this has a colour to
       // take even though there is no single sleeve behind it.
       body: ArtworkBackdrop(
         thumb: playlist.thumb,
         strength: 0.30,
         stop: 0.45,
-        child: tracks.when(
-          loading: () => const Center(child: CircularProgressIndicator()),
-          error: (error, _) => Center(
-            child: Padding(
-              padding: const EdgeInsets.all(32),
-              child: Text('$error', textAlign: TextAlign.center),
-            ),
-          ),
-          data: (items) {
-            // The header stays even when there is nothing under it. An empty
-            // playlist is a real thing to be looking at, and a bare sentence in
-            // the middle of the screen gives no clue which one you opened.
-            if (items.isEmpty) {
-              return ListView(
-                children: [
-                  _Header(playlist: playlist, tracks: items, theme: theme),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
-                    child: Text(
-                      'This playlist is empty.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
+        child: SafeArea(
+          child: Stack(
+            children: [
+              tracks.when(
+                loading: () => const Center(child: CircularProgressIndicator()),
+                error: (error, _) => Center(
+                  child: Padding(
+                    padding: const EdgeInsets.all(32),
+                    child: Text('$error', textAlign: TextAlign.center),
                   ),
-                ],
-              );
-            }
-
-            return ListView.builder(
-              itemCount: items.length + 1,
-              itemBuilder: (context, i) {
-                if (i == 0) {
-                  return _Header(
-                    playlist: playlist,
-                    tracks: items,
-                    theme: theme,
-                  );
-                }
-
-                final index = i - 1;
-                final track = items[index];
-                final playing = isNowPlaying(ref, track.ratingKey);
-
-                return ListTile(
-                  selected: playing,
-                  // Position in the playlist, replaced by the marker on the row
-                  // that is playing — the same trade the album page makes. The
-                  // number is how you find your place in a list of a hundred
-                  // and forty, and the one row you do not need it for is the
-                  // one you are listening to.
-                  leading: SizedBox(
-                    width: 28,
-                    child: playing
-                        ? const Align(
-                            alignment: Alignment.centerRight,
-                            child: PlayingIndicator(),
-                          )
-                        : Text(
-                            '${index + 1}',
-                            textAlign: TextAlign.end,
-                            style: theme.textTheme.bodySmall?.copyWith(
+                ),
+                data: (items) {
+                  // The header stays even when there is nothing under it. An empty
+                  // playlist is a real thing to be looking at, and a bare sentence in
+                  // the middle of the screen gives no clue which one you opened.
+                  if (items.isEmpty) {
+                    return ListView(
+                      children: [
+                        _Header(
+                          playlist: playlist,
+                          tracks: items,
+                          theme: theme,
+                        ),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 24, 16, 0),
+                          child: Text(
+                            'This playlist is empty.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
-                  ),
-                  title: Text(
-                    track.title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  // A playlist's rows come from everywhere, so unlike an album's
-                  // the artist and record are the useful part rather than
-                  // repetition of the header.
-                  subtitle: Text(
-                    [
-                      track.artist,
-                      track.album,
-                    ].where((s) => s.isNotEmpty).join(' — '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      // Same rule as the album page: five stars per row eats
-                      // most of a phone's width and pushes the title into an
-                      // ellipsis, so a long press opens the same rating there.
-                      if (!compact)
-                        StarRating(
-                          rating: track.userRating,
-                          size: 15,
-                          onRate: (stars) async {
-                            final ok = await ref
-                                .read(ratingControllerProvider)
-                                ?.rateTrack(track, stars);
-                            if (ok == false && context.mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text(
-                                    'Could not save rating to Plex',
+                        ),
+                      ],
+                    );
+                  }
+
+                  return ListView.builder(
+                    itemCount: items.length + 1,
+                    itemBuilder: (context, i) {
+                      if (i == 0) {
+                        return _Header(
+                          playlist: playlist,
+                          tracks: items,
+                          theme: theme,
+                        );
+                      }
+
+                      final index = i - 1;
+                      final track = items[index];
+                      final playing = isNowPlaying(ref, track.ratingKey);
+
+                      return ListTile(
+                        selected: playing,
+                        // Position in the playlist, replaced by the marker on the row
+                        // that is playing — the same trade the album page makes. The
+                        // number is how you find your place in a list of a hundred
+                        // and forty, and the one row you do not need it for is the
+                        // one you are listening to.
+                        leading: SizedBox(
+                          width: 28,
+                          child: playing
+                              ? const Align(
+                                  alignment: Alignment.centerRight,
+                                  child: PlayingIndicator(),
+                                )
+                              : Text(
+                                  '${index + 1}',
+                                  textAlign: TextAlign.end,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
                                   ),
                                 ),
-                              );
-                            }
-                          },
                         ),
-                      if (!compact) const SizedBox(width: 8),
-                      Text(
-                        formatClock(track.duration),
-                        style: theme.textTheme.bodySmall,
-                      ),
-                    ],
-                  ),
-                  enabled: track.isPlayable,
-                  onTap: () => ref
-                      .read(playbackControllerProvider)
-                      ?.playTracks(
-                        items,
-                        startIndex: index,
-                        source: PlaybackSource(
-                          PlaybackSourceKind.playlist,
-                          playlist.ratingKey,
+                        title: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                      ),
-                  onLongPress: compact
-                      ? () => showTrackRatingSheet(context, ref, track)
-                      : null,
-                );
-              },
-            );
-          },
+                        // A playlist's rows come from everywhere, so unlike an album's
+                        // the artist and record are the useful part rather than
+                        // repetition of the header.
+                        subtitle: Text(
+                          [
+                            track.artist,
+                            track.album,
+                          ].where((s) => s.isNotEmpty).join(' — '),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Same rule as the album page: five stars per row eats
+                            // most of a phone's width and pushes the title into an
+                            // ellipsis, so a long press opens the same rating there.
+                            if (!compact)
+                              StarRating(
+                                rating: track.userRating,
+                                size: 15,
+                                onRate: (stars) async {
+                                  final ok = await ref
+                                      .read(ratingControllerProvider)
+                                      ?.rateTrack(track, stars);
+                                  if (ok == false && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Could not save rating to Plex',
+                                        ),
+                                      ),
+                                    );
+                                  }
+                                },
+                              ),
+                            if (!compact) const SizedBox(width: 8),
+                            Text(
+                              formatClock(track.duration),
+                              style: theme.textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                        enabled: track.isPlayable,
+                        onTap: () => ref
+                            .read(playbackControllerProvider)
+                            ?.playTracks(
+                              items,
+                              startIndex: index,
+                              source: PlaybackSource(
+                                PlaybackSourceKind.playlist,
+                                playlist.ratingKey,
+                              ),
+                            ),
+                        onLongPress: compact
+                            ? () => showTrackRatingSheet(context, ref, track)
+                            : null,
+                      );
+                    },
+                  );
+                },
+              ),
+              const DetailBack(),
+            ],
+          ),
         ),
       ),
     );
@@ -205,7 +216,9 @@ class _Header extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     return Padding(
-      padding: const EdgeInsets.all(16),
+      // Clears the floating back button, which is pinned rather than scrolled
+      // with this.
+      padding: const EdgeInsets.fromLTRB(16, detailHeaderTop, 16, 16),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
