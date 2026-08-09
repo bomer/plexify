@@ -11,6 +11,8 @@ import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
 import 'album_detail_screen.dart';
 import 'artwork.dart';
+import 'artwork_backdrop.dart';
+import 'cover_frame.dart';
 import '../player/playing_indicator.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
@@ -28,99 +30,116 @@ class ArtistDetailScreen extends ConsumerWidget {
     final albums = ref.watch(artistAlbumsProvider(artist.ratingKey));
 
     return Scaffold(
-      body: albums.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, _) => Center(
-          child: Padding(
-            padding: const EdgeInsets.all(32),
-            child: Text('$error', textAlign: TextAlign.center),
+      // Same trick as the album page, weaker still: an artist page is mostly
+      // grid, and a grid needs its own contrast more than it needs a mood.
+      body: ArtworkBackdrop(
+        thumb: artist.thumb,
+        strength: 0.26,
+        stop: 0.4,
+        child: albums.when(
+          loading: () => const Center(child: CircularProgressIndicator()),
+          error: (error, _) => Center(
+            child: Padding(
+              padding: const EdgeInsets.all(32),
+              child: Text('$error', textAlign: TextAlign.center),
+            ),
           ),
-        ),
-        data: (items) => CustomScrollView(
-          slivers: [
-            SliverAppBar(
-              expandedHeight: 260,
-              pinned: true,
-              flexibleSpace: FlexibleSpaceBar(
-                title: Text(artist.title, style: const TextStyle(fontSize: 16)),
-                background: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Artwork(thumb: artist.thumb, size: 600, icon: Icons.person),
-                    // Without a scrim the title is unreadable over light
-                    // artwork, which most artist images are.
-                    DecoratedBox(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            Colors.transparent,
-                            theme.colorScheme.surface.withValues(alpha: 0.9),
-                          ],
+          data: (items) => CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                expandedHeight: 260,
+                pinned: true,
+                flexibleSpace: FlexibleSpaceBar(
+                  title: Text(
+                    artist.title,
+                    style: const TextStyle(fontSize: 16),
+                  ),
+                  background: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      Artwork(
+                        thumb: artist.thumb,
+                        size: 600,
+                        icon: Icons.person,
+                      ),
+                      // Without a scrim the title is unreadable over light
+                      // artwork, which most artist images are.
+                      DecoratedBox(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.transparent,
+                              theme.colorScheme.surface.withValues(alpha: 0.9),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-                child: Row(
-                  children: [
-                    Text(
-                      items.length == 1 ? '1 album' : '${items.length} albums',
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    _ArtistStars(artist: artist),
-                    const Spacer(),
-                    if (items.isNotEmpty)
-                      FilledButton.icon(
-                        icon: const Icon(Icons.play_arrow),
-                        label: const Text('Play'),
-                        onPressed: () => _playEverything(ref, items),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-
-            if (items.isEmpty)
-              const SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(child: Text('No albums for this artist.')),
-              )
-            else
-              SliverPadding(
-                padding: const EdgeInsets.all(16),
-                sliver: SliverGrid.builder(
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 200,
-                    childAspectRatio: 0.72,
-                    crossAxisSpacing: 16,
-                    mainAxisSpacing: 16,
+                    ],
                   ),
-                  itemCount: items.length,
-                  itemBuilder: (context, i) => _AlbumCard(album: items[i]),
                 ),
               ),
 
-            // What they made and you do not have, between the albums and the
-            // tracks. Above the flat track list because it is about the shape
-            // of the discography, which is what the grid above is about too.
-            _MissingAlbums(artist: artist),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: Row(
+                    children: [
+                      Text(
+                        items.length == 1
+                            ? '1 album'
+                            : '${items.length} albums',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      _ArtistStars(artist: artist),
+                      const Spacer(),
+                      if (items.isNotEmpty)
+                        FilledButton.icon(
+                          icon: const Icon(Icons.play_arrow),
+                          label: const Text('Play'),
+                          onPressed: () => _playEverything(ref, items),
+                        ),
+                    ],
+                  ),
+                ),
+              ),
 
-            // Every track, flat, underneath the albums. For an artist you only
-            // have a handful of songs by, scrolling to the track you want beats
-            // guessing which album it was on.
-            _TrackList(artistRatingKey: artist.ratingKey),
-          ],
+              if (items.isEmpty)
+                const SliverFillRemaining(
+                  hasScrollBody: false,
+                  child: Center(child: Text('No albums for this artist.')),
+                )
+              else
+                SliverPadding(
+                  padding: const EdgeInsets.all(16),
+                  sliver: SliverGrid.builder(
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 200,
+                          childAspectRatio: 0.72,
+                          crossAxisSpacing: 16,
+                          mainAxisSpacing: 16,
+                        ),
+                    itemCount: items.length,
+                    itemBuilder: (context, i) => _AlbumCard(album: items[i]),
+                  ),
+                ),
+
+              // What they made and you do not have, between the albums and the
+              // tracks. Above the flat track list because it is about the shape
+              // of the discography, which is what the grid above is about too.
+              _MissingAlbums(artist: artist),
+
+              // Every track, flat, underneath the albums. For an artist you only
+              // have a handful of songs by, scrolling to the track you want beats
+              // guessing which album it was on.
+              _TrackList(artistRatingKey: artist.ratingKey),
+            ],
+          ),
         ),
       ),
     );
@@ -488,10 +507,7 @@ class _AlbumCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Artwork(thumb: album.thumb),
-            ),
+            child: CoverFrame(child: Artwork(thumb: album.thumb)),
           ),
           const SizedBox(height: 8),
           Text(

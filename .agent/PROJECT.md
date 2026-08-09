@@ -834,6 +834,18 @@ caught this on its first run, reporting 400 where 600 was expected, and the code
 whole time. `tester.view.physicalSize` is the other half, and asserting against
 `tester.getRect` of the widget rather than against a constant is better still.
 
+**Material 3 tints your greys with the seed colour, twice, and neither is visible from
+reading the code.** `ColorScheme.fromSeed` derives the surface roles from the seed's tonal
+palette with chroma deliberately left in, so the "greys" are already tinted; then
+`surfaceTint` — which defaults to `primary` — is blended into every surface in proportion to
+its elevation. A blue seed therefore gives a blue-grey window, and no line anywhere says so.
+For a media app this is actively wrong: the artwork is supposed to be the only colour on
+screen. The fix is `copyWith` over the surface family plus `applyElevationOverlayColor: false`
+and `surfaceTintColor: Colors.transparent` on the component themes, or the overrides are
+undone the moment anything is raised. Spreading the values *apart* matters as much as
+neutralising them: the generated ones sat within a few percent of each other, so sidebar,
+content and transport bar read as one continuous sheet.
+
 **Flutter's desktop runner remembers nothing about its window, and the fix belongs in C++.**
 There is no cross-platform place to keep window geometry, so the runner opens at a fixed
 1280x720 every launch. Doing it in Dart would mean the window appears at the default and then

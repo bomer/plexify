@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 10 August 2026 · **56 complete**
+**Last updated:** 10 August 2026 · **57 complete**
 
 ---
 
@@ -67,6 +67,7 @@ between the next reader and paying for it twice.
 | 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
 | 52 | Filter the poll, never the sweep | A rating moves no timestamp, so a filtered sweep cannot find the one thing it exists for. Sweep and forced refresh go unfiltered, interval 5 → 15 min. The fake server now applies the filter, which is why the guard is real |
 | 53 | Recover from a handover that lands nowhere | A sticky re-resolve was clearing the failure streak, and the audio cache's own HTTP client was invisible to everything. Together they left playback dead until a restart |
+| 59 | Visual pass: neutral chrome, depth, content colour | The window had a blue cast nobody chose, because M3 tints greys with the seed twice over: `fromSeed` leaves chroma in the surface palette, and `surfaceTint` then blends primary in again per elevation. Overriding the surface family to true neutral and spreading the values apart is the change that made it stop looking like a default Flutter project. Then depth on covers so artwork reads as objects rather than as texture; section headers with enough weight to bind to their row; the Now Playing gradient generalised to album and artist pages so every screen is coloured by its own content; a neutral play button, since an accent disc inches from the sleeve is chrome arguing with content; playlist thumbnails in the sidebar; one larger shelf so the page opens on something. Deliberately not reclaiming the app bar: James likes the breathing room |
 | 58 | Window geometry, playlist sort, sidebar count | Five small things. The window is remembered in the registry from the C++ runner rather than from Dart, so it is the right shape in the first frame instead of jumping once the engine has read a preference; `GetWindowPlacement` so closing maximised does not store the screen as the normal size, and a check that the frame still lands on a monitor that exists, or a window closed on a since-unplugged screen launches invisible. Playlists sort by recent or by name, with smart ones grouped first under either name order because that is when you are hunting rather than returning. The Favourites tab is gone: Artists and Albums each carry the filter, so it was a fourth place to go for a question the other three already answered. **Favourite tracks lost their only view with it.** Sync status now shows Plex's own counts beside the cached ones and names every music library, because the sync reads the first one only |
 | 57 | Volume on the desktop bar | Desktop only, because a phone's hardware keys and OS mixer already own the level and a second app-local one is a way for it to be wrong somewhere nobody looks. Persisted, or the slider reads full every launch. Follows the engine rather than the setting, so the control cannot lie about what is making the sound. Mute remembers where it was, since dragging to zero and pressing the speaker are the same state to the player |
 | 56 | Desktop transport bar, Spotify-shaped | Two shapes rather than one that stretches: the phone bar is untouched, the desktop one is three columns with the transport centred against the window and a real scrub bar on it. Left and right carry equal flex, or a long title pushes the play button off-centre and moves it on every track change. Now Playing's sleeve drops to 300 logical, because 420 against a 600px source is a third of upscaling in the place it is looked at hardest, and gains a gradient taken from the artwork's own colours by histogram rather than by averaging, which returns grey for every record ever pressed |
@@ -782,6 +783,10 @@ for what has.
   edition-word list either earns its keep or reports albums he owns as missing. And that a
   queued torrent lands, gets scanned, and appears — the one path that crosses three systems and
   is only ever end-to-end.
+- **#59**, the light theme. Six surface values were invented for it and only the dark set has
+  been looked at; nothing in a test can tell whether they are pleasant, only that they exist.
+  Also whether the cover shadow reads at all on a light background, where it has far less to
+  darken.
 - **#58**, one question rather than a feature: whether the track count is short because there
   is a second music library, or because the sync is genuinely missing rows. **Sync status →
   Cached** now answers it. "Music libraries" naming more than one is the whole explanation, and

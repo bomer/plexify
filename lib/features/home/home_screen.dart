@@ -11,6 +11,7 @@ import '../settings/sync_actions.dart';
 import '../library/album_detail_screen.dart';
 import '../library/album_cover.dart';
 import '../library/artwork.dart';
+import '../library/cover_frame.dart';
 import '../library/playlist_detail_screen.dart';
 import '../library/sync_banner.dart';
 
@@ -44,6 +45,12 @@ class HomeScreen extends ConsumerWidget {
                     // Hidden entirely rather than shown empty: on a fresh install
                     // nothing has been played, and an empty row reads as broken.
                     hideWhenEmpty: true,
+                    // The one row with larger tiles, so the page opens on
+                    // something rather than on the first of eight identical
+                    // bands. Deliberately only one: a second would be a
+                    // competing emphasis, and past that the variation is just
+                    // noise.
+                    tileSize: _leadTile,
                   ),
                   _Shelf(
                     title: 'Recently added',
@@ -76,6 +83,14 @@ class HomeScreen extends ConsumerWidget {
     );
   }
 }
+
+/// Cover edge on the first shelf, and on every other one.
+const double _leadTile = 196;
+const double _tile = 150;
+
+/// Space a tile needs under its cover for two lines of text, plus the
+/// scrollbar's height on desktop so adding it does not crop the covers above.
+double _shelfChrome(bool compact) => compact ? 58 : 70;
 
 /// Lifts an album-only shelf into the mixed type the row now speaks.
 ///
@@ -122,11 +137,13 @@ class _Shelf extends ConsumerWidget {
     required this.title,
     required this.items,
     this.hideWhenEmpty = false,
+    this.tileSize = _tile,
   });
 
   final String title;
   final AsyncValue<List<RecentlyPlayed>> items;
   final bool hideWhenEmpty;
+  final double tileSize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -150,13 +167,13 @@ class _Shelf extends ConsumerWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 10),
-          child: Text(title, style: theme.textTheme.titleMedium),
+          // More above than below, so the heading binds to the row under it
+          // rather than floating equidistant between two.
+          padding: const EdgeInsets.fromLTRB(20, 26, 20, 12),
+          child: Text(title, style: theme.textTheme.titleLarge),
         ),
         SizedBox(
-          // Taller on desktop by exactly the height the scrollbar takes, so
-          // adding it does not crop the covers it sits under.
-          height: isCompactLayout(context) ? 208 : 220,
+          height: tileSize + _shelfChrome(isCompactLayout(context)),
           child: HorizontalScroll(
             builder: (context, controller) => ListView.separated(
               controller: controller,
@@ -164,7 +181,8 @@ class _Shelf extends ConsumerWidget {
               padding: const EdgeInsets.symmetric(horizontal: 20),
               itemCount: entries.length,
               separatorBuilder: (_, _) => const SizedBox(width: 14),
-              itemBuilder: (context, i) => _ShelfTile(entry: entries[i]),
+              itemBuilder: (context, i) =>
+                  _ShelfTile(entry: entries[i], size: tileSize),
             ),
           ),
         ),
@@ -174,9 +192,10 @@ class _Shelf extends ConsumerWidget {
 }
 
 class _ShelfTile extends StatelessWidget {
-  const _ShelfTile({required this.entry});
+  const _ShelfTile({required this.entry, required this.size});
 
   final RecentlyPlayed entry;
+  final double size;
 
   void _open(BuildContext context) {
     final playlist = entry.playlist;
@@ -195,25 +214,24 @@ class _ShelfTile extends StatelessWidget {
     final album = entry.album;
 
     return SizedBox(
-      width: 150,
+      width: size,
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
         onTap: () => _open(context),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+            CoverFrame(
               // Only albums get the hover play button. A playlist's tracks are
               // not loaded until it is opened, so playing one from here would
               // mean a network round trip behind a hover — and a smart
               // playlist has to be revalidated before it can be trusted at
               // all.
               child: album != null
-                  ? AlbumCover(album: album, size: 150)
+                  ? AlbumCover(album: album, size: size)
                   : SizedBox(
-                      width: 150,
-                      height: 150,
+                      width: size,
+                      height: size,
                       child: Artwork(
                         thumb: entry.thumb,
                         size: 600,

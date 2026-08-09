@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 56 complete · 2 open · 557 tests passing
+**Status:** 57 complete · 2 open · 557 tests passing
 
 ---
 
@@ -207,6 +207,14 @@ Run the probe and the answer decides whether it is worth wiring.
 so they resolve on the first Home build of a session and hold that answer until something
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
+
+**An accent picker was deferred, not rejected.** The audit that would decide it: the app uses
+**one** hard-coded colour (the seed) and **12** `colorScheme` roles, of which
+`onSurfaceVariant`, `primary` and `error` carry 96 of ~120 usages. So changing the accent is a
+one-line change with no edits anywhere else, and a swatch picker is the documented three
+settings edits plus a row of chips. The open question is worth: with the chrome now neutral
+the accent is the only colour in the UI, but it still covers very little area — the selected
+sidebar item, links, slider fills, stars, and the hover play button on covers.
 
 **Favourite tracks have nowhere to be seen.** The Favourites tab was removed because Artists
 and Albums each carry a favourites filter, which is true and is the whole argument, except

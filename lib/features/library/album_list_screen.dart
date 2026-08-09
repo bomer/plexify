@@ -8,6 +8,7 @@ import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import 'album_detail_screen.dart';
 import 'album_cover.dart';
+import 'cover_frame.dart';
 
 /// The album grid.
 ///
@@ -79,8 +80,7 @@ class _AlbumTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(6),
+            child: CoverFrame(
               child: LayoutBuilder(
                 builder: (context, c) =>
                     AlbumCover(album: album, size: c.maxWidth),

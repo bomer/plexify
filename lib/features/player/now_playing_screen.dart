@@ -8,6 +8,7 @@ import '../../shell/layout.dart';
 import '../library/artist_detail_screen.dart';
 import '../library/library_screen.dart' show openAlbum;
 import '../library/artwork.dart';
+import '../library/artwork_backdrop.dart';
 import 'player_providers.dart';
 import 'seek_control.dart';
 import 'transport_buttons.dart';
@@ -33,7 +34,7 @@ class NowPlayingScreen extends ConsumerWidget {
           final item = snapshot.data;
           if (item == null) return const SizedBox.shrink();
 
-          return _Backdrop(
+          return ArtworkBackdrop(
             thumb: item.extras?['thumb'] as String?,
             child: SafeArea(
               child: Column(
@@ -71,58 +72,6 @@ class NowPlayingScreen extends ConsumerWidget {
           );
         },
       ),
-    );
-  }
-}
-
-/// A wash of colour taken from the sleeve, behind everything else.
-///
-/// The colour is asked for asynchronously and is null until it arrives, and
-/// null again for a cover that is genuinely monochrome, so this has to look
-/// deliberate with no colour at all rather than merely unfinished. It fades in
-/// over a third of a second: appearing instantly on every track change reads as
-/// a flicker, and the eye notices a hard cut in a large flat area far more than
-/// it notices a slow one.
-///
-/// Stops well short of the bottom. A full-height tint is a coloured screen
-/// rather than a lit one, and the queue at the bottom needs ordinary contrast
-/// to stay readable.
-class _Backdrop extends ConsumerWidget {
-  const _Backdrop({required this.thumb, required this.child});
-
-  final String? thumb;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final path = thumb;
-    final colour = path == null
-        ? null
-        : ref.watch(artworkColourProvider(path)).valueOrNull;
-
-    // Kept well under half opacity: the sleeve's own colour at full strength
-    // fights the artwork it came from, and light covers would leave white text
-    // on a pale wash.
-    final tint = colour == null
-        ? theme.colorScheme.surface
-        : Color.alphaBlend(
-            colour.withValues(alpha: 0.38),
-            theme.colorScheme.surface,
-          );
-
-    return AnimatedContainer(
-      duration: const Duration(milliseconds: 350),
-      curve: Curves.easeOut,
-      decoration: BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [tint, theme.colorScheme.surface],
-          stops: const [0, 0.65],
-        ),
-      ),
-      child: child,
     );
   }
 }
@@ -291,6 +240,7 @@ class _TransportControls extends StatelessWidget {
                     )
                   : IconButton.filled(
                       iconSize: 40,
+                      style: playButtonStyle(context),
                       icon: Icon(playing ? Icons.pause : Icons.play_arrow),
                       onPressed: playing ? handler.pause : handler.play,
                     ),

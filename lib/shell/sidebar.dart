@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../core/plex/plex_models.dart';
 import '../core/providers.dart';
+import '../features/library/artwork.dart';
 import '../features/library/playlist_detail_screen.dart';
 import 'shell_destination.dart';
 
@@ -173,11 +174,24 @@ class _NavItem extends StatelessWidget {
   }
 }
 
+/// One playlist in the sidebar, with the mosaic Plex generates for it.
+///
+/// **The artwork is the point.** A dozen playlists as plain text rows is the
+/// most monotonous region on the screen: identical size, identical weight,
+/// identical colour, and the only thing distinguishing them is a word you have
+/// to read. A 28px thumbnail makes the list scannable by shape and colour
+/// instead, which is how anyone actually finds a playlist they use often.
+///
+/// Small enough to stay a list rather than become a second grid, and the whole
+/// row is only a few pixels taller than the text-only version was.
 class _PlaylistItem extends StatelessWidget {
   const _PlaylistItem({required this.playlist, required this.onTap});
 
   final PlexPlaylist playlist;
   final VoidCallback onTap;
+
+  /// Edge of the thumbnail.
+  static const _thumb = 28.0;
 
   @override
   Widget build(BuildContext context) {
@@ -186,14 +200,36 @@ class _PlaylistItem extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 7),
-        child: Text(
-          playlist.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
-          ),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 5),
+        child: Row(
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(3),
+              child: SizedBox(
+                width: _thumb,
+                height: _thumb,
+                // Requested at a size the shelves also use rather than at 28,
+                // so this shares their cache entry instead of making Plex
+                // transcode a third copy of every playlist mosaic.
+                child: Artwork(
+                  thumb: playlist.thumb,
+                  size: 300,
+                  icon: Icons.queue_music,
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                playlist.title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );

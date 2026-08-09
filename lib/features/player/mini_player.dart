@@ -320,6 +320,13 @@ class _DesktopTransport extends StatelessWidget {
               : IconButton.filled(
                   iconSize: 22,
                   padding: EdgeInsets.zero,
+                  // **Neutral rather than the accent.** This button sits a few
+                  // pixels from the album art at all times, and an accent-
+                  // coloured disc there is a second colour competing with the
+                  // one thing on screen that is meant to carry it. The hover
+                  // play button on a cover keeps the accent: that one is
+                  // transient, and it is where a flash of colour is welcome.
+                  style: playButtonStyle(context),
                   icon: Icon(playing ? Icons.pause : Icons.play_arrow),
                   onPressed: playing ? handler.pause : handler.play,
                 ),

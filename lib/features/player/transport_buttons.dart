@@ -3,6 +3,20 @@ import 'package:flutter/material.dart';
 
 import '../../core/audio/playback_handler.dart';
 
+/// The filled disc under a play or pause glyph.
+///
+/// Near-white on dark and near-black on light, rather than the accent. It is
+/// the largest solid block of colour in the transport and sits inches from the
+/// artwork, so leaving it on `primary` meant the chrome and the content were
+/// arguing about which one you should be looking at.
+ButtonStyle playButtonStyle(BuildContext context) {
+  final scheme = Theme.of(context).colorScheme;
+  return IconButton.styleFrom(
+    backgroundColor: scheme.onSurface,
+    foregroundColor: scheme.surface,
+  );
+}
+
 /// Shuffle, reading its state from the session rather than holding its own.
 ///
 /// The handler is the only place that knows whether shuffle is on, and it
