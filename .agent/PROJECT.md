@@ -430,6 +430,24 @@ is the one action that makes either worse, on a server James runs himself.
 status alone treats it as a successful sign-in, and every request afterwards then 403s for
 what looks like a completely different reason.
 
+**`CallbackShortcuts` consumes a key before the callback decides anything.** It
+matched space, marked the event handled, and only then ran the toggle — and a key
+the framework has marked handled is never forwarded to the text input system, so
+you could not type a space in the search box. No check *inside* the callback
+could have helped. The shell uses a plain `Focus(onKeyEvent:)` and returns
+`KeyEventResult.ignored` when it does not want the key, which is the only thing
+that lets it through as a character.
+
+**A focused `TextField` is not an `EditableText` as far as the focus node is
+concerned.** `EditableText` builds a `Focus` internally and hands it the field's
+node, so `primaryFocus.context.widget is EditableText` compares against the wrong
+widget and is always false. `isTypingSomewhere()` in `lib/shell/typing.dart`
+walks up with `findAncestorWidgetOfExactType<EditableText>()` instead, and has
+its own test because the shell-level one cannot catch it: **in a widget test the
+framework stops a plain key below the shell**, so the guard never runs there and
+removing it fails nothing. It only matters with a live text input connection,
+which is to say only on a real device.
+
 **Half the `fileUrl`s a search plugin returns are not torrents, and adding one
 fails silently on both sides.** LimeTorrents returns the human page
 (`…-torrent-273396.html`); qBittorrent accepts it, answers `Ok.`, fetches it,

@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:ui' show AppExitResponse;
 
+import 'package:flutter/gestures.dart' show kBackMouseButton;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -18,6 +19,7 @@ import '../features/settings/settings_screen.dart';
 import 'layout.dart';
 import 'shell_destination.dart';
 import 'sidebar.dart';
+import 'typing.dart';
 
 /// The persistent frame around all browsing.
 ///
@@ -220,30 +222,58 @@ class _AppShellState extends ConsumerState<AppShell> {
       ],
     );
 
-    return CallbackShortcuts(
-      bindings: {const SingleActivator(LogicalKeyboardKey.space): _togglePlay},
+    return Listener(
+      onPointerDown: _onPointerDown,
       child: Focus(
         autofocus: true,
+        onKeyEvent: _onKey,
         child: _shell(destination, expanded, content),
       ),
     );
   }
 
+  /// The mouse's back button, which every browser and file manager binds to
+  /// exactly this.
+  ///
+  /// Routed through the same [_handleBack] as the Android back gesture and the
+  /// app bar's arrow, so there is one definition of what "back" means: collapse
+  /// Now Playing first, then pop the tab's own stack, then fall back to Home.
+  /// The last step minimises on Android and does nothing on the desktop, which
+  /// is the right answer for a mouse button — nobody expects button four to
+  /// hide the window.
+  void _onPointerDown(PointerDownEvent event) {
+    if (event.buttons & kBackMouseButton != 0) unawaited(_handleBack());
+  }
+
   /// Space toggles playback, which is the one control worth reaching for
   /// without looking.
   ///
-  /// `CallbackShortcuts` sits above the focused widget, and a focused
-  /// `TextField` consumes space as text before this ever sees it, so typing a
-  /// space in search does not pause the music. The explicit check below covers
-  /// anything editable that does not follow that convention.
-  void _togglePlay() {
-    final focus = FocusManager.instance.primaryFocus;
-    if (focus?.context?.widget is EditableText) return;
+  /// **Deliberately not `CallbackShortcuts`, and that is the whole of the
+  /// fix.** That widget consumes any key matching a binding before deciding
+  /// what to do with it, so space was swallowed here and never reached the
+  /// search field — you could not type a space in a search box. Returning early
+  /// from the callback could not have helped: by then the key was already
+  /// marked handled, and a handled key is never forwarded to the text input
+  /// system at all.
+  ///
+  /// Reporting [KeyEventResult.ignored] is what lets it through. The engine
+  /// only turns a key into a character once the framework says nobody wanted
+  /// it.
+  KeyEventResult _onKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey != LogicalKeyboardKey.space) {
+      return KeyEventResult.ignored;
+    }
+    if (isTypingSomewhere()) return KeyEventResult.ignored;
     final handler = ref.read(audioHandlerProvider);
-    if (handler.mediaItem.value == null) return;
+    // Nothing loaded: leave the key alone rather than claiming it to do
+    // nothing, so a space still reaches whatever else might want it.
+    if (handler.mediaItem.value == null) return KeyEventResult.ignored;
+
     unawaited(
       handler.playbackState.value.playing ? handler.pause() : handler.play(),
     );
+    return KeyEventResult.handled;
   }
 
   Widget _shell(ShellDestination destination, bool expanded, Widget content) {
