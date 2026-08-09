@@ -32,6 +32,34 @@ class MonthSample {
   final int inLibrary;
 }
 
+/// One way of asking for play history, and what came back.
+///
+/// **Five of these rather than one number, because zero has three causes and
+/// they are indistinguishable.** The endpoint needs server-owner access and
+/// hands everyone else an empty container rather than a 403; a genuinely quiet
+/// library answers the same way; and so does a request narrowed by a parameter
+/// the endpoint does not mean what we assume it means. Asking with each
+/// narrowing removed in turn is the only thing that separates them: if the
+/// unfiltered form returns rows and the filtered one does not, the filter is
+/// the answer and nothing was ever wrong with the permissions.
+class HistoryAttempt {
+  const HistoryAttempt({required this.label, required this.rows, this.error});
+
+  final String label;
+
+  /// Rows returned, or null if the request failed outright.
+  final int? rows;
+
+  /// Set when the server refused, which it does *not* do for an empty history,
+  /// and which is exactly why the distinction is worth capturing.
+  final String? error;
+
+  String get verdict {
+    if (error != null) return 'failed: $error';
+    return rows == 0 ? 'nothing' : '$rows rows';
+  }
+}
+
 /// What this server actually offers for a fuller Home screen.
 class DiscoveryReport {
   const DiscoveryReport({
@@ -39,6 +67,7 @@ class DiscoveryReport {
     required this.genreCount,
     required this.genreSamples,
     required this.historyRows,
+    required this.historyAttempts,
     required this.oldestPlay,
     required this.newestPlay,
     required this.months,
@@ -58,6 +87,9 @@ class DiscoveryReport {
   /// Rows the history endpoint returned, capped by the request.
   final int historyRows;
 
+  /// The same question asked several ways. See [HistoryAttempt].
+  final List<HistoryAttempt> historyAttempts;
+
   final DateTime? oldestPlay;
   final DateTime? newestPlay;
 
@@ -67,9 +99,18 @@ class DiscoveryReport {
   ///
   /// `/status/sessions/history/all` needs server-owner access and returns an
   /// empty container to everyone else rather than a 403, so "no plays" and
-  /// "not allowed" arrive looking identical. If the library plainly has plays
-  /// in it, this is the second one.
+  /// "not allowed" arrive looking identical. [historyAttempts] is what tells
+  /// those apart, and tells both apart from a query parameter of ours being
+  /// wrong.
   bool get historyEmpty => historyRows == 0;
+
+  /// A way of asking that did return something, when the shipping one did not.
+  ///
+  /// Non-null here means the endpoint is fine, the account is allowed, the
+  /// history exists, and [PlexClient.playHistory] is narrowing it to nothing by
+  /// itself.
+  HistoryAttempt? get workingAttempt =>
+      historyAttempts.where((a) => (a.rows ?? 0) > 0).firstOrNull;
 }
 
 /// Asks a server what it can offer the Home screen, and counts the answers.
@@ -120,6 +161,7 @@ class DiscoveryProbe {
     }
 
     final plays = await _client.playHistory(section.key);
+    final attempts = await _historyAttempts(section);
     final now = _now();
 
     return DiscoveryReport(
@@ -127,6 +169,7 @@ class DiscoveryProbe {
       genreCount: genres.length,
       genreSamples: samples,
       historyRows: plays.length,
+      historyAttempts: attempts,
       oldestPlay: _at(plays.isEmpty ? null : plays.last.viewedAt),
       newestPlay: _at(plays.isEmpty ? null : plays.first.viewedAt),
       months: [
@@ -134,6 +177,45 @@ class DiscoveryProbe {
         await _month(plays, DateTime(now.year, now.month - 1), 'Last month'),
       ],
     );
+  }
+
+  /// Asks for history with each narrowing removed in turn.
+  ///
+  /// Ordered so the first entry is exactly what the app ships, and each one
+  /// after it drops something. The first that returns rows names the culprit.
+  Future<List<HistoryAttempt>> _historyAttempts(PlexSection section) async {
+    Future<HistoryAttempt> attempt(
+      String label, {
+      String? sectionKey,
+      bool tracksOnly = true,
+      String? accountId,
+    }) async {
+      try {
+        final rows = await _client.playHistoryRaw(
+          sectionKey: sectionKey,
+          tracksOnly: tracksOnly,
+          accountId: accountId,
+          // Small: this is counting, not collecting, and five requests against
+          // a long history should not move a megabyte to answer a yes or no.
+          limit: 50,
+        );
+        return HistoryAttempt(label: label, rows: rows.length);
+      } on Object catch (e) {
+        return HistoryAttempt(label: label, rows: null, error: '$e');
+      }
+    }
+
+    return [
+      await attempt('As the app asks', sectionKey: section.key),
+      await attempt(
+        'Without type=10',
+        sectionKey: section.key,
+        tracksOnly: false,
+      ),
+      await attempt('Without the section', tracksOnly: true),
+      await attempt('Neither narrowing', tracksOnly: false),
+      await attempt('Account 1 only', tracksOnly: false, accountId: '1'),
+    ];
   }
 
   Future<MonthSample> _month(

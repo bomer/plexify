@@ -440,6 +440,48 @@ void main() {
       expect(plays.single.artistRatingKey, '9');
     });
 
+    test('every narrowing can be removed independently', () async {
+      // The probe's whole job: "no plays", "not allowed" and "asked wrongly"
+      // arrive identical, and only asking with each narrowing dropped in turn
+      // separates them.
+      late Uri asked;
+      PlexClient probing() => clientReturning(
+        jsonEncode({'MediaContainer': {}}),
+        onRequest: (request) => asked = request.url,
+      );
+
+      await probing().playHistoryRaw(sectionKey: '3');
+      expect(asked.queryParameters['librarySectionID'], '3');
+      expect(asked.queryParameters['type'], '10');
+
+      await probing().playHistoryRaw(sectionKey: '3', tracksOnly: false);
+      expect(asked.queryParameters['librarySectionID'], '3');
+      expect(asked.queryParameters, isNot(contains('type')));
+
+      await probing().playHistoryRaw(tracksOnly: false);
+      expect(asked.queryParameters, isNot(contains('librarySectionID')));
+      expect(asked.queryParameters, isNot(contains('type')));
+
+      await probing().playHistoryRaw(accountId: '1');
+      expect(asked.queryParameters['accountID'], '1');
+    });
+
+    test(
+      'the raw form reports a refusal that the shipping one hides',
+      () async {
+        // playHistory swallows, because a Home row must never show an error.
+        // That is exactly what makes it useless for finding out why a row is
+        // missing, which is why the probe does not use it.
+        final client = clientReturning('{}', status: 403);
+
+        expect(await client.playHistory('3'), isEmpty);
+        await expectLater(
+          client.playHistoryRaw(sectionKey: '3'),
+          throwsA(isA<PlexClientException>()),
+        );
+      },
+    );
+
     test('play history is empty rather than an error when refused', () async {
       // Not the owner. Plex answers this with an empty container rather than a
       // 403 on some versions, so both paths have to end in the same place: a

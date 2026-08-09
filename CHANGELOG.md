@@ -33,6 +33,12 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 - Primary text is a true neutral. It kept a faint tint from the accent colour while the
   background behind it had already lost one.
 
+### Fixed
+
+- The discovery probe can now say *why* play history is empty, rather than only that it is.
+  It asks the same question five ways, and an empty answer from every one of them is a
+  different problem from an empty answer from just the one the app uses.
+
 ## [0.9.0] - 2026-08-10
 
 First release. Everything below is new, so it is grouped by what it does rather than by

@@ -445,27 +445,50 @@ class PlexClient {
     int limit = 1000,
   }) async {
     try {
-      final container = await _getContainer(
-        '/status/sessions/history/all',
-        query: {
-          'librarySectionID': sectionKey,
-          'sort': 'viewedAt:desc',
-          // Tracks only. History also carries the album and artist rollups on
-          // some versions, which would double-count every play.
-          'type': '$typeTrack',
-        },
-        extraHeaders: {
-          'X-Plex-Container-Start': '0',
-          'X-Plex-Container-Size': '$limit',
-        },
-      );
-      return _listOf(
-        container,
-        'Metadata',
-      ).map(PlexPlay.fromJson).where((p) => p.viewedAt > 0).toList();
+      return await playHistoryRaw(sectionKey: sectionKey, limit: limit);
     } on Object {
       return const [];
     }
+  }
+
+  /// The same request, without the swallowing, and with each narrowing
+  /// optional.
+  ///
+  /// **Exists because "no plays" and "asked wrongly" arrive identical.** The
+  /// endpoint answered zero rows against a server with years of listening on
+  /// it, and [playHistory] cannot say whether that was a refusal, a genuinely
+  /// empty history, or one of its own query parameters being wrong. Every
+  /// narrowing here is separately removable, so the probe can ask the same
+  /// question several ways and report which of them the server answers.
+  ///
+  /// `type` is the leading suspect. It is the metadata type on a *section
+  /// listing*, and nothing says the history endpoint means the same thing by
+  /// it, or means anything by it at all.
+  Future<List<PlexPlay>> playHistoryRaw({
+    String? sectionKey,
+    bool tracksOnly = true,
+    String? accountId,
+    int limit = 1000,
+  }) async {
+    final container = await _getContainer(
+      '/status/sessions/history/all',
+      query: {
+        'librarySectionID': ?sectionKey,
+        'sort': 'viewedAt:desc',
+        // Tracks only. History also carries album and artist rollups on some
+        // versions, which would double-count every play.
+        if (tracksOnly) 'type': '$typeTrack',
+        'accountID': ?accountId,
+      },
+      extraHeaders: {
+        'X-Plex-Container-Start': '0',
+        'X-Plex-Container-Size': '$limit',
+      },
+    );
+    return _listOf(
+      container,
+      'Metadata',
+    ).map(PlexPlay.fromJson).where((p) => p.viewedAt > 0).toList();
   }
 
   /// Audio playlists on the server.

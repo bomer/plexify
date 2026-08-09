@@ -146,6 +146,29 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               value: '${report.historyRows}',
               emphasis: true,
             ),
+            // The same question asked five ways. Zero has three causes that
+            // arrive identical, and the only thing that separates them is
+            // which of these answers.
+            for (final attempt in report.historyAttempts)
+              _Row(label: attempt.label, value: attempt.verdict),
+            if (report.workingAttempt case final working?)
+              _Row(
+                label: 'Verdict',
+                value:
+                    'History exists and is readable. "${working.label}" '
+                    'returns rows, so the app is narrowing it away itself.',
+                emphasis: true,
+              )
+            else if (report.historyEmpty)
+              const _Row(
+                label: 'Verdict',
+                value:
+                    'No way of asking returns anything. Either this account '
+                    'is not the owner, or Plex is not recording history at '
+                    'all: check Settings, then Privacy, for whether play '
+                    'history is being stored.',
+                emphasis: true,
+              ),
             _Row(label: 'Oldest', value: _date(report.oldestPlay)),
             _Row(label: 'Newest', value: _date(report.newestPlay)),
             for (final month in report.months)
@@ -193,6 +216,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       '',
       'History: ${report.historyRows} rows, '
           '${_date(report.oldestPlay)} to ${_date(report.newestPlay)}',
+      for (final attempt in report.historyAttempts)
+        '  ${attempt.label}: ${attempt.verdict}',
       for (final month in report.months)
         '  ${month.label}: ${month.plays} plays, ${month.albums} albums, '
             '${month.inLibrary} in library',
