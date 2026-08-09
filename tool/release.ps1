@@ -63,8 +63,35 @@ function Fail($message) { throw $message }
 
 # ------------------------------------------------------------------- gh ------
 
-$gh = Get-Command gh -ErrorAction SilentlyContinue
-if (-not $gh) {
+# Found rather than assumed to be on PATH.
+#
+# winget puts gh on the **machine** PATH, which a shell opened before the
+# install has never read, so `gh` is genuinely missing from that session while
+# being perfectly installed. Telling someone to install what they just
+# installed is the least useful error message available, so this looks past the
+# session's own PATH before giving up.
+function Resolve-Gh {
+    $found = Get-Command gh -ErrorAction SilentlyContinue
+    if ($found) { return $found.Source }
+
+    # Appended rather than replacing, so nothing this session added is lost.
+    $registry = @(
+        [Environment]::GetEnvironmentVariable('Path', 'Machine'),
+        [Environment]::GetEnvironmentVariable('Path', 'User')
+    ) -join ';'
+    $env:PATH = "$env:PATH;$registry"
+
+    $found = Get-Command gh -ErrorAction SilentlyContinue
+    if ($found) { return $found.Source }
+
+    $default = Join-Path $env:ProgramFiles 'GitHub CLI\gh.exe'
+    if (Test-Path $default) { return $default }
+
+    return $null
+}
+
+$ghExe = Resolve-Gh
+if (-not $ghExe) {
     Fail @"
 The GitHub CLI is not installed, and this script does the whole release through
 it.
@@ -72,15 +99,23 @@ it.
     winget install --id GitHub.cli
     gh auth login
 
-Then run this again.
+If you have just installed it, open a new terminal first: winget puts gh on the
+machine PATH and this session has not read it.
 "@
 }
 
 # `gh auth status` writes to stderr on success as well as failure, so the exit
 # code is the only thing worth reading here.
-& gh auth status 2>&1 | Out-Null
+& $ghExe auth status 2>&1 | Out-Null
 if ($LASTEXITCODE -ne 0) {
-    Fail "The GitHub CLI is not signed in. Run: gh auth login"
+    Fail @"
+The GitHub CLI is installed but not signed in. Run:
+
+    gh auth login
+
+That is an interactive browser flow, which is why this script will not do it
+for you.
+"@
 }
 
 # --------------------------------------------------------------- version -----
@@ -185,7 +220,7 @@ $prerelease = $versionName -match '^0\.'
 Write-Host ""
 Write-Host "About to publish:" -ForegroundColor Cyan
 Write-Host "  tag        $tag  ->  $(git rev-parse --short HEAD)"
-Write-Host "  repo       $(gh repo view --json nameWithOwner -q .nameWithOwner)"
+Write-Host "  repo       $(& $ghExe repo view --json nameWithOwner -q .nameWithOwner)"
 Write-Host "  prerelease $prerelease"
 Write-Host "  draft      $([bool]$Draft)"
 foreach ($artefact in @($zip, $apk)) {
@@ -229,7 +264,7 @@ $arguments = @(
 if ($prerelease) { $arguments += '--prerelease' }
 if ($Draft) { $arguments += '--draft' }
 
-& gh @arguments
+& $ghExe @arguments
 $published = $LASTEXITCODE
 Remove-Item $notesFile -ErrorAction SilentlyContinue
 
@@ -244,4 +279,4 @@ reported and either retry with -SkipBuild, or delete the tag first:
 }
 
 Write-Host "`nPublished $tag" -ForegroundColor Green
-gh release view $tag --web
+& $ghExe release view $tag --web
