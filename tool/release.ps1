@@ -59,7 +59,40 @@ $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
-function Fail($message) { throw $message }
+# Prints and exits rather than throwing.
+#
+# Every message here is written to be read by a person, and `throw` wraps it in
+# a stack trace naming this function, which buries the sentence that matters
+# under four lines about where it came from.
+function Fail($message) {
+    Write-Host ''
+    Write-Host $message -ForegroundColor Red
+    Write-Host ''
+    exit 1
+}
+
+# Runs an external program and hands back its exit code and output.
+#
+# **Native commands need this in Windows PowerShell.** With
+# `$ErrorActionPreference = 'Stop'`, anything an exe writes to stderr is wrapped
+# in a NativeCommandError and thrown, before any check of `$LASTEXITCODE` gets
+# to run. Plenty of well behaved tools use stderr for ordinary output: `gh auth
+# status` reports through it whether or not you are signed in, and `git fetch`
+# narrates progress there. Without this the script died with a raw PowerShell
+# stack trace instead of the message written for the occasion, which was found
+# by running it.
+function Invoke-Native {
+    param([string]$Exe, [string[]]$Arguments)
+
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & $Exe @Arguments 2>&1 | Out-String
+        return [pscustomobject]@{ Code = $LASTEXITCODE; Output = $output }
+    } finally {
+        $ErrorActionPreference = $previous
+    }
+}
 
 # ------------------------------------------------------------------- gh ------
 
@@ -104,10 +137,9 @@ machine PATH and this session has not read it.
 "@
 }
 
-# `gh auth status` writes to stderr on success as well as failure, so the exit
-# code is the only thing worth reading here.
-& $ghExe auth status 2>&1 | Out-Null
-if ($LASTEXITCODE -ne 0) {
+# `gh auth status` reports through stderr whether or not you are signed in, so
+# the exit code is the only thing worth reading.
+if ((Invoke-Native $ghExe @('auth', 'status')).Code -ne 0) {
     Fail @"
 The GitHub CLI is installed but not signed in. Run:
 
@@ -139,12 +171,11 @@ $dirty
 "@
 }
 
-git fetch origin --quiet
-if ($LASTEXITCODE -ne 0) { Fail "git fetch failed" }
+$fetch = Invoke-Native 'git' @('fetch', 'origin', '--quiet')
+if ($fetch.Code -ne 0) { Fail "git fetch failed:`n$($fetch.Output)" }
 
 # --is-ancestor answers with the exit code and prints nothing.
-git merge-base --is-ancestor HEAD origin/main
-if ($LASTEXITCODE -ne 0) {
+if ((Invoke-Native 'git' @('merge-base', '--is-ancestor', 'HEAD', 'origin/main')).Code -ne 0) {
     Fail @"
 HEAD is not on origin/main yet, so the tag would point at a commit that only
 exists on this machine. Push first:
@@ -220,7 +251,7 @@ $prerelease = $versionName -match '^0\.'
 Write-Host ""
 Write-Host "About to publish:" -ForegroundColor Cyan
 Write-Host "  tag        $tag  ->  $(git rev-parse --short HEAD)"
-Write-Host "  repo       $(& $ghExe repo view --json nameWithOwner -q .nameWithOwner)"
+Write-Host "  repo       $((Invoke-Native $ghExe @('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner')).Output.Trim())"
 Write-Host "  prerelease $prerelease"
 Write-Host "  draft      $([bool]$Draft)"
 foreach ($artefact in @($zip, $apk)) {
@@ -243,13 +274,15 @@ if (-not $Yes) {
 
 # Tagged only once the artefacts exist and have passed their checks, so a failed
 # build does not leave a tag behind claiming a release that never happened.
-git tag -a $tag -m "Plexify $versionName"
-if ($LASTEXITCODE -ne 0) { Fail "Could not create tag $tag" }
+$tagged = Invoke-Native 'git' @('tag', '-a', $tag, '-m', "Plexify $versionName")
+if ($tagged.Code -ne 0) { Fail "Could not create tag ${tag}:`n$($tagged.Output)" }
 
-git push origin $tag
-if ($LASTEXITCODE -ne 0) {
-    git tag -d $tag | Out-Null
-    Fail "Could not push tag $tag, so the local tag has been removed again"
+$pushed = Invoke-Native 'git' @('push', 'origin', $tag)
+if ($pushed.Code -ne 0) {
+    # Removed again so a retry is not blocked by a tag for a release that never
+    # happened.
+    Invoke-Native 'git' @('tag', '-d', $tag) | Out-Null
+    Fail "Could not push tag ${tag}, so the local tag has been removed again:`n$($pushed.Output)"
 }
 
 $notesFile = Join-Path ([System.IO.Path]::GetTempPath()) "plexify-$versionName-notes.md"
@@ -264,11 +297,11 @@ $arguments = @(
 if ($prerelease) { $arguments += '--prerelease' }
 if ($Draft) { $arguments += '--draft' }
 
-& $ghExe @arguments
-$published = $LASTEXITCODE
+$release = Invoke-Native $ghExe $arguments
+Write-Host $release.Output
 Remove-Item $notesFile -ErrorAction SilentlyContinue
 
-if ($published -ne 0) {
+if ($release.Code -ne 0) {
     Fail @"
 gh release create failed. The tag $tag has been pushed, so fix whatever it
 reported and either retry with -SkipBuild, or delete the tag first:
@@ -279,4 +312,4 @@ reported and either retry with -SkipBuild, or delete the tag first:
 }
 
 Write-Host "`nPublished $tag" -ForegroundColor Green
-& $ghExe release view $tag --web
+Invoke-Native $ghExe @('release', 'view', $tag, '--web') | Out-Null
