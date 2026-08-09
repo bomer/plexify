@@ -35,20 +35,29 @@ Future<void> acquire(
     return;
   }
 
-  // Searching runs plugins across several trackers and takes seconds, so it
-  // gets a dialog rather than an unexplained pause on a button.
   final outcome = await _whileSearching(
     context,
     release,
     () => controller.queueBest(release),
   );
-  if (!context.mounted || outcome == null) return;
+  if (!context.mounted) return;
 
   if (outcome.error != null) {
-    _report(context, outcome.error!);
+    _report(context, outcome.error!, isError: true);
     if (outcome.candidates.isNotEmpty) {
       await showAcquireSheet(context, ref, release, prefetched: outcome);
     }
+    return;
+  }
+
+  if (outcome.candidates.isEmpty) {
+    // Said out loud. A search that finds nothing is an ordinary outcome — the
+    // plugins have nothing, or the album is obscure — and silence after a
+    // twenty-second wait is indistinguishable from the app having given up.
+    _report(
+      context,
+      'No downloads found for ${release.artist} — ${release.title}',
+    );
     return;
   }
 
@@ -103,40 +112,48 @@ Future<void> showAcquireSheet(
   final outcome =
       prefetched ??
       await _whileSearching(context, release, () => controller.find(release));
-  if (!context.mounted || outcome == null) return;
+  if (!context.mounted) return;
 
   if (outcome.candidates.isEmpty) {
     _report(
       context,
       outcome.error ??
-          'Nothing found for ${release.artist} — ${release.title}.',
+          'No downloads found for ${release.artist} — ${release.title}',
+      isError: outcome.error != null,
     );
     return;
   }
+
+  // Held separately from the sheet's own context, which stops existing the
+  // moment the sheet closes — reporting through it afterwards silently does
+  // nothing, which is how "it opened the browser and said nothing" happened.
+  final messenger = ScaffoldMessenger.of(context);
 
   await showModalBottomSheet<void>(
     context: context,
     isScrollControlled: true,
     showDragHandle: true,
-    builder: (context) => _ResultList(
+    builder: (sheetContext) => _ResultList(
       release: release,
       candidates: outcome.candidates,
       onPick: (picked) async {
+        // Popped through the sheet's *own* context, which resolves to the
+        // navigator the sheet was actually pushed on. Using the caller's would
+        // pop the page underneath instead — see [_whileSearching].
+        Navigator.of(sheetContext).pop();
+
         // A page cannot be queued, so tapping one opens it instead of
         // pretending. qBittorrent would accept the URL, answer `Ok.`, and fail
         // decoding HTML somewhere this app can never read — a snackbar saying
         // "Queued" would be a lie with no way to find out it was one.
         if (!picked.addable) {
-          Navigator.of(context).pop();
-          await _openPage(context, picked.result.pageUrl);
+          await _openPage(messenger, picked.result.pageUrl);
           return;
         }
 
         final error = await controller.add(picked.result);
-        if (!context.mounted) return;
-        Navigator.of(context).pop();
-        _report(
-          context,
+        _show(
+          messenger,
           error ?? 'Queued ${picked.result.fileName}',
           isError: error != null,
         );
@@ -150,13 +167,14 @@ Future<void> showAcquireSheet(
 /// The useful thing to do with a link that is a page: the magnet is on the
 /// other side of it, one click away, and copying it back is a job for a browser
 /// rather than for a music player.
-Future<void> _openPage(BuildContext context, String url) async {
+/// Takes a messenger rather than a context, because by the time this runs the
+/// sheet that triggered it has already closed and its context is gone.
+Future<void> _openPage(ScaffoldMessengerState messenger, String url) async {
   final uri = Uri.tryParse(url);
   final opened =
       uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
-  if (!context.mounted) return;
-  _report(
-    context,
+  _show(
+    messenger,
     opened
         ? 'Opened the page. Copy the magnet link there, then add it in '
               'qBittorrent.'
@@ -165,54 +183,57 @@ Future<void> _openPage(BuildContext context, String url) async {
   );
 }
 
-/// Runs [work] behind a dialog that can be cancelled by walking away from it.
+/// Runs [work] while telling the user it is running, without a modal.
 ///
-/// Returns null if the sheet was dismissed before the search finished, which
-/// the callers treat as "do nothing" — the search itself is already bounded by
-/// a timeout in the client.
-Future<AcquireOutcome?> _whileSearching(
+/// **This was a dialog, and the dialog was two bugs.**
+///
+/// It was dismissed with `Navigator.of(context).pop()`, where `context` belongs
+/// to the page that started the search. `showDialog` pushes onto the **root**
+/// navigator by default and `Navigator.of` resolves the **nested** one — this
+/// app puts every page inside a per-tab navigator on purpose — so the pop took
+/// the artist page off the stack and left the dialog spinning on top of the
+/// album page underneath. Both halves of the report, from one line.
+///
+/// A snackbar has no navigator to get wrong, and it is the better answer
+/// anyway: searching several trackers takes tens of seconds, and blocking the
+/// whole screen for it means you cannot look at anything else meanwhile.
+Future<AcquireOutcome> _whileSearching(
   BuildContext context,
   CatalogRelease release,
   Future<AcquireOutcome> Function() work,
 ) async {
-  // Two flags rather than one, and the second is not defensive padding. The
-  // dialog's own future completes for *both* reasons it can close, so closing
-  // it ourselves once the search finished set "dismissed" a moment later and
-  // the result was thrown away every single time — a one-click button that
-  // searched, found the album, and then did nothing at all.
-  var dismissed = false;
-  var closedByUs = false;
-
-  final dialog =
-      showDialog<void>(
-        context: context,
-        barrierDismissible: true,
-        builder: (context) => AlertDialog(
-          content: Row(
-            children: [
-              const SizedBox(
-                width: 20,
-                height: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-              const SizedBox(width: 16),
-              Expanded(child: Text('Searching for ${release.title}…')),
-            ],
+  final messenger = ScaffoldMessenger.of(context);
+  final progress = messenger.showSnackBar(
+    SnackBar(
+      // Long enough to outlast the search's own timeout, then closed by hand.
+      // Left to expire it would vanish mid-search and look like a failure.
+      duration: const Duration(minutes: 2),
+      content: Row(
+        children: [
+          const SizedBox(
+            width: 16,
+            height: 16,
+            child: CircularProgressIndicator(strokeWidth: 2),
           ),
-        ),
-      ).then((_) {
-        if (!closedByUs) dismissed = true;
-      });
+          const SizedBox(width: 16),
+          Expanded(
+            // Says how long, because the honest answer is "a while". Several
+            // plugins are queried across several trackers and the slowest one
+            // sets the pace.
+            child: Text(
+              'Searching trackers for ${release.title} — up to 30 seconds',
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 
-  final outcome = await work();
-  // Guarded on `dismissed` as well as `mounted`: popping a dialog the user has
-  // already dismissed pops the screen underneath it instead.
-  if (context.mounted && !dismissed) {
-    closedByUs = true;
-    Navigator.of(context).pop();
+  try {
+    return await work();
+  } finally {
+    progress.close();
   }
-  await dialog;
-  return dismissed ? null : outcome;
 }
 
 void _notConfigured(BuildContext context) {
@@ -230,13 +251,34 @@ void _notConfigured(BuildContext context) {
 }
 
 void _report(BuildContext context, String message, {bool isError = false}) {
-  final theme = Theme.of(context);
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(message),
-      backgroundColor: isError ? theme.colorScheme.errorContainer : null,
-    ),
+  _show(
+    ScaffoldMessenger.of(context),
+    message,
+    isError: isError,
+    theme: Theme.of(context),
   );
+}
+
+/// The one place a message is put on screen.
+///
+/// Takes the messenger rather than a context so it still works after whatever
+/// triggered it has been dismissed — a sheet's context is dead the instant the
+/// sheet pops, and reporting through it does nothing at all, silently.
+void _show(
+  ScaffoldMessengerState messenger,
+  String message, {
+  bool isError = false,
+  ThemeData? theme,
+}) {
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: Duration(seconds: isError ? 8 : 4),
+        backgroundColor: isError ? theme?.colorScheme.errorContainer : null,
+      ),
+    );
 }
 
 class _ResultList extends StatelessWidget {

@@ -365,6 +365,7 @@ routinely not the place at fault:
 | "Nothing plays after wifi to 5G" | Not the audio cache, which was the guess. A sticky re-resolve counted as a success and wiped the failure streak, and the cache's own HTTP client was invisible to everything |
 | "The catalog finds nothing at all" | Check the user agent before the query. MusicBrainz answers **503** both for a generic agent and for exceeding one request a second, and an empty tier looks the same either way |
 | "qBittorrent says 403 but works in a browser" | Almost never the password. Either `Referer` does not match `Host` down to the port, or the address is banned for repeated failed logins — and retrying, the obvious response, is what extends the ban |
+| "It spins forever and throws me back a page" | Not two bugs. `showDialog` pushes on the **root** navigator and `Navigator.of(context)` resolves the **nested** one, so dismissing popped the page and left the dialog up |
 | "It said Queued and nothing downloaded" | Not the add call, which returned `Ok.` The plugin handed back a *page* URL and qBittorrent failed decoding it in its own log, where the app cannot see |
 | "Clicking a song queues it but does not play" | Not the queue. `skipToQueueItem` seeked and never called `play`, so it inherited whatever state the player was in — and launch restores **paused** on purpose |
 | "Wifi off recovers, walking out of range does not" | Not two symptoms of one bug. Switching wifi off is carried by the OS event; drifting out fires none and hangs instead of failing, so it needed the failure path to work — and that had been one-shot since #53 |
@@ -492,6 +493,20 @@ is the one action that makes either worse, on a server James runs himself.
 **A rejected qBittorrent password is a 200 whose body is `Fails.`** Not a 401. Reading the
 status alone treats it as a successful sign-in, and every request afterwards then 403s for
 what looks like a completely different reason.
+
+**`showDialog` uses the root navigator; `Navigator.of(context)` does not.** Every
+page in this app lives inside a per-tab navigator (invariant 7), so dismissing a
+dialog with `Navigator.of(pageContext).pop()` pops the *page* and leaves the
+dialog on screen — a spinner that never goes away, over the wrong page. Pop
+through the overlay's **own** context (the builder's), or avoid the overlay: the
+acquisition flow uses a snackbar now, which has no navigator to get wrong and
+does not block the screen for the twenty seconds a tracker search takes.
+
+**A sheet's `BuildContext` is dead the instant it pops, and reporting through it
+fails silently.** `ScaffoldMessenger.of(deadContext)` throws or no-ops depending
+on how it is guarded, so "it opened the browser and said nothing" was a
+`context.mounted` check doing exactly what it was told. Capture the
+`ScaffoldMessengerState` *before* closing anything and pass that.
 
 **`CallbackShortcuts` consumes a key before the callback decides anything.** It
 matched space, marked the event handled, and only then ran the toggle — and a key
