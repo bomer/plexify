@@ -168,7 +168,11 @@ class _NavItem extends StatelessWidget {
               label,
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: colour,
-                fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                // Medium rather than regular even when unselected. These are
+                // three permanent labels rather than prose, and at regular
+                // weight they read as lighter than the playlist names beneath
+                // them, which inverts the hierarchy.
+                fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
               ),
             ),
           ],
@@ -240,7 +244,13 @@ class _PlaylistItem extends StatelessWidget {
                     playlist.title,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium,
+                    // Semibold, so the name and the count under it are not the
+                    // same thing at two sizes. Weight is what separates a title
+                    // from its detail; size alone leaves both looking like
+                    // labels.
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   Text(
                     playlistSubtitle(playlist),

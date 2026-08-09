@@ -28,6 +28,10 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 - Playlist thumbnails in the sidebar are larger, with the track count under the name. A
   mosaic at the old size was a colour swatch rather than a picture of anything.
+- Body text is a point larger and titles are semibold, so a name and the detail under it are
+  no longer the same thing at two sizes.
+- Primary text is a true neutral. It kept a faint tint from the accent colour while the
+  background behind it had already lost one.
 
 ## [0.9.0] - 2026-08-10
 

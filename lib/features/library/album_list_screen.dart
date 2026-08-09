@@ -92,7 +92,10 @@ class _AlbumTile extends StatelessWidget {
             album.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium,
+            // Semibold, matching the sidebar and the Home shelves.
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
           ),
           Text(
             album.artist,

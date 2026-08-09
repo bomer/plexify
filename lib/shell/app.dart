@@ -69,11 +69,20 @@ class PlexifyApp extends ConsumerWidget {
       surfaceContainerHighest: dark
           ? const Color(0xFF242427)
           : const Color(0xFFE1E1E4),
+      // **The one the first pass missed.** Surfaces and secondary text were
+      // neutralised and this was not, so every title, every track name and
+      // every label in the app kept the seed's lavender cast while the
+      // background behind it had lost it. Subtle on its own and the reason the
+      // text still did not look quite like anyone else's.
+      onSurface: dark ? const Color(0xFFF4F4F5) : const Color(0xFF18181B),
+
       // Kept a touch cool rather than pure grey. Perfectly neutral secondary
       // text on a near-black background reads as slightly dirty, and this is
-      // the most-used colour in the app by a distance.
+      // the most-used colour in the app by a distance. Lifted from A1A1AA,
+      // which was legible and half a step darker than it needed to be against
+      // a background this dark.
       onSurfaceVariant: dark
-          ? const Color(0xFFA1A1AA)
+          ? const Color(0xFFB0B0B8)
           : const Color(0xFF52525B),
       outlineVariant: dark ? const Color(0xFF2A2A2E) : const Color(0xFFD4D4D8),
     );
@@ -124,9 +133,18 @@ class PlexifyApp extends ConsumerWidget {
   /// visual weight as the album titles underneath them — so a row of covers had
   /// no heading so much as a caption floating above it. Slightly larger,
   /// heavier and tighter is enough to bind a header to its row.
+  /// Body text is a point larger than Material's default, and secondary text
+  /// two.
+  ///
+  /// Material's 14/12 pairing is sized for dense forms. This app is a list of
+  /// names read at a glance from a couple of feet away, which is what every
+  /// other music player is sized for, and next to one of those the difference
+  /// reads as the text being cramped rather than as the app being compact.
   static TextTheme _textTheme(Brightness brightness) {
     final base = ThemeData(brightness: brightness).textTheme;
     return base.copyWith(
+      bodyMedium: base.bodyMedium?.copyWith(fontSize: 15),
+      bodySmall: base.bodySmall?.copyWith(fontSize: 13),
       titleLarge: base.titleLarge?.copyWith(
         fontWeight: FontWeight.w600,
         letterSpacing: -0.4,

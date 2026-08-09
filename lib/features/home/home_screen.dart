@@ -244,7 +244,13 @@ class _ShelfTile extends StatelessWidget {
               entry.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodyMedium,
+              // Semibold, matching the sidebar. A cover, a name and a detail
+              // under it is the same shape everywhere in this app, and weight
+              // is what separates the name from the detail; colour alone
+              // leaves both reading as labels.
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
             ),
             Text(
               entry.subtitle,
