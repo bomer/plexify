@@ -834,6 +834,18 @@ caught this on its first run, reporting 400 where 600 was expected, and the code
 whole time. `tester.view.physicalSize` is the other half, and asserting against
 `tester.getRect` of the widget rather than against a constant is better still.
 
+**Flutter's desktop runner remembers nothing about its window, and the fix belongs in C++.**
+There is no cross-platform place to keep window geometry, so the runner opens at a fixed
+1280x720 every launch. Doing it in Dart would mean the window appears at the default and then
+jumps once the engine has started and read a preference. Three things the registry version has
+to get right: `GetWindowPlacement` rather than `GetWindowRect`, or a window closed maximised
+stores the screen as its *normal* size and un-maximising after a restart does nothing; the
+stored frame must be applied *after* `Win32Window::Create`, because Create scales the size it
+is given by the monitor DPI and a physical-pixel frame passed through it grows by the scale
+factor on every launch; and the frame has to be checked against the monitors that exist now,
+or a window closed on a since-unplugged screen launches somewhere nothing can display it,
+which presents as the app not starting at all.
+
 **A `Row` gives its non-flex children unbounded main-axis constraints, so a `Flexible` nested
 inside one of them cannot shrink.** It resolves against infinity, takes its full width, and
 overflows the parent instead, which looks exactly like the constraint having been ignored.

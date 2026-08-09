@@ -161,8 +161,10 @@ DiscoveryShelf? moreByArtistShelf({
 /// The caller walks this until it finds one with enough albums to fill a row.
 /// Plex's genre list carries no counts, so "enough" cannot be known without
 /// asking, and a library will have a dozen genres tagged onto one album each.
-List<PlexGenre> genresInTasteOrder(List<PlexGenre> genres, {required int seed}) =>
-    [...genres]..shuffle(Random(seed));
+List<PlexGenre> genresInTasteOrder(
+  List<PlexGenre> genres, {
+  required int seed,
+}) => [...genres]..shuffle(Random(seed));
 
 /// Where to start reading inside a genre, so the row is not always the same
 /// alphabetical head of it.

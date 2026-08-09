@@ -16,6 +16,13 @@ class FlutterWindow : public Win32Window {
   explicit FlutterWindow(const flutter::DartProject& project);
   virtual ~FlutterWindow();
 
+  // Opens maximised once Flutter has a frame to show.
+  //
+  // Kept here rather than applied at creation because the window is
+  // deliberately hidden until then, and maximising it early would show an
+  // empty one for the length of the engine's startup.
+  void SetStartMaximized(bool maximized) { start_maximized_ = maximized; }
+
  protected:
   // Win32Window:
   bool OnCreate() override;
@@ -26,6 +33,8 @@ class FlutterWindow : public Win32Window {
  private:
   // The project to run.
   flutter::DartProject project_;
+
+  bool start_maximized_ = false;
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;

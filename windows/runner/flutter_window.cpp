@@ -3,6 +3,7 @@
 #include <optional>
 
 #include "flutter/generated_plugin_registrant.h"
+#include "window_state.h"
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -32,7 +33,12 @@ bool FlutterWindow::OnCreate() {
       GetHandle(), flutter_controller_->engine()->messenger());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    // Maximised here rather than at creation, so the window that appears is
+    // already the right shape and already has something in it. Win32Window::Show
+    // hard-codes SW_SHOWNORMAL, which would un-maximise a restored window on
+    // every launch.
+    ShowWindow(GetHandle(),
+               start_maximized_ ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL);
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -69,6 +75,12 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_CLOSE:
+      // Saved here rather than in OnDestroy, which runs after WM_DESTROY has
+      // already cleared the handle: by then there is no window left to ask
+      // where it was. This is the last message at which the answer exists.
+      SaveWindowState(hwnd);
+      break;
     case WM_FONTCHANGE:
       flutter_controller_->engine()->ReloadSystemFonts();
       break;

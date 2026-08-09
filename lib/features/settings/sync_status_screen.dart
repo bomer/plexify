@@ -130,10 +130,32 @@ class SyncStatusScreen extends ConsumerWidget {
 
             _Section(
               title: 'Cached',
+              subtitle:
+                  'What is on this device, against what Plex says the '
+                  'library holds. A gap that does not close after a full '
+                  'resync is a real difference rather than a sync still '
+                  'running.',
               rows: [
-                ('Artists', '${d.artists}'),
-                ('Albums', '${d.albums}'),
-                ('Tracks', '${d.tracks}'),
+                // Plural is the thing to look at here. The sync walks the
+                // first music section only, so a second library is invisible
+                // and shows up as counts that are short by however much is in
+                // it.
+                (
+                  'Music libraries',
+                  d.musicSections.isEmpty
+                      ? '—'
+                      : '${d.musicSections.length}: '
+                            '${d.musicSections.join(', ')}',
+                ),
+                if (d.musicSections.length > 1)
+                  (
+                    'Syncing',
+                    '${d.musicSections.first} only — the others are not '
+                        'read at all',
+                  ),
+                ('Artists', _against(d.artists, d.serverArtists)),
+                ('Albums', _against(d.albums, d.serverAlbums)),
+                ('Tracks', _against(d.tracks, d.serverTracks)),
                 ('Playlists', '${d.playlists}'),
                 ('Albums with a rating', '${d.ratedAlbums}'),
               ],
@@ -259,6 +281,14 @@ class SyncStatusScreen extends ConsumerWidget {
         ),
       ),
     );
+  }
+
+  /// "11,665 of 12,355 on Plex", or just the local count when the server
+  /// would not answer.
+  static String _against(int local, int? server) {
+    if (server == null) return '$local';
+    if (server == local) return '$local, matching Plex';
+    return '$local of $server on Plex';
   }
 
   static String _ago(DateTime? at) {

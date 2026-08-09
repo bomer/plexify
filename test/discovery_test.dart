@@ -107,7 +107,9 @@ void main() {
           play('c', DateTime(2025, 12, 22)),
           play('d', DateTime(2025, 12, 23)),
         ],
-        owned: {for (final key in ['a', 'b', 'c', 'd']) key: album(key)},
+        owned: {
+          for (final key in ['a', 'b', 'c', 'd']) key: album(key),
+        },
         now: DateTime(2026, 1, 2),
       );
 
@@ -155,7 +157,9 @@ void main() {
       // handful of albums would pass this by accident however the comparator
       // was written, and the bug would only ever show up on a month with a lot
       // of listening in it.
-      final keys = [for (var i = 0; i < 40; i++) 'k${i.toString().padLeft(2, '0')}'];
+      final keys = [
+        for (var i = 0; i < 40; i++) 'k${i.toString().padLeft(2, '0')}',
+      ];
       final shelf = mostPlayedShelf(
         plays: [
           // Newest first, which is the order the history endpoint returns.
@@ -204,7 +208,10 @@ void main() {
   });
 
   test('the day seed advances once per day', () {
-    expect(daySeed(DateTime.utc(2026, 8, 9, 1)), daySeed(DateTime.utc(2026, 8, 9, 23)));
+    expect(
+      daySeed(DateTime.utc(2026, 8, 9, 1)),
+      daySeed(DateTime.utc(2026, 8, 9, 23)),
+    );
     expect(
       daySeed(DateTime.utc(2026, 8, 10)),
       daySeed(DateTime.utc(2026, 8, 9)) + 1,
@@ -268,11 +275,7 @@ void main() {
     setUp(() => db = AppDatabase(NativeDatabase.memory()));
     tearDown(() => db.close());
 
-    Future<void> insert(
-      String key, {
-      int? lastViewedAt,
-      int addedAt = 0,
-    }) => db
+    Future<void> insert(String key, {int? lastViewedAt, int addedAt = 0}) => db
         .into(db.albums)
         .insert(
           AlbumsCompanion.insert(
@@ -333,36 +336,42 @@ void main() {
       expect(rows.map((a) => a.ratingKey), ['7']);
     });
 
-    test('excludes recent arrivals but keeps albums with no added date', () async {
-      await insert('old', addedAt: 1000);
-      await insert('new', addedAt: 9000);
-      await db
-          .into(db.albums)
-          .insert(
-            AlbumsCompanion.insert(
-              ratingKey: 'undated',
-              title: 'undated',
-              normalisedTitle: 'undated',
-              artistTitle: 'Artist',
-              normalisedArtist: 'artist',
-            ),
-          );
+    test(
+      'excludes recent arrivals but keeps albums with no added date',
+      () async {
+        await insert('old', addedAt: 1000);
+        await insert('new', addedAt: 9000);
+        await db
+            .into(db.albums)
+            .insert(
+              AlbumsCompanion.insert(
+                ratingKey: 'undated',
+                title: 'undated',
+                normalisedTitle: 'undated',
+                artistTitle: 'Artist',
+                normalisedArtist: 'artist',
+              ),
+            );
 
-      final rows = await db.watchNeverPlayedAlbums(addedBefore: 5000).first;
-      // An album with no addedAt at all is old enough by any reading; dropping
-      // it would quietly shrink the pool on libraries scanned by older agents.
-      expect(rows.map((a) => a.ratingKey), containsAll(['old', 'undated']));
-      expect(rows.map((a) => a.ratingKey), isNot(contains('new')));
-    });
+        final rows = await db.watchNeverPlayedAlbums(addedBefore: 5000).first;
+        // An album with no addedAt at all is old enough by any reading; dropping
+        // it would quietly shrink the pool on libraries scanned by older agents.
+        expect(rows.map((a) => a.ratingKey), containsAll(['old', 'undated']));
+        expect(rows.map((a) => a.ratingKey), isNot(contains('new')));
+      },
+    );
 
-    test('albumsByKeys returns only what is held, and nothing for none', () async {
-      await insert('here');
-      expect(
-        (await db.albumsByKeys(['here', 'gone'])).map((a) => a.ratingKey),
-        ['here'],
-      );
-      expect(await db.albumsByKeys(const []), isEmpty);
-    });
+    test(
+      'albumsByKeys returns only what is held, and nothing for none',
+      () async {
+        await insert('here');
+        expect(
+          (await db.albumsByKeys(['here', 'gone'])).map((a) => a.ratingKey),
+          ['here'],
+        );
+        expect(await db.albumsByKeys(const []), isEmpty);
+      },
+    );
   });
 
   group('the endpoints behind the shelves', () {
@@ -445,7 +454,11 @@ void main() {
           'MediaContainer': {
             'Metadata': [
               {'ratingKey': '1', 'parentRatingKey': '50'},
-              {'ratingKey': '2', 'parentRatingKey': '50', 'viewedAt': 1786000000},
+              {
+                'ratingKey': '2',
+                'parentRatingKey': '50',
+                'viewedAt': 1786000000,
+              },
             ],
           },
         }),
@@ -453,30 +466,39 @@ void main() {
       expect(await client.playHistory('3'), hasLength(1));
     });
 
-    test('genre keys are reduced to an id whichever shape they arrive in', () async {
-      // Two spellings in the wild depending on server version, and `?genre=`
-      // wants the bare id in both cases.
-      final client = clientReturning(
-        jsonEncode({
-          'MediaContainer': {
-            'Directory': [
-              {'key': '/library/sections/3/genre/13', 'title': 'Rock'},
-              {'key': '27', 'title': 'Jazz'},
-              {'fastKey': '/library/sections/3/all?genre=41', 'title': 'Folk'},
-            ],
-          },
-        }),
-      );
+    test(
+      'genre keys are reduced to an id whichever shape they arrive in',
+      () async {
+        // Two spellings in the wild depending on server version, and `?genre=`
+        // wants the bare id in both cases.
+        final client = clientReturning(
+          jsonEncode({
+            'MediaContainer': {
+              'Directory': [
+                {'key': '/library/sections/3/genre/13', 'title': 'Rock'},
+                {'key': '27', 'title': 'Jazz'},
+                {
+                  'fastKey': '/library/sections/3/all?genre=41',
+                  'title': 'Folk',
+                },
+              ],
+            },
+          }),
+        );
 
-      final genres = await client.genres('3');
-      expect(genres.map((g) => g.key), ['13', '27', '41']);
-      expect(genres.map((g) => g.title), ['Rock', 'Jazz', 'Folk']);
-    });
+        final genres = await client.genres('3');
+        expect(genres.map((g) => g.key), ['13', '27', '41']);
+        expect(genres.map((g) => g.title), ['Rock', 'Jazz', 'Folk']);
+      },
+    );
 
-    test('genres are empty rather than an error when the server will not say', () async {
-      final client = clientReturning('nope', status: 500);
-      expect(await client.genres('3'), isEmpty);
-    });
+    test(
+      'genres are empty rather than an error when the server will not say',
+      () async {
+        final client = clientReturning('nope', status: 500);
+        expect(await client.genres('3'), isEmpty);
+      },
+    );
 
     test('a genre page reports the total so a window can be picked', () async {
       late Map<String, String> headers;
@@ -499,10 +521,13 @@ void main() {
       expect(headers['X-Plex-Container-Size'], '20');
     });
 
-    test('hubs are empty rather than an error on a server that has none', () async {
-      final client = clientReturning('{}', status: 404);
-      expect(await client.sectionHubs('3'), isEmpty);
-    });
+    test(
+      'hubs are empty rather than an error on a server that has none',
+      () async {
+        final client = clientReturning('{}', status: 404);
+        expect(await client.sectionHubs('3'), isEmpty);
+      },
+    );
 
     test('hubs report their identifier, type and size', () async {
       final client = clientReturning(

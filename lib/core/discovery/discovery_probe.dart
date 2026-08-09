@@ -85,10 +85,13 @@ class DiscoveryReport {
 /// same reason they do: the answer belongs to one server at one version, and
 /// has to be re-runnable rather than written down.
 class DiscoveryProbe {
-  DiscoveryProbe({required PlexClient client, required AppDatabase db, DateTime Function()? now})
-    : _client = client,
-      _db = db,
-      _now = now ?? DateTime.now;
+  DiscoveryProbe({
+    required PlexClient client,
+    required AppDatabase db,
+    DateTime Function()? now,
+  }) : _client = client,
+       _db = db,
+       _now = now ?? DateTime.now;
 
   final PlexClient _client;
   final AppDatabase _db;
@@ -110,9 +113,7 @@ class DiscoveryProbe {
           genre.key,
           size: 0,
         );
-        samples.add(
-          GenreSample(title: genre.title, albums: counted.totalSize),
-        );
+        samples.add(GenreSample(title: genre.title, albums: counted.totalSize));
       } on Object {
         samples.add(GenreSample(title: genre.title, albums: -1));
       }
@@ -130,11 +131,7 @@ class DiscoveryProbe {
       newestPlay: _at(plays.isEmpty ? null : plays.first.viewedAt),
       months: [
         await _month(plays, DateTime(now.year, now.month), 'This month'),
-        await _month(
-          plays,
-          DateTime(now.year, now.month - 1),
-          'Last month',
-        ),
+        await _month(plays, DateTime(now.year, now.month - 1), 'Last month'),
       ],
     );
   }

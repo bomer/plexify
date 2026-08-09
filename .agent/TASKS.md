@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 55 complete · 2 open · 548 tests passing
+**Status:** 56 complete · 2 open · 557 tests passing
 
 ---
 
@@ -207,6 +207,18 @@ Run the probe and the answer decides whether it is worth wiring.
 so they resolve on the first Home build of a session and hold that answer until something
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
+
+**Favourite tracks have nowhere to be seen.** The Favourites tab was removed because Artists
+and Albums each carry a favourites filter, which is true and is the whole argument, except
+that neither of them is a track. Four-star tracks are still rated, still synced and still
+returned by `favouriteTracksProvider`, and nothing renders it. Either a filter on a track
+list somewhere, or accept it and delete the provider.
+
+**Only the first music library is synced.** `PlexClient.musicSection` takes the first section
+of type `artist` and v1 assumes there is one. Sync status now *says* when there is more than
+one, which turns an invisible shortfall into a visible one, but the sync itself is unchanged.
+A picker in Settings is the small version; syncing several is not, because ratingKeys are
+unique per server and not per section.
 
 **The desktop bar has no lyrics button and no device picker.** Spotify's right column carries
 four things and Plexify's carries two. Neither of the missing ones has anything behind it.

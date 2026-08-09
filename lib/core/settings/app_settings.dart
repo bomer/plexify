@@ -28,7 +28,20 @@ class AppSettings {
     this.catalogEnabled = false,
     this.qbitUrl,
     this.volume = 1,
+    this.sidebarPlaylists = 12,
   });
+
+  /// How many playlists the sidebar lists directly.
+  ///
+  /// Twelve rather than the eight it was. The sidebar exists so a playlist is
+  /// one click away, and eight was chosen before there was any evidence about
+  /// how many people actually keep; a list long enough to scroll past is a
+  /// smaller cost than a playlist that is not on it.
+  ///
+  /// A setting rather than a constant because the right number depends on the
+  /// window: the same list that fits comfortably on a desktop pushes the
+  /// destinations off a laptop screen.
+  final int sidebarPlaylists;
 
   /// Output level, 0 to 1.
   ///
@@ -125,8 +138,10 @@ class AppSettings {
     bool? catalogEnabled,
     Object? qbitUrl = _unchanged,
     double? volume,
+    int? sidebarPlaylists,
   }) => AppSettings(
     volume: volume ?? this.volume,
+    sidebarPlaylists: sidebarPlaylists ?? this.sidebarPlaylists,
     catalogEnabled: catalogEnabled ?? this.catalogEnabled,
     qbitUrl: identical(qbitUrl, _unchanged) ? this.qbitUrl : qbitUrl as String?,
     themeMode: themeMode ?? this.themeMode,
@@ -160,7 +175,8 @@ class AppSettings {
       other.artworkCacheMaxBytes == artworkCacheMaxBytes &&
       other.catalogEnabled == catalogEnabled &&
       other.qbitUrl == qbitUrl &&
-      other.volume == volume;
+      other.volume == volume &&
+      other.sidebarPlaylists == sidebarPlaylists;
 
   @override
   int get hashCode => Object.hash(
@@ -173,6 +189,7 @@ class AppSettings {
     catalogEnabled,
     qbitUrl,
     volume,
+    sidebarPlaylists,
   );
 }
 
@@ -200,6 +217,7 @@ class SettingsStore {
   static const _catalogEnabledKey = 'settings_catalog_enabled';
   static const _qbitUrlKey = 'settings_qbit_url';
   static const _volumeKey = 'settings_volume';
+  static const _sidebarPlaylistsKey = 'settings_sidebar_playlists';
 
   AppSettings read() => AppSettings(
     catalogEnabled:
@@ -218,6 +236,9 @@ class SettingsStore {
       0.0,
       1.0,
     ),
+    sidebarPlaylists:
+        _prefs.getInt(_sidebarPlaylistsKey) ??
+        const AppSettings().sidebarPlaylists,
   );
 
   Future<void> write(AppSettings settings) async {
@@ -234,6 +255,7 @@ class SettingsStore {
     await _prefs.setBool(_catalogEnabledKey, settings.catalogEnabled);
     await _write(_qbitUrlKey, settings.qbitUrl);
     await _prefs.setDouble(_volumeKey, settings.volume);
+    await _prefs.setInt(_sidebarPlaylistsKey, settings.sidebarPlaylists);
   }
 
   Future<void> _write(String key, String? value) async =>
@@ -343,6 +365,15 @@ class SettingsController extends Notifier<AppSettings> {
   /// able to hand the engine a number outside its range.
   void setVolume(double volume) =>
       _apply(state.copyWith(volume: volume.clamp(0.0, 1.0)));
+
+  /// How many playlists the sidebar lists.
+  ///
+  /// Clamped to something a sidebar can hold. Zero is allowed and means the
+  /// section disappears, which is a reasonable thing to want; the upper bound
+  /// exists because past a certain length the list stops being a shortcut and
+  /// becomes the Playlists screen with worse scrolling.
+  void setSidebarPlaylists(int count) =>
+      _apply(state.copyWith(sidebarPlaylists: count.clamp(0, 30)));
 
   void _apply(AppSettings next) {
     if (next == state) return;

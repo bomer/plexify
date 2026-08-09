@@ -388,11 +388,13 @@ class PlexClient {
   /// cheaper trade.
   Future<List<PlexGenre>> genres(String sectionKey) async {
     try {
-      final container = await _getContainer('/library/sections/$sectionKey/genre');
-      return _listOf(container, 'Directory')
-          .map(PlexGenre.fromJson)
-          .where((g) => g.key.isNotEmpty)
-          .toList();
+      final container = await _getContainer(
+        '/library/sections/$sectionKey/genre',
+      );
+      return _listOf(
+        container,
+        'Directory',
+      ).map(PlexGenre.fromJson).where((g) => g.key.isNotEmpty).toList();
     } on Object {
       return const [];
     }
@@ -438,7 +440,10 @@ class PlexClient {
   /// Requires server-owner access. Returns empty for anyone else, and for any
   /// other failure, because a Home shelf must never be the thing that shows an
   /// error.
-  Future<List<PlexPlay>> playHistory(String sectionKey, {int limit = 1000}) async {
+  Future<List<PlexPlay>> playHistory(
+    String sectionKey, {
+    int limit = 1000,
+  }) async {
     try {
       final container = await _getContainer(
         '/status/sessions/history/all',
@@ -454,10 +459,10 @@ class PlexClient {
           'X-Plex-Container-Size': '$limit',
         },
       );
-      return _listOf(container, 'Metadata')
-          .map(PlexPlay.fromJson)
-          .where((p) => p.viewedAt > 0)
-          .toList();
+      return _listOf(
+        container,
+        'Metadata',
+      ).map(PlexPlay.fromJson).where((p) => p.viewedAt > 0).toList();
     } on Object {
       return const [];
     }

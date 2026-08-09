@@ -235,9 +235,7 @@ class _DesktopBar extends StatelessWidget {
             flex: 2,
             child: Center(
               child: ConstrainedBox(
-                constraints: const BoxConstraints(
-                  maxWidth: _transportMaxWidth,
-                ),
+                constraints: const BoxConstraints(maxWidth: _transportMaxWidth),
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   mainAxisSize: MainAxisSize.min,

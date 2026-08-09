@@ -1,25 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/db/app_database.dart' show AlbumSort;
+import '../../core/db/app_database.dart' show AlbumSort, PlaylistSort;
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
-import '../../shell/layout.dart';
 import 'album_detail_screen.dart';
 import 'album_list_screen.dart';
 import 'artist_detail_screen.dart';
 import 'artist_list.dart';
-import '../player/playback_controller.dart';
 import 'artwork.dart';
-import '../player/playing_indicator.dart';
 import '../settings/sync_actions.dart';
 import 'playlist_detail_screen.dart';
-import 'star_rating.dart';
-import 'track_rating_sheet.dart';
 import 'sync_banner.dart';
 
 /// What the Library tab is currently showing.
-enum LibraryView { artists, albums, playlists, favourites }
+///
+/// **There is no favourites view.** There was, and it was a fourth thing to
+/// choose between that answered a question the other three already answer:
+/// Artists and Albums each carry a favourites filter, so "show me my
+/// favourites" is a toggle on the list you are already looking at rather than a
+/// separate place to go to. See [_FavouritesFilterButton].
+enum LibraryView { artists, albums, playlists }
 
 final libraryViewProvider = StateProvider<LibraryView>(
   (ref) => LibraryView.albums,
@@ -44,6 +45,7 @@ class LibraryScreen extends ConsumerWidget {
             const _FavouritesFilterButton(),
             const AlbumSortButton(),
           ],
+          if (view == LibraryView.playlists) const _PlaylistSortButton(),
           const SyncActions(),
         ],
         bottom: PreferredSize(
@@ -60,10 +62,6 @@ class LibraryScreen extends ConsumerWidget {
                 ButtonSegment(
                   value: LibraryView.playlists,
                   label: Text('Playlists'),
-                ),
-                ButtonSegment(
-                  value: LibraryView.favourites,
-                  label: Text('Favourites'),
                 ),
               ],
               selected: {view},
@@ -89,7 +87,6 @@ class LibraryScreen extends ConsumerWidget {
                 LibraryView.artists => const _ArtistsView(),
                 LibraryView.albums => const AlbumGrid(),
                 LibraryView.playlists => const _PlaylistsView(),
-                LibraryView.favourites => const _FavouritesView(),
               },
             ),
           ),
@@ -117,6 +114,30 @@ class AlbumSortButton extends ConsumerWidget {
         ),
         PopupMenuItem(value: AlbumSort.title, child: Text('Title A–Z')),
         PopupMenuItem(value: AlbumSort.artist, child: Text('Artist A–Z')),
+      ],
+    );
+  }
+}
+
+/// Sort control for the playlist list.
+///
+/// The two name orders put smart playlists first; recent does not. See
+/// `AppDatabase._playlistOrder` for why that is not simply inconsistent.
+class _PlaylistSortButton extends ConsumerWidget {
+  const _PlaylistSortButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    return PopupMenuButton<PlaylistSort>(
+      tooltip: 'Sort',
+      icon: const Icon(Icons.sort),
+      initialValue: ref.watch(playlistSortProvider),
+      onSelected: (value) =>
+          ref.read(playlistSortProvider.notifier).state = value,
+      itemBuilder: (context) => const [
+        PopupMenuItem(value: PlaylistSort.recent, child: Text('Recent')),
+        PopupMenuItem(value: PlaylistSort.titleAsc, child: Text('Name A–Z')),
+        PopupMenuItem(value: PlaylistSort.titleDesc, child: Text('Name Z–A')),
       ],
     );
   }
@@ -159,121 +180,6 @@ class _ArtistFavouritesButton extends ConsumerWidget {
       selectedIcon: const Icon(Icons.star),
       onPressed: () =>
           ref.read(artistFavouritesOnlyProvider.notifier).state = !active,
-    );
-  }
-}
-
-/// Favourite albums and tracks — four stars or better.
-class _FavouritesView extends ConsumerWidget {
-  const _FavouritesView();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final compact = isCompactLayout(context);
-    final albums = ref.watch(favouriteAlbumsProvider).valueOrNull ?? const [];
-    final tracks = ref.watch(favouriteTracksProvider).valueOrNull ?? const [];
-
-    if (albums.isEmpty && tracks.isEmpty) {
-      return const _Empty(
-        message:
-            'Nothing rated four stars or higher yet.\n'
-            'Rate an album or track and it will show up here.',
-      );
-    }
-
-    return ListView(
-      padding: const EdgeInsets.only(bottom: 16),
-      children: [
-        if (albums.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('Albums', style: theme.textTheme.titleSmall),
-          ),
-          GridView.builder(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 200,
-              childAspectRatio: 0.72,
-              crossAxisSpacing: 16,
-              mainAxisSpacing: 16,
-            ),
-            itemCount: albums.length,
-            itemBuilder: (context, i) {
-              final album = albums[i];
-              return InkWell(
-                borderRadius: BorderRadius.circular(8),
-                onTap: () => openAlbum(context, album),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: ClipRRect(
-                        borderRadius: BorderRadius.circular(6),
-                        child: Artwork(thumb: album.thumb),
-                      ),
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      album.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodyMedium,
-                    ),
-                    StarRating(rating: album.userRating, size: 14),
-                  ],
-                ),
-              );
-            },
-          ),
-        ],
-
-        if (tracks.isNotEmpty) ...[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 24, 16, 4),
-            child: Text('Tracks', style: theme.textTheme.titleSmall),
-          ),
-          for (final track in tracks)
-            ListTile(
-              dense: true,
-              selected: isNowPlaying(ref, track.ratingKey),
-              leading: isNowPlaying(ref, track.ratingKey)
-                  ? const PlayingIndicator()
-                  : null,
-              title: Text(
-                track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                [
-                  track.artist,
-                  track.album,
-                ].where((s) => s.isNotEmpty).join(' — '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              // Same rule as the album page: five stars is the widest thing
-              // that can sit in a track row, and on a phone it squeezes the
-              // title to an ellipsis — here it did not even fit, overflowing
-              // the row by a few pixels. Long press opens the rating sheet
-              // instead, which is what every other track list on a phone
-              // does.
-              trailing: compact
-                  ? null
-                  : StarRating(rating: track.userRating, size: 14),
-              enabled: track.isPlayable,
-              onLongPress: compact
-                  ? () => showTrackRatingSheet(context, ref, track)
-                  : null,
-              onTap: () => ref
-                  .read(playbackControllerProvider)
-                  ?.playTracks(tracks, startIndex: tracks.indexOf(track)),
-            ),
-        ],
-      ],
     );
   }
 }

@@ -4,6 +4,7 @@
 
 #include "flutter_window.h"
 #include "utils.h"
+#include "window_state.h"
 
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
@@ -24,12 +25,22 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
 
   project.set_dart_entrypoint_arguments(std::move(command_line_arguments));
 
+  // Read before the window exists, so a first launch still gets the defaults
+  // below and every launch after gets what was left behind.
+  const SavedWindow saved = LoadWindowState();
+
   FlutterWindow window(project);
   Win32Window::Point origin(10, 10);
   Win32Window::Size size(1280, 720);
   if (!window.Create(L"Plexify", origin, size)) {
     return EXIT_FAILURE;
   }
+  // Applied after creation rather than passed into it: Create scales the size
+  // it is given by the monitor's DPI, and the stored frame is already in
+  // physical pixels, so passing it through would grow the window by the scale
+  // factor on every launch on a high-DPI display.
+  ApplyWindowState(window.GetHandle(), saved);
+  window.SetStartMaximized(saved.valid && saved.maximized);
   window.SetQuitOnClose(true);
 
   ::MSG msg;

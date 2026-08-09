@@ -7,10 +7,14 @@ import 'package:plexify/features/player/seek_control.dart';
 void main() {
   group('running time', () {
     test('reads the way a person would say it', () {
-      expect(formatRunningTime(const Duration(minutes: 48, seconds: 33)),
-          '48 min 33 sec');
-      expect(formatRunningTime(const Duration(hours: 1, minutes: 12)),
-          '1 hr 12 min');
+      expect(
+        formatRunningTime(const Duration(minutes: 48, seconds: 33)),
+        '48 min 33 sec',
+      );
+      expect(
+        formatRunningTime(const Duration(hours: 1, minutes: 12)),
+        '1 hr 12 min',
+      );
       expect(formatRunningTime(const Duration(seconds: 42)), '42 sec');
     });
 
@@ -77,9 +81,15 @@ void main() {
       );
     });
 
-    test('a track Plex gave no duration for counts as nothing, not as a gap', () {
-      expect(totalDuration([track(60000), track(0)]), const Duration(minutes: 1));
-    });
+    test(
+      'a track Plex gave no duration for counts as nothing, not as a gap',
+      () {
+        expect(
+          totalDuration([track(60000), track(0)]),
+          const Duration(minutes: 1),
+        );
+      },
+    );
 
     test('nothing totals nothing', () {
       expect(totalDuration(const []), Duration.zero);

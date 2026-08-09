@@ -121,9 +121,7 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
             for (final genre in report.genreSamples)
               _Row(
                 label: genre.title,
-                value: genre.albums < 0
-                    ? 'failed'
-                    : '${genre.albums} albums',
+                value: genre.albums < 0 ? 'failed' : '${genre.albums} albums',
               ),
 
             const Divider(height: 32),

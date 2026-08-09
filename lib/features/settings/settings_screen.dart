@@ -474,7 +474,65 @@ class _AppearanceSection extends ConsumerWidget {
                 .setThemeMode(selection.first),
           ),
         ),
+        const _SidebarPlaylistsTile(),
       ],
+    );
+  }
+}
+
+/// How many playlists the sidebar lists directly.
+///
+/// A slider rather than a number field: the useful range is small, the right
+/// answer is "as many as fit", and that is something you find by looking at the
+/// sidebar rather than by typing. Zero is a real choice and hides the section.
+class _SidebarPlaylistsTile extends ConsumerWidget {
+  const _SidebarPlaylistsTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final count = ref.watch(settingsProvider.select((s) => s.sidebarPlaylists));
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Playlists in the sidebar',
+                  style: theme.textTheme.bodyLarge,
+                ),
+              ),
+              Text(
+                count == 0 ? 'None' : '$count',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+          Slider(
+            value: count.toDouble(),
+            min: 0,
+            max: 30,
+            divisions: 30,
+            label: count == 0 ? 'None' : '$count',
+            onChanged: (value) => ref
+                .read(settingsProvider.notifier)
+                .setSidebarPlaylists(value.round()),
+          ),
+          Text(
+            'Most recently opened first, whatever the Playlists screen is '
+            'sorted by.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

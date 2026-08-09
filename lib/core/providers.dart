@@ -523,6 +523,10 @@ class SyncDiagnostics {
     required this.serverScannedAt,
     required this.cursor,
     required this.initialSyncComplete,
+    required this.musicSections,
+    required this.serverArtists,
+    required this.serverAlbums,
+    required this.serverTracks,
     required this.artists,
     required this.albums,
     required this.tracks,
@@ -579,6 +583,18 @@ class SyncDiagnostics {
   final int? serverScannedAt;
   final int? cursor;
   final bool initialSyncComplete;
+
+  /// Titles of every music section on the server.
+  ///
+  /// More than one means the sync is only ever seeing the first, because
+  /// [PlexClient.musicSection] takes the first and v1 assumes there is one.
+  /// That is the first thing to check when the cached counts are short.
+  final List<String> musicSections;
+
+  /// What Plex says the synced section holds, or null if it would not say.
+  final int? serverArtists;
+  final int? serverAlbums;
+  final int? serverTracks;
 
   final int artists;
   final int albums;
@@ -680,11 +696,46 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
 
   // Asked live, so the stored clocks can be compared against what Plex says
   // right now — the comparison that decides whether a sync happens at all.
-  PlexSection? section;
+  //
+  // **Every music section, not just the one being synced.** `musicSection()`
+  // takes the first and v1 assumes there is only one, which is fine until
+  // there are two: the second's music is then invisible with nothing on screen
+  // to say so, and the symptom is a track count lower than Plex's own.
+  var musicSections = <PlexSection>[];
   try {
-    section = await client?.musicSection();
+    musicSections = [
+      for (final s in await client?.sections() ?? const <PlexSection>[])
+        if (s.isMusic) s,
+    ];
   } on Object {
-    section = null;
+    musicSections = const [];
+  }
+  final section = musicSections.firstOrNull;
+
+  // What Plex says the section holds, next to what the cache holds. The two
+  // disagreeing is the only way to tell a sync that has not finished from one
+  // that finished and missed something, and they looked identical before.
+  int? serverTracks;
+  int? serverAlbums;
+  int? serverArtists;
+  if (client != null && section != null) {
+    try {
+      serverArtists = await client.sectionCount(
+        section.key,
+        type: PlexClient.typeArtist,
+      );
+      serverAlbums = await client.sectionCount(
+        section.key,
+        type: PlexClient.typeAlbum,
+      );
+      serverTracks = await client.sectionCount(
+        section.key,
+        type: PlexClient.typeTrack,
+      );
+    } on Object {
+      // Diagnostic. A server that will not answer leaves these blank rather
+      // than failing the whole screen.
+    }
   }
 
   final state = await db.select(db.syncState).get();
@@ -726,6 +777,10 @@ final syncDiagnosticsProvider = FutureProvider<SyncDiagnostics>((ref) async {
     serverScannedAt: section?.scannedAt,
     cursor: row?.lastSyncedUpdatedAt,
     initialSyncComplete: row?.initialSyncComplete ?? false,
+    musicSections: [for (final s in musicSections) s.title],
+    serverArtists: serverArtists,
+    serverAlbums: serverAlbums,
+    serverTracks: serverTracks,
     artists: await db.countArtists(),
     albums: await db.countAlbums(),
     tracks: await db.countTracks(),
@@ -804,11 +859,18 @@ final artistTracksProvider = StreamProvider.family<List<PlexTrack>, String>((
 ///
 /// Falls through to a live Plex read while the cache is empty, for the same
 /// reason albums do: the sidebar must be usable during the first sync.
+/// How the Playlists list is ordered. Not persisted: it is a way of looking
+/// through a list, like the album sort beside it, rather than a preference.
+final playlistSortProvider = StateProvider<PlaylistSort>(
+  (ref) => PlaylistSort.recent,
+);
+
 final playlistsProvider = StreamProvider<List<PlexPlaylist>>((ref) async* {
   final db = ref.watch(databaseProvider);
   final client = ref.watch(plexClientProvider);
+  final sort = ref.watch(playlistSortProvider);
 
-  await for (final rows in db.watchPlaylists()) {
+  await for (final rows in db.watchPlaylists(sort: sort)) {
     if (rows.isEmpty && client != null) {
       try {
         final live = await client.playlists();
@@ -824,9 +886,25 @@ final playlistsProvider = StreamProvider<List<PlexPlaylist>>((ref) async* {
   }
 });
 
-/// The handful of playlists shown directly in the sidebar.
-final recentPlaylistsProvider = Provider<AsyncValue<List<PlexPlaylist>>>((ref) {
-  return ref.watch(playlistsProvider).whenData((all) => all.take(8).toList());
+/// The playlists shown directly in the sidebar, most recently opened first.
+///
+/// **Its own query rather than a slice of [playlistsProvider].** That one now
+/// follows whatever sort the Playlists screen is set to, and taking the first
+/// few of an A to Z list would quietly turn the sidebar into an alphabetical
+/// stub the moment someone changed the sort on another screen.
+final recentPlaylistsProvider = StreamProvider<List<PlexPlaylist>>((
+  ref,
+) async* {
+  final db = ref.watch(databaseProvider);
+  final limit = ref.watch(settingsProvider.select((s) => s.sidebarPlaylists));
+  if (limit <= 0) {
+    yield const [];
+    return;
+  }
+
+  await for (final rows in db.watchPlaylists(limit: limit)) {
+    yield [for (final row in rows) row.toDomain()];
+  }
 });
 
 /// Albums this device started playing, newest first.

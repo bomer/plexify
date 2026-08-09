@@ -29,10 +29,7 @@ void main() {
 
   test('finds the colour a cover is actually made of', () {
     final colour = dominantColour(
-      pixels([
-        (const Color(0xFFCC2200), 600),
-        (const Color(0xFF113355), 100),
-      ]),
+      pixels([(const Color(0xFFCC2200), 600), (const Color(0xFF113355), 100)]),
     );
 
     expect(colour!.r * 255, closeTo(0xCC, 8));
@@ -45,10 +42,7 @@ void main() {
     // black metal sleeve and a Motown one would both get, and the gradient
     // would look broken rather than subtle.
     final colour = dominantColour(
-      pixels([
-        (const Color(0xFFDD0000), 500),
-        (const Color(0xFF00DDDD), 400),
-      ]),
+      pixels([(const Color(0xFFDD0000), 500), (const Color(0xFF00DDDD), 400)]),
     )!;
 
     final max = [colour.r, colour.g, colour.b].reduce((a, b) => a > b ? a : b);
@@ -61,10 +55,7 @@ void main() {
     // single largest block of pixels on the image. A background derived from
     // it is invisible.
     final colour = dominantColour(
-      pixels([
-        (const Color(0xFF000000), 5000),
-        (const Color(0xFF3388EE), 200),
-      ]),
+      pixels([(const Color(0xFF000000), 5000), (const Color(0xFF3388EE), 200)]),
     );
 
     expect(colour, isNotNull);
@@ -73,10 +64,7 @@ void main() {
 
   test('ignores a white field for the same reason', () {
     final colour = dominantColour(
-      pixels([
-        (const Color(0xFFFFFFFF), 5000),
-        (const Color(0xFFAA4400), 200),
-      ]),
+      pixels([(const Color(0xFFFFFFFF), 5000), (const Color(0xFFAA4400), 200)]),
     );
 
     expect(colour, isNotNull);
@@ -87,10 +75,7 @@ void main() {
     // Saturation is weighted, not required. A sleeve that is mostly dusty
     // green with one red dot on it is a green sleeve.
     final colour = dominantColour(
-      pixels([
-        (const Color(0xFF6A7A5A), 4000),
-        (const Color(0xFFFF0000), 60),
-      ]),
+      pixels([(const Color(0xFF6A7A5A), 4000), (const Color(0xFFFF0000), 60)]),
     )!;
 
     expect(colour.g, greaterThan(colour.b));
@@ -106,10 +91,7 @@ void main() {
 
   test('transparent pixels say nothing about the colour underneath', () {
     final colour = dominantColour(
-      pixels([
-        (const Color(0x0000FF00), 4000),
-        (const Color(0xFF2244CC), 200),
-      ]),
+      pixels([(const Color(0x0000FF00), 4000), (const Color(0xFF2244CC), 200)]),
     )!;
 
     expect(colour.b, greaterThan(colour.g));

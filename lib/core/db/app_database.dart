@@ -10,6 +10,15 @@ part 'app_database.g.dart';
 /// How the album grid is ordered.
 enum AlbumSort { recentlyAdded, title, artist }
 
+/// How the playlist list is ordered.
+enum PlaylistSort {
+  /// Most recently opened first, which is what the sidebar has always shown.
+  recent,
+
+  titleAsc,
+  titleDesc,
+}
+
 /// The local library cache.
 ///
 /// This is a **cache**, never a second source of truth. Plex remains
@@ -383,19 +392,49 @@ class AppDatabase extends _$AppDatabase {
   /// Plex leaves `lastViewedAt` null on playlists that have never been played,
   /// and those must sort last rather than first — a null sorting high would put
   /// every unplayed playlist above the ones actually being used.
-  Stream<List<Playlist>> watchPlaylists({int? limit}) {
-    final query = select(playlists)
-      ..orderBy([
-        (p) => OrderingTerm(
-          expression: p.lastViewedAt,
-          mode: OrderingMode.desc,
-          nulls: NullsOrder.last,
-        ),
-        (p) => OrderingTerm.asc(p.normalisedTitle),
-      ]);
+  Stream<List<Playlist>> watchPlaylists({
+    int? limit,
+    PlaylistSort sort = PlaylistSort.recent,
+  }) {
+    final query = select(playlists)..orderBy(_playlistOrder(sort));
     if (limit != null) query.limit(limit);
     return query.watch();
   }
+
+  /// Ordering terms for one [PlaylistSort].
+  ///
+  /// **Smart playlists come first under either name sort, and not under
+  /// recent.** They are the ones that are worth going to on purpose: their
+  /// contents change on their own, so "what is in it today" is the question,
+  /// where a hand-made playlist is a thing you already know. Alphabetical is
+  /// the order you use when you are looking for something specific, which is
+  /// exactly when that distinction is worth surfacing. Recent is already an
+  /// order of relevance and grouping by kind on top of it would only fight it.
+  List<OrderingTerm Function($PlaylistsTable)> _playlistOrder(
+    PlaylistSort sort,
+  ) => switch (sort) {
+    PlaylistSort.recent => [
+      // Nulls last, or every playlist never opened would sort above the one
+      // you were listening to an hour ago.
+      (p) => OrderingTerm(
+        expression: p.lastViewedAt,
+        mode: OrderingMode.desc,
+        nulls: NullsOrder.last,
+      ),
+      (p) => OrderingTerm.asc(p.normalisedTitle),
+    ],
+    PlaylistSort.titleAsc => [
+      (p) => OrderingTerm.desc(p.smart),
+      (p) => OrderingTerm.asc(p.normalisedTitle),
+    ],
+    PlaylistSort.titleDesc => [
+      // Still descending on `smart`, so the group stays at the top rather than
+      // flipping to the bottom with the letters. Reversing the sort means
+      // reversing the alphabet, not turning the list upside down.
+      (p) => OrderingTerm.desc(p.smart),
+      (p) => OrderingTerm.desc(p.normalisedTitle),
+    ],
+  };
 
   /// Albums this device started playing, newest first.
   ///

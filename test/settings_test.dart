@@ -314,4 +314,22 @@ void main() {
       expect(find.text('Transcoded'), findsOneWidget);
     });
   });
+
+  group('sidebar playlist count', () {
+    test('defaults to twelve and survives a round trip', () async {
+      final (store, _) = await freshStore();
+      expect(store.read().sidebarPlaylists, 12);
+
+      await store.write(const AppSettings(sidebarPlaylists: 4));
+      expect(store.read().sidebarPlaylists, 4);
+    });
+
+    test('zero is a real choice, not a missing value', () async {
+      // It hides the section, which is a reasonable thing to want. Falling back
+      // to the default here would make the setting impossible to turn off.
+      final (store, _) = await freshStore();
+      await store.write(const AppSettings(sidebarPlaylists: 0));
+      expect(store.read().sidebarPlaylists, 0);
+    });
+  });
 }
