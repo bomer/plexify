@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 57 complete · 2 open · 557 tests passing
+**Status:** 58 complete · 2 open · 563 tests passing
 
 ---
 
@@ -207,6 +207,13 @@ Run the probe and the answer decides whether it is worth wiring.
 so they resolve on the first Home build of a session and hold that answer until something
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
+
+**Per-row stars and durations render in a test and were not visible in a screenshot of the
+running desktop app.** `playlist_detail_test` asserts both at 1400 logical px and passes;
+a capture of the real window at roughly 1700 logical showed neither, on rows that were
+otherwise plainly the new code. The album page uses the identical construction and has never
+been checked either, so this may predate the playlist work entirely rather than be caused by
+it. Unresolved, and worth one look at the album page before theorising further.
 
 **An accent picker was deferred, not rejected.** The audit that would decide it: the app uses
 **one** hard-coded colour (the seed) and **12** `colorScheme` roles, of which

@@ -128,7 +128,7 @@ class AlbumDetailScreen extends ConsumerWidget {
                       ),
                     if (!compact) const SizedBox(width: 8),
                     Text(
-                      _formatDuration(track.duration),
+                      formatClock(track.duration),
                       style: theme.textTheme.bodySmall,
                     ),
                   ],
@@ -154,12 +154,6 @@ class AlbumDetailScreen extends ConsumerWidget {
         ),
       ),
     );
-  }
-
-  static String _formatDuration(Duration d) {
-    final minutes = d.inMinutes;
-    final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-    return '$minutes:$seconds';
   }
 }
 

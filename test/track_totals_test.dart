@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plexify/core/plex/plex_models.dart';
 import 'package:plexify/features/library/track_totals.dart';
-import 'package:plexify/features/player/seek_control.dart';
 
 /// Two different ways of saying how long something is, which is the point.
 void main() {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/audio/playback_handler.dart';
+import '../library/track_totals.dart';
 
 /// How a [SeekControl] arranges its slider and its two labels.
 enum SeekLayout {
@@ -124,20 +125,4 @@ class _SeekControlState extends State<SeekControl> {
       },
     );
   }
-}
-
-/// A duration as a clock reading: `4:07`, or `1:02:30` past an hour.
-///
-/// Negative rounds to zero rather than printing a minus, because the only way
-/// to get one is remaining time arriving a tick late.
-String formatClock(Duration d) {
-  if (d.isNegative) return '0:00';
-  final minutes = d.inMinutes;
-  final seconds = d.inSeconds.remainder(60).toString().padLeft(2, '0');
-  if (minutes >= 60) {
-    final hours = d.inHours;
-    final mins = minutes.remainder(60).toString().padLeft(2, '0');
-    return '$hours:$mins:$seconds';
-  }
-  return '$minutes:$seconds';
 }
