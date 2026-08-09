@@ -445,7 +445,13 @@ class PlexClient {
     int limit = 1000,
   }) async {
     try {
-      return await playHistoryRaw(sectionKey: sectionKey, limit: limit);
+      return await playHistoryRaw(
+        sectionKey: sectionKey,
+        // See PlexPlay.type. Asking the server to do this returns an empty
+        // history from a server that has one.
+        tracksOnly: false,
+        limit: limit,
+      );
     } on Object {
       return const [];
     }
@@ -475,8 +481,10 @@ class PlexClient {
       query: {
         'librarySectionID': ?sectionKey,
         'sort': 'viewedAt:desc',
-        // Tracks only. History also carries album and artist rollups on some
-        // versions, which would double-count every play.
+        // **Only the probe sets this, and only to prove it is fatal.** It is
+        // how a section listing is narrowed to tracks and it returns nothing
+        // at all from here: 200, empty container, no error. Rollup rows are
+        // dropped after parsing instead, on `PlexPlay.isTrack`.
         if (tracksOnly) 'type': '$typeTrack',
         'accountID': ?accountId,
       },
@@ -488,7 +496,7 @@ class PlexClient {
     return _listOf(
       container,
       'Metadata',
-    ).map(PlexPlay.fromJson).where((p) => p.viewedAt > 0).toList();
+    ).map(PlexPlay.fromJson).where((p) => p.viewedAt > 0 && p.isTrack).toList();
   }
 
   /// Audio playlists on the server.

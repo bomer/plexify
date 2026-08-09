@@ -400,9 +400,13 @@ void main() {
       }),
     );
 
-    test('play history asks for tracks only, newest first', () async {
-      // History carries album and artist rollups on some server versions, and
-      // counting those alongside the tracks would double every total.
+    test('play history does not ask the server to filter by type', () async {
+      // **The bug this test exists for.** `type=10` is how a section listing is
+      // narrowed to tracks, and against the history endpoint it returns nothing
+      // at all: 200, empty container, no error. Measured on 10 August 2026, on
+      // a server with years of listening on it, where the shipping request
+      // returned zero rows and the same request without `type` returned as many
+      // as it was asked for. Rollups are dropped after parsing instead.
       late Uri asked;
       late Map<String, String> headers;
       final client = clientReturning(
@@ -429,7 +433,7 @@ void main() {
       expect(asked.path, '/status/sessions/history/all');
       expect(asked.queryParameters['librarySectionID'], '3');
       expect(asked.queryParameters['sort'], 'viewedAt:desc');
-      expect(asked.queryParameters['type'], '10');
+      expect(asked.queryParameters, isNot(contains('type')));
       // The window is a bounded page rather than a date filter, because Plex
       // drops filter parameters it does not recognise and an ignored one here
       // would return everything and make every month look the same.
@@ -488,6 +492,55 @@ void main() {
       // Home row that is simply not there.
       final client = clientReturning('{}', status: 403);
       expect(await client.playHistory('3'), isEmpty);
+    });
+
+    test('rollup rows are dropped here rather than by the server', () async {
+      final client = clientReturning(
+        jsonEncode({
+          'MediaContainer': {
+            'Metadata': [
+              {
+                'ratingKey': '1',
+                'type': 'track',
+                'parentRatingKey': '50',
+                'viewedAt': 1786000000,
+              },
+              {
+                'ratingKey': '50',
+                'type': 'album',
+                'parentRatingKey': '9',
+                'viewedAt': 1786000001,
+              },
+            ],
+          },
+        }),
+      );
+
+      // Counting the album row alongside its own tracks would double every
+      // total on a server that sends both.
+      final plays = await client.playHistory('3');
+      expect(plays.map((p) => p.trackRatingKey), ['1']);
+    });
+
+    test('a row with no type at all is kept', () async {
+      // Lenient on purpose, and this is the whole lesson from the type=10 bug:
+      // a server that does not label its history is a reason to include
+      // everything, not to discard everything.
+      final client = clientReturning(
+        jsonEncode({
+          'MediaContainer': {
+            'Metadata': [
+              {
+                'ratingKey': '1',
+                'parentRatingKey': '50',
+                'viewedAt': 1786000000,
+              },
+            ],
+          },
+        }),
+      );
+
+      expect(await client.playHistory('3'), hasLength(1));
     });
 
     test('rows with no viewedAt are dropped', () async {

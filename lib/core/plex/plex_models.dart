@@ -242,7 +242,25 @@ class PlexPlay {
     required this.albumRatingKey,
     required this.artistRatingKey,
     required this.viewedAt,
+    this.type,
   });
+
+  /// `track`, `album`, and so on.
+  ///
+  /// **Filtered on here rather than in the request, which is what went wrong.**
+  /// Asking the server for `type=10` seemed obvious, matches how a section
+  /// listing is narrowed, and returns *nothing at all* from this endpoint: it
+  /// answers 200 with an empty container, so the history looked empty on a
+  /// server holding years of it. Measured by the discovery probe on 10 August
+  /// 2026, which asked the same question with each narrowing removed: without
+  /// `type` it returned rows immediately.
+  ///
+  /// Null keeps the row. A server that does not label its history is a reason
+  /// to include everything, not to discard everything, which is the mistake
+  /// this comment exists to stop being made twice.
+  final String? type;
+
+  bool get isTrack => type == null || type == 'track';
 
   final String trackRatingKey;
 
@@ -261,6 +279,7 @@ class PlexPlay {
       albumRatingKey: _str(json['parentRatingKey']),
       artistRatingKey: _str(json['grandparentRatingKey']),
       viewedAt: _int(json['viewedAt']) ?? 0,
+      type: _str(json['type']),
     );
   }
 }
