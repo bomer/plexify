@@ -256,14 +256,55 @@ void main() {
       expect(t.monitor.lastReason, ReconnectReason.networkChanged);
     });
 
-    test('a network change and a run of failures are one event', () async {
+    test('failures arriving behind a network change do not re-race', () async {
       final t = build();
 
-      // Walking out of the house produces both, near-simultaneously. They are
-      // two symptoms of one change, and must not race two reconnects.
+      // Walking out of the house produces both, near-simultaneously. Failures
+      // following a transport change are the same event reported twice, and
+      // must not race two reconnects.
       t.network.add(null);
       t.health.recordUnreachable();
       t.health.recordUnreachable();
+      await pumpEventQueue();
+
+      expect(t.reconnects, hasLength(1));
+    });
+
+    test('a transport change is not refused by the failure cooldown', () async {
+      final t = build();
+
+      // The other order, and the one that made toggling wifi off appear to wait
+      // out a timeout. A handover reports wifi going away while cellular is
+      // still coming up, so that attempt finds nothing; the event that can
+      // actually succeed arrives a second later and was being swallowed by the
+      // ten-second cooldown.
+      t.health.recordUnreachable();
+      t.health.recordUnreachable();
+      await pumpEventQueue();
+      expect(t.reconnects, hasLength(1));
+
+      t.advance(const Duration(seconds: 3));
+      t.network.add(null);
+      await pumpEventQueue();
+
+      // The OS does not emit connectivity events because we reconnected, so
+      // there is no echo for this cooldown to be protecting against.
+      expect(t.reconnects, hasLength(2));
+      expect(t.monitor.lastReason, ReconnectReason.networkChanged);
+    });
+
+    test('a burst of connectivity events is still collapsed', () async {
+      final t = build();
+
+      // Android emits several during a handover, often within the same second.
+      // Acting on each would re-race connections three times over one change.
+      t.network.add(null);
+      await pumpEventQueue();
+      t.advance(const Duration(milliseconds: 300));
+      t.network.add(null);
+      await pumpEventQueue();
+      t.advance(const Duration(milliseconds: 300));
+      t.network.add(null);
       await pumpEventQueue();
 
       expect(t.reconnects, hasLength(1));

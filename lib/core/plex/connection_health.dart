@@ -104,7 +104,7 @@ class HealthReportingClient extends http.BaseClient {
   HealthReportingClient(
     this._inner,
     this._health, {
-    this.timeout = const Duration(seconds: 12),
+    this.timeout = const Duration(seconds: 6),
   });
 
   final http.Client _inner;
@@ -122,9 +122,17 @@ class HealthReportingClient extends http.BaseClient {
   /// fast and always looked fine, which is precisely why the two behaved so
   /// differently.
   ///
-  /// Twelve seconds is generous for a Plex API call on any route including the
-  /// relay, and short enough that three of them in a row is well under a
-  /// minute.
+  /// **Six seconds, and it is a backstop rather than the plan.** Every call
+  /// through this client returns a small JSON body, which any working route
+  /// answers in well under a second — a relay adds latency, not seconds. The
+  /// number only decides how long a *dead* connection takes to look dead, so
+  /// erring short costs a spurious re-resolve at worst and erring long costs
+  /// the recovery itself.
+  ///
+  /// It should rarely be what recovers anything. A transport change is reported
+  /// by the OS in milliseconds and [ConnectionMonitor] acts on it directly;
+  /// this is for the case where nothing announces itself, which is a network
+  /// that fades rather than one that is switched off.
   final Duration timeout;
 
   @override

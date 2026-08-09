@@ -52,6 +52,7 @@ class ConnectionMonitor {
     Stream<void>? networkChanges,
     bool Function()? needsConnection,
     this.cooldown = const Duration(seconds: 10),
+    this.networkCooldown = const Duration(seconds: 2),
     this.retryWhenDisconnected = const Duration(seconds: 15),
     this.maxRetryDelay = const Duration(minutes: 5),
     DateTime Function()? now,
@@ -79,6 +80,23 @@ class ConnectionMonitor {
   /// looks exactly like the connection being lost again. Without a cooldown a
   /// single reconnect can feed itself indefinitely.
   final Duration cooldown;
+
+  /// The same, for a transport change — and far shorter, because the two are
+  /// not the same kind of event.
+  ///
+  /// **A handover emits several, and the useful one is never the first.** Wifi
+  /// going away is reported the moment it goes, while cellular is still coming
+  /// up, so that attempt finds nothing and keeps the dead address. The event
+  /// that *can* succeed arrives a second or two later, when mobile data
+  /// attaches — and under the ten-second cooldown it was refused, leaving
+  /// recovery to the failure path, which is slow by design. That is why
+  /// toggling wifi off appeared to wait out a timeout rather than reconnecting
+  /// immediately.
+  ///
+  /// Short but not zero: Android emits bursts of connectivity events during a
+  /// handover, and collapsing the ones that arrive together is the whole reason
+  /// there is a cooldown here at all.
+  final Duration networkCooldown;
 
   /// How soon to try again when there is no connection at all.
   ///
@@ -211,8 +229,18 @@ class ConnectionMonitor {
     // together — they are two symptoms of one event, not two events.
     if (_reconnecting) return;
 
+    // Per reason, not one number for everything. The cooldown exists to stop a
+    // reconnect *feeding itself* — tearing down a client fails its in-flight
+    // requests, which looks exactly like the connection dropping again — and
+    // that loop only runs through the failure trigger. The OS does not emit
+    // connectivity events because we reconnected, so holding a transport change
+    // to the same delay suppresses real news to prevent an echo that cannot
+    // reach it.
+    final wait = reason == ReconnectReason.networkChanged
+        ? networkCooldown
+        : cooldown;
     final last = _lastAttemptAt;
-    if (!force && last != null && _now().difference(last) < cooldown) return;
+    if (!force && last != null && _now().difference(last) < wait) return;
 
     _reconnecting = true;
     _lastAttemptAt = _now();
