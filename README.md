@@ -194,6 +194,13 @@ word. A result is only added unasked when its filename actually names this artis
 album; otherwise the ranked list opens instead. One tap in the common case, never one tap
 away from the wrong album.
 
+**Nor does it queue something that is not a torrent.** Search plugins are inconsistent about
+what goes in `fileUrl`: some return a magnet, some a `.torrent`, and some the human page you
+would click the magnet on. qBittorrent accepts that page, answers `Ok.`, and fails decoding
+HTML in its own log where nothing here can read it — so results are sorted magnets first,
+then torrent files, with pages last and labelled, and tapping a page opens it in a browser
+rather than pretending to queue it.
+
 Two qBittorrent traps are handled up front, and both answer 403 against a WebUI that works
 perfectly in a browser: `Referer`/`Origin` must match `Host` exactly *including the port*,
 and 403 **also** means "this address is banned for repeated failed logins" — so the client

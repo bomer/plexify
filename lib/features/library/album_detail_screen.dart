@@ -6,6 +6,7 @@ import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
+import 'artist_detail_screen.dart';
 import 'rating_controller.dart';
 import 'artwork.dart';
 import '../player/playing_indicator.dart';
@@ -141,6 +142,63 @@ class AlbumDetailScreen extends ConsumerWidget {
   }
 }
 
+/// The album's artist, as a way to get to them.
+///
+/// It was plain text, which made the artist page reachable only by going back
+/// out to Library and finding them again — and the artist page is now where
+/// the missing albums live, so "what else did they make" was several taps from
+/// the album you were already looking at.
+///
+/// Falls back to plain text when the cache has no artist row, following the
+/// same rule as Now Playing: a link that opens an empty page is worse than a
+/// label. That happens for an album reached before sync has walked the artists,
+/// or one Plex filed without a parent.
+class _ArtistLink extends ConsumerWidget {
+  const _ArtistLink({required this.album, required this.theme});
+
+  final PlexAlbum album;
+  final ThemeData theme;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final muted = theme.textTheme.bodyMedium?.copyWith(
+      color: theme.colorScheme.onSurfaceVariant,
+    );
+
+    final key = album.artistRatingKey;
+    final artist = key == null
+        ? null
+        : ref.watch(artistByKeyProvider(key)).valueOrNull;
+
+    if (artist == null) return Text(album.artist, style: muted);
+
+    return InkWell(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => ArtistDetailScreen(artist: artist),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Flexible(
+            child: Text(
+              artist.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                color: theme.colorScheme.primary,
+              ),
+            ),
+          ),
+          const SizedBox(width: 2),
+          Icon(Icons.chevron_right, size: 16, color: theme.colorScheme.primary),
+        ],
+      ),
+    );
+  }
+}
+
 class _Header extends ConsumerWidget {
   const _Header({
     required this.album,
@@ -178,12 +236,7 @@ class _Header extends ConsumerWidget {
               children: [
                 Text(album.title, style: theme.textTheme.titleLarge),
                 const SizedBox(height: 4),
-                Text(
-                  album.artist,
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
+                _ArtistLink(album: album, theme: theme),
                 if (album.year != null) ...[
                   const SizedBox(height: 2),
                   Text('${album.year}', style: theme.textTheme.bodySmall),

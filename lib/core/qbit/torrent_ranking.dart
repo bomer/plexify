@@ -27,6 +27,28 @@ class RankedTorrent {
 
   final QbitSearchResult result;
 
+  /// How much this link is worth being offered, before anything about the
+  /// record itself is considered.
+  ///
+  /// A tier rather than a score bonus, because the difference is categorical:
+  /// a magnet needs no fetch and cannot fail on the way in, a `.torrent` URL
+  /// can be refused by its host, and a web page **always** fails — qBittorrent
+  /// answers `Ok.`, tries to decode a page of HTML and gives up in its own log
+  /// where this app can never see it.
+  ///
+  /// A magnet with nobody seeding it is demoted to the middle: it will not fail
+  /// to add and it will never finish either, so it has no business outranking a
+  /// well-seeded torrent file.
+  int get linkRank => switch (result.link) {
+    TorrentLink.webPage => 0,
+    TorrentLink.unknown => 1,
+    TorrentLink.torrentFile => 2,
+    TorrentLink.magnet => result.hasSeeders && result.seeders < 1 ? 2 : 3,
+  };
+
+  /// Whether handing this to qBittorrent stands a chance of working.
+  bool get addable => result.link.addable;
+
   /// Higher is better. Only meaningful within one ranking.
   final double score;
 
@@ -81,11 +103,20 @@ List<RankedTorrent> rankTorrents(
   ];
 
   ranked.sort((a, b) {
+    // Three keys, in this order, and each one dominates the next completely.
+    //
     // A confident match always outranks a loose one, however well seeded the
     // loose one is. Seeders measure popularity, not correctness, and the most
     // popular torrent matching one word of an album title is routinely a
     // different album entirely.
     if (a.matchesRelease != b.matchesRelease) return a.matchesRelease ? -1 : 1;
+
+    // Then the kind of link, because a result that cannot be added is worth
+    // nothing however good the record is. This is a tier and not a weighting
+    // on purpose: no number of seeders should be able to lift a web page above
+    // a magnet, since the web page will not download at all.
+    if (a.linkRank != b.linkRank) return b.linkRank.compareTo(a.linkRank);
+
     return b.score.compareTo(a.score);
   });
   return ranked;
@@ -102,6 +133,12 @@ RankedTorrent? bestAutomaticChoice(List<RankedTorrent> ranked) {
   if (ranked.isEmpty) return null;
   final best = ranked.first;
   if (!best.matchesRelease) return null;
+  // Never queue something that will not download. A page URL is accepted by
+  // qBittorrent, reported as `Ok.`, and then fails where only its own log can
+  // see it — so a snackbar saying "Queued" would be a lie the app has no way of
+  // discovering it had told.
+  if (!best.addable) return null;
+
   // Zero seeders is a torrent that will never finish. Unknown (-1) is allowed:
   // several plugins simply do not report the figure, and treating "not stated"
   // as "nobody has it" rules out whole trackers.

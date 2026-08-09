@@ -205,4 +205,40 @@ void main() {
     // player is about to start getting covered again.
     expect(find.byType(LibraryScreen, skipOffstage: false), findsOneWidget);
   });
+
+  testWidgets('tapping the tab you are already on goes back to its root', (
+    tester,
+  ) async {
+    final container = await pumpShell(tester);
+    await openAlbumAndScroll(tester, container);
+
+    // Reported as "Home doesn't take me home if I'm in an album". Each tab
+    // keeps its own navigator, so an album opened from a shelf lives on *that*
+    // tab's stack — and pressing the tab changed no state, so nothing moved.
+    // The app bar's back arrow was the only way out.
+    await tester.tap(find.text(ShellDestination.library.label));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlbumDetailScreen), findsNothing);
+    expect(find.byType(LibraryScreen), findsOneWidget);
+  });
+
+  testWidgets('switching to a different tab leaves its stack alone', (
+    tester,
+  ) async {
+    final container = await pumpShell(tester);
+    final before = await openAlbumAndScroll(tester, container);
+
+    // The other half of the rule, and the one that would be easy to break
+    // while fixing the first: only the *current* destination pops. Coming back
+    // to a half-read album is the whole point of per-tab navigators, and
+    // resetting on the way in would throw it away.
+    await tester.tap(find.text(ShellDestination.home.label));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(ShellDestination.library.label));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlbumDetailScreen), findsOneWidget);
+    expect(albumScrollOffset(tester), before);
+  });
 }

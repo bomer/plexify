@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/catalog/catalog_models.dart';
 import '../../core/providers.dart';
+import '../../core/qbit/qbit_models.dart';
 import '../../core/qbit/torrent_ranking.dart';
 import '../settings/qbittorrent_screen.dart';
 import 'acquire_controller.dart';
@@ -120,6 +122,16 @@ Future<void> showAcquireSheet(
       release: release,
       candidates: outcome.candidates,
       onPick: (picked) async {
+        // A page cannot be queued, so tapping one opens it instead of
+        // pretending. qBittorrent would accept the URL, answer `Ok.`, and fail
+        // decoding HTML somewhere this app can never read — a snackbar saying
+        // "Queued" would be a lie with no way to find out it was one.
+        if (!picked.addable) {
+          Navigator.of(context).pop();
+          await _openPage(context, picked.result.pageUrl);
+          return;
+        }
+
         final error = await controller.add(picked.result);
         if (!context.mounted) return;
         Navigator.of(context).pop();
@@ -130,6 +142,26 @@ Future<void> showAcquireSheet(
         );
       },
     ),
+  );
+}
+
+/// Opens a result's own page in the system browser.
+///
+/// The useful thing to do with a link that is a page: the magnet is on the
+/// other side of it, one click away, and copying it back is a job for a browser
+/// rather than for a music player.
+Future<void> _openPage(BuildContext context, String url) async {
+  final uri = Uri.tryParse(url);
+  final opened =
+      uri != null && await launchUrl(uri, mode: LaunchMode.externalApplication);
+  if (!context.mounted) return;
+  _report(
+    context,
+    opened
+        ? 'Opened the page. Copy the magnet link there, then add it in '
+              'qBittorrent.'
+        : 'Could not open $url',
+    isError: !opened,
   );
 }
 
@@ -222,6 +254,7 @@ class _ResultList extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final confident = candidates.where((c) => c.matchesRelease).length;
+    final addable = candidates.where((c) => c.addable).length;
 
     return SafeArea(
       child: ConstrainedBox(
@@ -242,12 +275,20 @@ class _ResultList extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
               child: Text(
-                confident == 0
+                // Two different warnings, and the second is the one that had no
+                // voice at all until now: a list full of pages looks exactly
+                // like a list full of torrents, right up until nothing
+                // downloads and only qBittorrent's log says why.
+                addable == 0
+                    ? 'None of these is a torrent — they are all pages. Tap one '
+                          'to open it and copy the magnet.'
+                    : confident == 0
                     // Said plainly rather than hidden. Every result here shares
                     // words with the album and none of them names it, which is
                     // exactly when a hasty tap costs a wrong download.
                     ? 'No result clearly names this album. Check the filenames.'
-                    : '$confident of ${candidates.length} name this album',
+                    : '$confident of ${candidates.length} name this album · '
+                          '$addable can be added directly',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
                 ),
@@ -259,14 +300,35 @@ class _ResultList extends StatelessWidget {
                 itemCount: candidates.length,
                 itemBuilder: (context, i) {
                   final candidate = candidates[i];
+                  final link = candidate.result.link;
+
                   return ListTile(
-                    leading: Icon(
-                      candidate.matchesRelease
-                          ? Icons.check_circle_outline
-                          : Icons.help_outline,
-                      color: candidate.matchesRelease
-                          ? theme.colorScheme.primary
-                          : theme.colorScheme.onSurfaceVariant,
+                    // The link kind leads, because it decides whether tapping
+                    // downloads anything at all — which matters more here than
+                    // how well the name matches.
+                    leading: Tooltip(
+                      message: switch (link) {
+                        TorrentLink.magnet => 'Magnet link, adds directly',
+                        TorrentLink.torrentFile =>
+                          'Torrent file, qBittorrent fetches it',
+                        TorrentLink.unknown =>
+                          'Plain link, probably a torrent file',
+                        TorrentLink.webPage =>
+                          'A page, not a torrent. Opens in your browser',
+                      },
+                      child: Icon(
+                        switch (link) {
+                          TorrentLink.magnet => Icons.bolt,
+                          TorrentLink.torrentFile => Icons.description_outlined,
+                          TorrentLink.unknown => Icons.link,
+                          TorrentLink.webPage => Icons.open_in_new,
+                        },
+                        color: switch (link) {
+                          TorrentLink.magnet => theme.colorScheme.primary,
+                          TorrentLink.webPage => theme.colorScheme.error,
+                          _ => theme.colorScheme.onSurfaceVariant,
+                        },
+                      ),
                     ),
                     title: Text(
                       candidate.result.fileName,
@@ -274,7 +336,25 @@ class _ResultList extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.bodyMedium,
                     ),
-                    subtitle: Text(_describe(candidate)),
+                    subtitle: Text(
+                      _describe(candidate),
+                      style: link == TorrentLink.webPage
+                          ? theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.error,
+                            )
+                          : null,
+                    ),
+                    // Kept as a trailing mark rather than dropped: whether the
+                    // filename names this record is still the thing that stops
+                    // you downloading a tribute album, it is just no longer the
+                    // first question.
+                    trailing: candidate.matchesRelease
+                        ? Icon(
+                            Icons.check_circle_outline,
+                            size: 18,
+                            color: theme.colorScheme.primary,
+                          )
+                        : null,
                     onTap: () => onPick(candidate),
                   );
                 },
@@ -288,6 +368,9 @@ class _ResultList extends StatelessWidget {
 
   static String _describe(RankedTorrent candidate) {
     final parts = <String>[
+      // First, so it is the thing read without looking: it is what decides
+      // whether tapping starts a download or opens a browser.
+      candidate.result.link.label,
       if (candidate.result.hasSeeders)
         '${candidate.result.seeders} seeders'
       else

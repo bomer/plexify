@@ -367,9 +367,24 @@ class PlexifyAudioHandler extends BaseAudioHandler
   Future<void> skipToPrevious() => _player.seekToPrevious();
 
   @override
+  /// Jumps to a track someone picked out of the queue, **and plays it**.
+  ///
+  /// The play is the point. Seeking alone keeps whatever state the player was
+  /// in, so tapping a song in Up Next while paused selected it and sat there —
+  /// which reads as the app queueing your choice and ignoring it. Launch
+  /// restores paused deliberately, so that was the state most likely to be in
+  /// when reaching for this.
+  ///
+  /// Deliberately not done for [skipToNext] and [skipToPrevious]: those arrive
+  /// from lock-screen and media-key buttons, where starting playback that
+  /// somebody had paused would be the surprising behaviour rather than the
+  /// intuitive one. Picking a specific track out of a list is a different
+  /// gesture with a different obvious answer.
+  @override
   Future<void> skipToQueueItem(int index) async {
     if (index < 0 || index >= queue.value.length) return;
     await _player.seek(Duration.zero, index: index);
+    await _player.play();
   }
 
   /// Stops playback and lets the media session go idle.

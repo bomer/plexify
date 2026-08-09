@@ -321,6 +321,9 @@ routinely not the place at fault:
 | "Nothing plays after wifi to 5G" | Not the audio cache, which was the guess. A sticky re-resolve counted as a success and wiped the failure streak, and the cache's own HTTP client was invisible to everything |
 | "The catalog finds nothing at all" | Check the user agent before the query. MusicBrainz answers **503** both for a generic agent and for exceeding one request a second, and an empty tier looks the same either way |
 | "qBittorrent says 403 but works in a browser" | Almost never the password. Either `Referer` does not match `Host` down to the port, or the address is banned for repeated failed logins — and retrying, the obvious response, is what extends the ban |
+| "It said Queued and nothing downloaded" | Not the add call, which returned `Ok.` The plugin handed back a *page* URL and qBittorrent failed decoding it in its own log, where the app cannot see |
+| "Clicking a song queues it but does not play" | Not the queue. `skipToQueueItem` seeked and never called `play`, so it inherited whatever state the player was in — and launch restores **paused** on purpose |
+| "Home does not take me home from an album" | Not the button. Each tab owns a navigator, so an album opened from a Home shelf sits on Home's stack; tapping Home changed no state, so nothing moved |
 
 In six of the first seven, a competent-looking fix to the named component was within reach and
 would have been wrong. What works instead:
@@ -426,6 +429,20 @@ is the one action that makes either worse, on a server James runs himself.
 **A rejected qBittorrent password is a 200 whose body is `Fails.`** Not a 401. Reading the
 status alone treats it as a successful sign-in, and every request afterwards then 403s for
 what looks like a completely different reason.
+
+**Half the `fileUrl`s a search plugin returns are not torrents, and adding one
+fails silently on both sides.** LimeTorrents returns the human page
+(`…-torrent-273396.html`); qBittorrent accepts it, answers `Ok.`, fetches it,
+tries to bencode-decode HTML and gives up in **its own log** with
+`expected value (list, dict, int or string) in bencoded string [bdecode:4]`. The
+API call succeeded, so there is nothing to catch and nothing to retry. Handled by
+prevention rather than error handling: `TorrentLink.of` classifies by URL shape,
+`RankedTorrent.linkRank` sorts magnets above torrent files above unknowns above
+pages, `bestAutomaticChoice` refuses a page outright, and tapping one in the
+sheet opens it in a browser instead of pretending. Classification is deliberately
+lopsided — an unrecognised URL is `unknown` and allowed, because plenty of real
+download links have no extension and calling them pages would rule out whole
+trackers.
 
 **A qBittorrent search that is not deleted is leaked.** The server keeps finished searches
 until they are removed and caps how many may exist, so leaking them means searching stops

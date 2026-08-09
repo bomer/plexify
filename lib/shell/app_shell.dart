@@ -124,6 +124,30 @@ class _AppShellState extends ConsumerState<AppShell> {
   NavigatorState? get _activeNavigator =>
       _navigatorKeys[ref.read(shellDestinationProvider)]?.currentState;
 
+  /// Handles a tap on a destination, whether or not it is the current one.
+  ///
+  /// **Tapping the destination you are already on pops that tab back to its
+  /// root**, which is the missing half of this and the reason "Home does not
+  /// take me home" was a real complaint. Each tab keeps its own navigator, so
+  /// opening an album from a Home shelf pushes it onto Home's stack — and then
+  /// pressing Home did nothing at all, because the destination had not changed.
+  /// Every tabbed app sets this expectation; without it the only way back is
+  /// the app bar's arrow.
+  ///
+  /// Switching to a *different* destination deliberately leaves its stack
+  /// alone. Coming back to a half-read album page is the point of per-tab
+  /// navigators, and resetting on the way in would throw that away.
+  void _selectDestination(ShellDestination destination) {
+    if (destination == ref.read(shellDestinationProvider)) {
+      final navigator = _navigatorKeys[destination]?.currentState;
+      if (navigator != null && navigator.canPop()) {
+        navigator.popUntil((route) => route.isFirst);
+      }
+      return;
+    }
+    ref.read(shellDestinationProvider.notifier).state = destination;
+  }
+
   Future<void> _handleBack() async {
     // Collapse the player before anything else — it is the topmost thing on
     // screen, so it is what "back" should dismiss first.
@@ -240,6 +264,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                     ? Row(
                         children: [
                           Sidebar(
+                            onSelectDestination: _selectDestination,
                             onOpenPlaylist: (playlist) {
                               final navigator = _activeNavigator;
                               if (navigator != null) {
@@ -262,8 +287,7 @@ class _AppShellState extends ConsumerState<AppShell> {
                       NavigationBar(
                         selectedIndex: destination.index,
                         onDestinationSelected: (index) =>
-                            ref.read(shellDestinationProvider.notifier).state =
-                                ShellDestination.values[index],
+                            _selectDestination(ShellDestination.values[index]),
                         destinations: [
                           for (final d in ShellDestination.values)
                             NavigationDestination(

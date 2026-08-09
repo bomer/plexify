@@ -13,9 +13,10 @@ void main() {
     String fileName, {
     int seeders = 10,
     int size = 400000000,
+    String? url,
   }) => QbitSearchResult(
     fileName: fileName,
-    fileUrl: 'magnet:?xt=$fileName',
+    fileUrl: url ?? 'magnet:?xt=$fileName',
     sizeBytes: size,
     seeders: seeders,
     leechers: 1,
@@ -118,7 +119,108 @@ void main() {
     expect(ranked.single.matchesRelease, isTrue);
   });
 
+  group('what kind of link it is', () {
+    test('classifies the shapes plugins actually return', () {
+      // LimeTorrents returns the .html page, which is what made this necessary:
+      // qBittorrent accepts it, answers Ok., then fails decoding HTML in its own
+      // log where the app can never see it.
+      expect(
+        TorrentLink.of(
+          'https://www.limetorrents.lol/Au-Revoir-Simone-torrent-273396.html',
+        ),
+        TorrentLink.webPage,
+      );
+      expect(TorrentLink.of('magnet:?xt=urn:btih:abc'), TorrentLink.magnet);
+      expect(
+        TorrentLink.of('https://tracker.example/dl/12345.torrent'),
+        TorrentLink.torrentFile,
+      );
+      // No extension to judge by. Plenty of working download links look like
+      // this, so guessing "page" would rule out whole trackers.
+      expect(
+        TorrentLink.of('https://tracker.example/download/12345'),
+        TorrentLink.unknown,
+      );
+    });
+
+    test('a magnet outranks a torrent file, however well seeded', () {
+      final ranked = rank([
+        hit(
+          'Radiohead - OK Computer [FLAC]',
+          seeders: 900,
+          url: 'https://tracker.example/dl/1.torrent',
+        ),
+        hit('Radiohead - OK Computer [FLAC]', seeders: 4),
+      ]);
+
+      // A tier, not a weighting. Nothing about seeders should be able to
+      // reorder this: the magnet needs no fetch and cannot be refused by a host
+      // that wants a cookie.
+      expect(ranked.first.result.link, TorrentLink.magnet);
+    });
+
+    test('a page sinks below everything, however well seeded', () {
+      final ranked = rank([
+        hit(
+          'Radiohead - OK Computer [FLAC]',
+          seeders: 5000,
+          url: 'https://site.example/ok-computer-torrent-1.html',
+        ),
+        hit('Radiohead - OK Computer [MP3]', seeders: 2),
+      ]);
+
+      expect(ranked.first.result.link, TorrentLink.magnet);
+      expect(ranked.last.addable, isFalse);
+    });
+
+    test('an unseeded magnet does not outrank a working torrent file', () {
+      final ranked = rank([
+        hit('Radiohead - OK Computer [FLAC]', seeders: 0),
+        hit(
+          'Radiohead - OK Computer [FLAC]',
+          seeders: 50,
+          url: 'https://tracker.example/dl/1.torrent',
+        ),
+      ]);
+
+      // It will not fail to add and it will never finish either, so it has no
+      // business at the top of the list.
+      expect(ranked.first.result.link, TorrentLink.torrentFile);
+    });
+
+    test('naming the album still beats the kind of link', () {
+      final ranked = rank([
+        hit('Various Artists - Computer Love', seeders: 900),
+        hit(
+          'Radiohead - OK Computer [FLAC]',
+          seeders: 5,
+          url: 'https://tracker.example/download/9',
+        ),
+      ]);
+
+      // Order of the three keys: naming first, then addability, then score. A
+      // perfect magnet for the wrong record is still the wrong record.
+      expect(ranked.first.matchesRelease, isTrue);
+      expect(ranked.first.result.link, TorrentLink.unknown);
+    });
+  });
+
   group('bestAutomaticChoice', () {
+    test('never queues a page, however well it names the album', () {
+      final ranked = rank([
+        hit(
+          'Radiohead - OK Computer [FLAC]',
+          seeders: 500,
+          url: 'https://site.example/ok-computer-torrent-1.html',
+        ),
+      ]);
+
+      // The failure this prevents is silent on both sides: qBittorrent says
+      // Ok., the app says "Queued", and nothing downloads. A snackbar the app
+      // has no way of discovering was a lie is worse than an extra tap.
+      expect(bestAutomaticChoice(ranked), isNull);
+    });
+
     test('returns nothing when no result names the record', () {
       // The gate on the one-click button. Refusing costs one extra tap on a
       // list that is already open; getting it wrong costs a wrong album on the

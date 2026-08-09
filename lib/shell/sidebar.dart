@@ -12,11 +12,24 @@ import 'shell_destination.dart';
 /// Library tab — reaching them in one click was a headline requirement, and
 /// burying them one level down is exactly what makes Plexamp slow to navigate.
 class Sidebar extends ConsumerWidget {
-  const Sidebar({required this.onOpenPlaylist, super.key});
+  const Sidebar({
+    required this.onOpenPlaylist,
+    required this.onSelectDestination,
+    super.key,
+  });
 
   /// Playlists open inside the active destination's navigator, so the shell
   /// owns the push rather than the sidebar.
   final void Function(PlexPlaylist) onOpenPlaylist;
+
+  /// Selecting a destination is the shell's job for the same reason.
+  ///
+  /// It used to set the provider here, which meant tapping the destination you
+  /// were already on did nothing — and since each tab owns its own navigator,
+  /// an album opened from a Home shelf lives on Home's stack. Pressing Home
+  /// from there changed no state and so moved nothing. Only the shell holds the
+  /// navigator keys, so only the shell can pop one.
+  final void Function(ShellDestination) onSelectDestination;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -59,9 +72,7 @@ class Sidebar extends ConsumerWidget {
                       ? destination.selectedIcon
                       : destination.icon,
                   selected: destination == current,
-                  onTap: () =>
-                      ref.read(shellDestinationProvider.notifier).state =
-                          destination,
+                  onTap: () => onSelectDestination(destination),
                 ),
 
             const SizedBox(height: 16),
@@ -110,8 +121,7 @@ class Sidebar extends ConsumerWidget {
                   ? ShellDestination.settings.selectedIcon
                   : ShellDestination.settings.icon,
               selected: current == ShellDestination.settings,
-              onTap: () => ref.read(shellDestinationProvider.notifier).state =
-                  ShellDestination.settings,
+              onTap: () => onSelectDestination(ShellDestination.settings),
             ),
             const SizedBox(height: 8),
           ],

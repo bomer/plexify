@@ -6,6 +6,66 @@
 /// result list.
 library;
 
+/// What a search plugin actually handed back in `fileUrl`.
+///
+/// **This is not a detail, it is the difference between a download starting and
+/// silently not.** Plugins are inconsistent: some return a magnet, some a
+/// `.torrent` file, and some — LimeTorrents among them — return the *human
+/// page* where you would click the magnet yourself. qBittorrent accepts that
+/// page URL, answers `Ok.`, fetches it, tries to bencode-decode a page of HTML
+/// and fails in its own log with
+/// `expected value (list, dict, int or string) in bencoded string`.
+///
+/// The app never sees that. The API call succeeded, so there is nothing to
+/// report and nothing to retry — which is why this is handled by *preferring*
+/// links that work and *labelling* the ones that do not, rather than by error
+/// handling after the fact.
+enum TorrentLink {
+  /// `magnet:?xt=…`. Needs no fetch at all, so nothing can go wrong between
+  /// here and the swarm.
+  magnet,
+
+  /// A URL ending `.torrent`. qBittorrent fetches and decodes it, which works
+  /// unless the host wants a cookie or a referer.
+  torrentFile,
+
+  /// A page for a person to read. Adding it is the failure above.
+  webPage,
+
+  /// A URL with no extension to judge by — plenty of trackers serve a real
+  /// torrent from `/download/12345`. Allowed, ranked below the certain ones.
+  unknown;
+
+  /// Classifies by URL shape, which is all there is to go on without fetching.
+  ///
+  /// Deliberately conservative in one direction: an unrecognised URL is
+  /// [unknown] rather than [webPage], because plenty of working download links
+  /// carry no extension and refusing them would rule out whole trackers. Only
+  /// an extension that is definitely a document is called a page.
+  static TorrentLink of(String url) {
+    final lower = url.trim().toLowerCase();
+    if (lower.startsWith('magnet:')) return magnet;
+
+    final path = Uri.tryParse(lower)?.path ?? lower;
+    if (path.endsWith('.torrent')) return torrentFile;
+    for (final extension in const ['.html', '.htm', '.php', '.aspx', '.jsp']) {
+      if (path.endsWith(extension)) return webPage;
+    }
+    return unknown;
+  }
+
+  /// Whether handing this to qBittorrent stands a chance.
+  bool get addable => this != webPage;
+
+  /// Shown on every row in the results list.
+  String get label => switch (this) {
+    magnet => 'magnet',
+    torrentFile => 'torrent file',
+    webPage => 'web page',
+    unknown => 'link',
+  };
+}
+
 /// One search hit — a *torrent filename*, not a catalog entry.
 ///
 /// Worth stating plainly, because it is the whole reason MusicBrainz is in this
@@ -21,6 +81,7 @@ class QbitSearchResult {
     required this.seeders,
     required this.leechers,
     this.siteUrl,
+    this.descriptionUrl,
   });
 
   final String fileName;
@@ -41,8 +102,23 @@ class QbitSearchResult {
 
   final String? siteUrl;
 
+  /// The plugin's own link to the description page, when it offers one
+  /// separately from [fileUrl].
+  ///
+  /// Worth carrying because it is the honest destination for a result whose
+  /// [fileUrl] turns out to *be* a page: opening it in a browser is something
+  /// the user can act on, whereas queueing it is a failure they will only ever
+  /// see in qBittorrent's log.
+  final String? descriptionUrl;
+
   bool get hasSize => sizeBytes > 0;
   bool get hasSeeders => seeders >= 0;
+
+  /// What kind of link this is, which decides whether adding it can work.
+  TorrentLink get link => TorrentLink.of(fileUrl);
+
+  /// Where to send someone whose chosen result is a page rather than a torrent.
+  String get pageUrl => descriptionUrl ?? fileUrl;
 
   factory QbitSearchResult.fromJson(Map<String, dynamic> json) =>
       QbitSearchResult(
@@ -52,6 +128,7 @@ class QbitSearchResult {
         seeders: _int(json['nbSeeders']) ?? -1,
         leechers: _int(json['nbLeechers']) ?? -1,
         siteUrl: _str(json['siteUrl']),
+        descriptionUrl: _str(json['descrLink']),
       );
 }
 
