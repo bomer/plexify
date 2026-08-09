@@ -1,4 +1,4 @@
-# tool/
+﻿# tool/
 
 Build-time scripts. Nothing here runs as part of the app.
 
@@ -7,6 +7,7 @@ Build-time scripts. Nothing here runs as part of the app.
 | `make_icons.py` | Regenerates every app icon from one definition. Needs Pillow. |
 | `package.ps1` | Builds both release artefacts into `dist/`, and checks them. |
 | `release.ps1` | Everything `package.ps1` does, then tags and publishes to GitHub. |
+| `make_key.ps1` | Creates the Android upload keystore and writes `key.properties`. |
 
 ## Releasing
 
@@ -57,28 +58,57 @@ together:
 
 `test/packaging_test.dart` fails on either being missed.
 
+## Signing, and whether you need a key yet
+
+Android requires *a* signature, not a particular one. Gradle falls back to the
+debug key when `android/key.properties` is absent, and a debug-signed APK
+sideloads and runs exactly like any other, so `tool/release.ps1
+-AllowDebugSigning` will publish one.
+
+What it costs is the upgrade path. **Android refuses an update signed with a
+different key than the install**, so whichever key ships in the first release is
+locked in for everyone who installs it. Moving to a real key later means
+uninstalling first, which takes the library cache and the Plex token with it.
+The debug keystore is also per-machine: lose `~/.android/debug.keystore` and you
+can no longer update your own installs either.
+
+Play Console is a separate question and rejects debug-signed uploads outright.
+Play App Signing replaces the *app signing* key with a Google-managed one, which
+is genuinely no longer your problem, but the *upload* key still has to be real.
+It is low-stakes, though: lose it and you can ask for a reset.
+
+Thirty seconds now against an uninstall for every user later is the trade.
+
 ## The Android signing key, once
 
-Gradle signs release builds with the debug key when `android/key.properties` is
-absent, so `flutter run --release` works on any machine. That is fine for
-running and wrong for distributing, which is why `package.ps1` refuses it.
-
-Create the real one yourself. It is a credential, it wants a password only you
-know, and **it cannot be reissued**. An Android install can only ever be
-upgraded by a build signed with the same key; lose it and the only route
-forward is uninstalling and losing the app's data with it. Back the file up
-somewhere that is not this repo.
-
 ```powershell
-& "$env:JAVA_HOME\bin\keytool.exe" -genkeypair -v -keystore "$env:USERPROFILE\keys\plexify-upload.jks" -keyalg RSA -keysize 4096 -validity 10000 -alias plexify
+powershell -File tool/make_key.ps1
 ```
 
-Then copy `android/key.properties.example` to `android/key.properties` and fill
-in the passwords you chose. Both that file and `*.jks` are gitignored.
+Finds keytool, creates the directory, generates a 4096-bit RSA key, and writes
+`android/key.properties`. It asks for a password twice and passes it to keytool
+through an environment variable rather than the command line, so it does not
+land in the process list or in shell history.
+
+**This replaces a `keytool` command that used to be written out here and could
+not work.** It referenced `$env:JAVA_HOME`, which nothing sets outside
+`package.ps1`, so it expanded to `\bin\keytool.exe`; and it wrote into
+`~\keys`, which keytool will not create. Android Studio ships a JDK, so the
+script looks there when `JAVA_HOME` is empty, which on this machine it is.
+
+**Back the keystore up somewhere that is not this repository.** An app can only
+be upgraded by a build signed with the same key; lose the file or the password
+and every install has to be removed and re-added, taking the library cache and
+the Plex token with it. The script refuses to overwrite an existing keystore for
+the same reason.
 
 `-validity 10000` is roughly 27 years. Google Play wants a key valid past 2033;
 this is a sideloaded personal app, but a key that expires is a key that has to
-be replaced, and replacing it has the same cost as losing it.
+be replaced, and replacing it costs the same as losing it.
+
+Both `android/key.properties` and `*.jks` are gitignored, and
+`test/packaging_test.dart` asserts they stay that way, because the first holds
+the keystore password in plain text.
 
 ## Icons
 

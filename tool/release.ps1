@@ -23,8 +23,8 @@
         people already downloaded. Bump pubspec.yaml (and PlexIdentity.version
         with it, which test/packaging_test.dart enforces) instead.
 
-      * Everything package.ps1 checks: real signing key, size budget, and a
-        Windows bundle that actually contains its DLLs.
+      * Everything package.ps1 checks: signing key, size budget, and a Windows
+        bundle that actually contains its DLLs.
 
     While the major version is 0 the release is marked as a prerelease, which
     is what 0.9.x is.
@@ -35,6 +35,16 @@
 .PARAMETER Draft
     Create the release as a draft, so it can be looked at before anyone sees
     it. The tag is still created and pushed.
+
+.PARAMETER AllowDebugSigning
+    Ship an APK signed with Gradle's debug-key fallback, for when no keystore
+    exists yet.
+
+    Sideloading from GitHub does not care which key it is. The cost is that
+    whatever key ships first is locked in for every install from that release:
+    Android refuses an update signed with a different one, so moving to a real
+    key later means uninstalling, and that takes the library cache and the Plex
+    token with it.
 
 .PARAMETER SkipBuild
     Use whatever is already in dist/. Only sensible immediately after a run
@@ -51,7 +61,8 @@
 param(
     [switch]$Yes,
     [switch]$Draft,
-    [switch]$SkipBuild
+    [switch]$SkipBuild,
+    [switch]$AllowDebugSigning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -234,7 +245,10 @@ $zip = Join-Path $dist "plexify-$versionName-windows-x64.zip"
 if ($SkipBuild) {
     Write-Host "Skipping the build; using what is already in dist/." -ForegroundColor Yellow
 } else {
-    & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'package.ps1')
+    $packageArgs = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', (Join-Path $PSScriptRoot 'package.ps1'))
+    if ($AllowDebugSigning) { $packageArgs += '-AllowDebugSigning' }
+
+    & powershell @packageArgs
     if ($LASTEXITCODE -ne 0) { Fail "tool/package.ps1 failed, so nothing is being released" }
 }
 
@@ -253,6 +267,9 @@ Write-Host "About to publish:" -ForegroundColor Cyan
 Write-Host "  tag        $tag  ->  $(git rev-parse --short HEAD)"
 Write-Host "  repo       $((Invoke-Native $ghExe @('repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner')).Output.Trim())"
 Write-Host "  prerelease $prerelease"
+if ($AllowDebugSigning) {
+    Write-Host "  signing    DEBUG KEY, and this is locked in for every install" -ForegroundColor Yellow
+}
 Write-Host "  draft      $([bool]$Draft)"
 foreach ($artefact in @($zip, $apk)) {
     "  file       {0} ({1:N1} MB)" -f (Split-Path $artefact -Leaf), ((Get-Item $artefact).Length / 1MB) | Write-Host

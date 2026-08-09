@@ -124,9 +124,10 @@ permission into debug manifests only, so a debug build hides manifest problems
 that break release entirely. `arm64` because it is the only architecture the
 test device needs, and building all three roughly triples the time.
 
-Until a signing key exists these builds are signed with the debug key. That is
-fine for running and wrong for distributing, which is why the release script
-refuses to do it.
+Until a signing key exists these builds are signed with the debug key, which is
+fine for running and for sideloading. `tool/release.ps1` will publish one with
+`-AllowDebugSigning`; see [tool/README.md](tool/README.md) for what that locks
+in.
 
 ## Releasing
 
@@ -154,9 +155,17 @@ powershell -File tool/package.ps1
 
 Both go through the same checks: the APK must be signed with the real upload key
 rather than the debug one, it must be under its size budget, and the Windows
-bundle must contain the DLLs the exe cannot start without.
-[tool/README.md](tool/README.md) covers creating the signing key, which is a
-one-time job and has to be done by hand.
+bundle must contain the DLLs the exe cannot start without. `-AllowDebugSigning`
+waives the first, which sideloading does not care about but which is locked in
+for every install from that release.
+Creating the signing key is a one-time job:
+
+```
+powershell -File tool/make_key.ps1
+```
+
+[tool/README.md](tool/README.md) covers what that locks in and why the keystore
+needs backing up.
 
 The Windows deliverable is the **whole** `Release` folder, not just
 `plexify.exe`. The exe is about 150KB and will not start on its own.

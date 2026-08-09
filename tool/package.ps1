@@ -11,10 +11,11 @@
     and refuses to produce either if something is wrong with it. The checks are
     the point of the script; `flutter build` on its own is one command.
 
-      * The APK must be signed with the real upload key. Gradle falls back to
-        the debug key so `flutter run --release` works without a keystore, and
-        a debug-signed APK installs perfectly; the failure only shows up
-        later, when a properly signed build will not upgrade it.
+      * The APK must be signed with the real upload key, unless
+        -AllowDebugSigning says otherwise. Gradle falls back to the debug key
+        so `flutter run --release` works without a keystore, and a debug-signed
+        APK installs perfectly; the failure only shows up later, when a
+        properly signed build will not upgrade it.
 
       * The APK must be under the size budget. This is a lightweightness
         regression guard: being smaller than Plexamp is a reason this project
@@ -24,6 +25,21 @@
       * The Windows zip must contain the whole runner directory. plexify.exe is
         about 150KB and will not start without its sibling DLLs and data/;
         shipping the exe alone is an easy and completely silent mistake.
+
+.PARAMETER AllowDebugSigning
+    Build the APK with Gradle's debug-key fallback instead of refusing.
+
+    Sideloading does not care: Android wants a signature, not a particular one,
+    and a debug-signed APK installs and runs. What it costs is the upgrade
+    path. Android refuses an update signed with a different key than the
+    install, so whatever key ships first is locked in, and moving to a real one
+    later means every user uninstalling and losing the library cache and their
+    Plex token with it. The debug keystore is also per-machine, so losing it
+    ends your ability to update your own installs.
+
+    Play Console is a separate matter and rejects debug-signed uploads outright,
+    Play App Signing or not: that replaces the *app signing* key, not the upload
+    key.
 
 .PARAMETER SkipAndroid
     Build Windows only.
@@ -37,7 +53,8 @@
 [CmdletBinding()]
 param(
     [switch]$SkipAndroid,
-    [switch]$SkipWindows
+    [switch]$SkipWindows,
+    [switch]$AllowDebugSigning
 )
 
 $ErrorActionPreference = 'Stop'
@@ -69,11 +86,15 @@ New-Item -ItemType Directory -Force -Path $dist | Out-Null
 # ---------------------------------------------------------------- android ----
 
 if (-not $SkipAndroid) {
-    if (-not (Test-Path 'android/key.properties')) {
+    if (-not (Test-Path 'android/key.properties') -and -not $AllowDebugSigning) {
         throw @"
 android/key.properties is missing, so this build would be signed with the debug
 key. Copy android/key.properties.example and fill it in. See tool/README.md
 for the keytool command that creates the keystore.
+
+If you meant to ship a debug-signed build, pass -AllowDebugSigning. Sideloading
+works fine that way; what it costs is that a later switch to a real key means
+every install has to be removed and re-added, cache and Plex token with it.
 "@
     }
 
@@ -100,10 +121,21 @@ for the keytool command that creates the keystore.
         Select-Object -Last 1
     if (-not $apksigner) { throw "apksigner not found under $sdk\build-tools" }
 
+    # Verified even when debug signing is allowed. "Signed with something" and
+    # "signed with the key you meant" are different questions, and only the
+    # second one is being waived here.
     $certs = & $apksigner.FullName verify --print-certs $apk | Out-String
     if ($LASTEXITCODE -ne 0) { throw "apksigner could not verify the APK:`n$certs" }
-    if ($certs -match 'CN=Android Debug') {
+
+    $debugSigned = $certs -match 'CN=Android Debug'
+    if ($debugSigned -and -not $AllowDebugSigning) {
         throw "The APK is signed with the debug key. Check android/key.properties."
+    }
+    if ($debugSigned) {
+        Write-Host ""
+        Write-Host "This APK is signed with the DEBUG key." -ForegroundColor Yellow
+        Write-Host "It will sideload, and it can never be upgraded by a build signed with a real key." -ForegroundColor Yellow
+        Write-Host ""
     }
 
     $sizeMb = [math]::Round((Get-Item $apk).Length / 1MB, 1)
