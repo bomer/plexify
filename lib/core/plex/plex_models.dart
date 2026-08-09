@@ -167,11 +167,18 @@ class PlexPlaylist {
 
 /// A hub, which is Plex's own word for a titled row of things.
 ///
-/// Only used by the discovery probe. What a music section offers here varies by
-/// server version and by whether sonic analysis has run, and there is no
-/// documentation worth trusting, so nothing on the Home screen is built on a
-/// hub identifier being present. The probe exists to find out what this server
-/// actually has before anything depends on it.
+/// **The server publishes these and this app used to reimplement them.** A hand
+/// rolled "More by {artist}", "More in {genre}" and "Most played in {month}"
+/// were all built here, complete with two bugs, while `/hubs/sections` was
+/// already offering the same three by name along with several nobody had
+/// thought of: top albums from a decade, artists not played in five years,
+/// sonic stations. The probe that was meant to prove hubs were useless proved
+/// the opposite.
+///
+/// Nothing keys on an identifier. What a section offers varies by server
+/// version and by whether sonic analysis has run, so a row is rendered because
+/// it arrived with a title and some albums in it, not because it was
+/// recognised.
 class PlexHub {
   const PlexHub({
     required this.hubIdentifier,
@@ -179,7 +186,15 @@ class PlexHub {
     required this.type,
     required this.size,
     this.context,
+    this.albums = const [],
   });
+
+  /// The hub's items, when they are albums.
+  ///
+  /// Empty for every other type. A hub of artists, stations or music videos is
+  /// a row this app has nowhere to put yet, and an empty list is what stops it
+  /// being rendered as a heading with nothing under it.
+  final List<PlexAlbum> albums;
 
   /// e.g. `home.music.recent`. Stable enough to key on, if it is there at all.
   final String hubIdentifier;
@@ -197,35 +212,24 @@ class PlexHub {
 
   factory PlexHub.fromJson(Map<String, dynamic> json) {
     final items = json['Metadata'];
+    final rows = items is List
+        ? items.whereType<Map<String, dynamic>>().toList()
+        : const <Map<String, dynamic>>[];
+    final type = _str(json['type']) ?? '';
+
     return PlexHub(
       hubIdentifier: _str(json['hubIdentifier']) ?? '',
       title: _str(json['title']) ?? '',
-      type: _str(json['type']) ?? '',
-      size: _int(json['size']) ?? (items is List ? items.length : 0),
+      type: type,
+      // `size` is what the hub says it holds and `rows` is what it sent, and
+      // they disagree when the server pages a hub. The declared figure is the
+      // honest one for the probe to report; the parsed rows are what can
+      // actually be shown.
+      size: _int(json['size']) ?? rows.length,
       context: _str(json['context']),
-    );
-  }
-}
-
-/// One genre in a library section.
-///
-/// [key] is what `?genre=` wants. Plex returns it either bare (`13`) or as a
-/// whole path (`/library/sections/3/genre/13`) depending on version, so it is
-/// reduced to the trailing id here rather than at every call site.
-class PlexGenre {
-  const PlexGenre({required this.key, required this.title});
-
-  final String key;
-  final String title;
-
-  factory PlexGenre.fromJson(Map<String, dynamic> json) {
-    final raw = _str(json['fastKey']) ?? _str(json['key']) ?? '';
-    // A fastKey is a query string, a key may be a path; either way the id is
-    // the last thing that looks like a number.
-    final id = RegExp(r'(\d+)(?!.*\d)').firstMatch(raw)?.group(1);
-    return PlexGenre(
-      key: id ?? raw,
-      title: _str(json['title']) ?? 'Unknown genre',
+      albums: type == 'album'
+          ? rows.map(PlexAlbum.fromJson).toList()
+          : const [],
     );
   }
 }

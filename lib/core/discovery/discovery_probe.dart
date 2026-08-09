@@ -2,13 +2,6 @@ import '../db/app_database.dart';
 import '../plex/plex_client.dart';
 import '../plex/plex_models.dart';
 
-/// One genre, and how many albums are actually behind it.
-class GenreSample {
-  const GenreSample({required this.title, required this.albums});
-  final String title;
-  final int albums;
-}
-
 /// How much of one month's listening the shelf could actually render.
 class MonthSample {
   const MonthSample({
@@ -64,8 +57,6 @@ class HistoryAttempt {
 class DiscoveryReport {
   const DiscoveryReport({
     required this.hubs,
-    required this.genreCount,
-    required this.genreSamples,
     required this.historyRows,
     required this.historyAttempts,
     required this.oldestPlay,
@@ -77,12 +68,6 @@ class DiscoveryReport {
   /// answered with nothing, or refused, which the client does not distinguish
   /// because nothing depends on it.
   final List<PlexHub> hubs;
-
-  final int genreCount;
-
-  /// The first few genres with their album counts, which is what says whether
-  /// a genre row can be filled at all.
-  final List<GenreSample> genreSamples;
 
   /// Rows the history endpoint returned, capped by the request.
   final int historyRows;
@@ -138,27 +123,8 @@ class DiscoveryProbe {
   final AppDatabase _db;
   final DateTime Function() _now;
 
-  /// How many genres to price. Each costs one small request, and the point is
-  /// a sense of the distribution rather than a full census.
-  static const genresSampled = 8;
-
   Future<DiscoveryReport> run(PlexSection section) async {
     final hubs = await _client.sectionHubs(section.key);
-
-    final genres = await _client.genres(section.key);
-    final samples = <GenreSample>[];
-    for (final genre in genres.take(genresSampled)) {
-      try {
-        final counted = await _client.genreAlbums(
-          section.key,
-          genre.key,
-          size: 0,
-        );
-        samples.add(GenreSample(title: genre.title, albums: counted.totalSize));
-      } on Object {
-        samples.add(GenreSample(title: genre.title, albums: -1));
-      }
-    }
 
     final plays = await _client.playHistory(section.key);
     final attempts = await _historyAttempts(section);
@@ -173,8 +139,6 @@ class DiscoveryProbe {
 
     return DiscoveryReport(
       hubs: hubs,
-      genreCount: genres.length,
-      genreSamples: samples,
       historyRows: plays.length,
       historyAttempts: attempts,
       oldestPlay: _at(plays.isEmpty ? null : plays.last.viewedAt),

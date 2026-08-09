@@ -982,34 +982,6 @@ final recentlyAddedProvider = StreamProvider<List<PlexAlbum>>((ref) async* {
 // the whole reason the client methods behind them swallow their failures.
 // ---------------------------------------------------------------------------
 
-/// "More by {artist}", seeded from whatever was played most recently.
-///
-/// Local, so it is populated on cold start with no network at all. The
-/// discography is read once per change of seed album rather than watched:
-/// nothing about an artist's back catalogue changes while you are looking at
-/// the row, and a second live stream per rebuild is not worth it.
-final moreByArtistShelfProvider = StreamProvider<DiscoveryShelf?>((ref) async* {
-  final db = ref.watch(databaseProvider);
-
-  await for (final recent in db.watchRecentlyPlayedAlbums(limit: 1)) {
-    if (recent.isEmpty) {
-      yield null;
-      continue;
-    }
-    final seed = recent.first.$1.toDomain();
-    final artistKey = seed.artistRatingKey;
-    if (artistKey == null) {
-      yield null;
-      continue;
-    }
-    final discography = await db.watchAlbumsForArtist(artistKey).first;
-    yield moreByArtistShelf(
-      seed: seed,
-      discography: [for (final row in discography) row.toDomain()],
-    );
-  }
-});
-
 /// How long an album has to sit unplayed before it counts as buried.
 ///
 /// Ninety days rather than a week: the point is the part of the library that
@@ -1034,100 +1006,42 @@ final buriedTreasureShelfProvider = StreamProvider<DiscoveryShelf?>((
   }
 });
 
-/// "Most played in {month}", counted by the server across every client.
+/// The rows the server publishes for this library, in the order it lists them.
 ///
-/// This is the row Plexamp has and Plex's own web client does not, and the
-/// reason the two disagree: it is not a hub the server publishes, it is an
-/// aggregate somebody has to compute. Plexamp computes it from its own local
-/// play records, which is why its numbers differ again. Computed here from
-/// `/status/sessions/history/all`, which is the same data Plex Web draws its
-/// "Watch/Listen History" from and covers every client you have ever used.
-final mostPlayedShelfProvider = FutureProvider<DiscoveryShelf?>((ref) async {
+/// **This replaces three hand-rolled approximations of rows Plex was already
+/// offering.** "More by {artist}", "More in {genre}" and "Most played in
+/// {month}" were each built here from scratch, and `/hubs/sections` names all
+/// three, fills them, orders them, and adds several nobody had thought of: top
+/// albums from a decade, artists not played in five years, sonic stations. Two
+/// bugs lived in the versions this deletes and neither could have existed in
+/// this one, because none of the work is ours.
+///
+/// **Nothing is keyed on a hub identifier.** What a section publishes varies by
+/// server version and by whether sonic analysis has run, so a row is rendered
+/// because it arrived with a title and some albums, not because it was
+/// recognised. That also means a server upgrade can only ever add rows here.
+///
+/// Album hubs only, for now. Artists, stations and music videos each need a
+/// tile and a tap this app does not have, and a heading with nothing under it
+/// is worse than an absent row.
+final hubShelvesProvider = FutureProvider<List<DiscoveryShelf>>((ref) async {
   final client = ref.watch(plexClientProvider);
   final section = await ref.watch(musicSectionProvider.future);
-  if (client == null || section == null) return null;
+  if (client == null || section == null) return const [];
 
-  final plays = await client.playHistory(section.key);
-  if (plays.isEmpty) return null;
-
-  // Artwork and titles come from the cache, not from the history rows, so this
-  // costs one request however many albums come back.
-  //
-  // **And so does the album each play belongs to.** Plex's history rows carry
-  // the track and, on the server this was measured against, no
-  // `parentRatingKey`, so the link has to come from the synced tracks table.
-  final db = ref.watch(databaseProvider);
-  final albumOfTrack = await db.albumKeysForTracks(
-    plays.map((play) => play.trackRatingKey),
-  );
-
-  final rows = await db.albumsByKeys({
-    for (final play in plays)
-      ?(play.albumRatingKey ?? albumOfTrack[play.trackRatingKey]),
-  });
-
-  return mostPlayedShelf(
-    plays: plays,
-    owned: {for (final row in rows) row.ratingKey: row.toDomain()},
-    albumOfTrack: albumOfTrack,
-    now: DateTime.now(),
-  );
+  return [
+    for (final hub in await client.sectionHubs(section.key))
+      if (!_duplicatesALocalShelf.contains(hub.hubIdentifier))
+        ?DiscoveryShelf.of(hub.title, hub.albums),
+  ];
 });
 
-/// How many albums a genre needs before it is worth a row.
-const _genreShelfMinimum = 8;
-
-/// How many albums the genre row shows.
-const _genreShelfWindow = 20;
-
-/// How many genres to try before giving up.
+/// Hubs skipped because a local row already answers them, faster.
 ///
-/// Plex's genre list carries no counts and real libraries have a long tail of
-/// genres tagged onto one album, so the first pick is often too small to fill
-/// a row. Four attempts is two small requests each at worst, and stops this
-/// walking a list of two hundred.
-const _genreShelfAttempts = 4;
-
-/// "More in {genre}", a different corner of a different genre each day.
-final genreShelfProvider = FutureProvider<DiscoveryShelf?>((ref) async {
-  final client = ref.watch(plexClientProvider);
-  final section = await ref.watch(musicSectionProvider.future);
-  if (client == null || section == null) return null;
-
-  final seed = daySeed(DateTime.now());
-  final candidates = genresInTasteOrder(
-    await client.genres(section.key),
-    seed: seed,
-  );
-
-  for (final genre in candidates.take(_genreShelfAttempts)) {
-    try {
-      // Size zero asks for the count alone, which is what the offset needs.
-      // Without it the row would open on the alphabetical head of the genre
-      // every single day.
-      final counted = await client.genreAlbums(section.key, genre.key, size: 0);
-      if (counted.totalSize < _genreShelfMinimum) continue;
-
-      final page = await client.genreAlbums(
-        section.key,
-        genre.key,
-        start: genreOffset(
-          totalSize: counted.totalSize,
-          windowSize: _genreShelfWindow,
-          seed: seed,
-        ),
-        size: _genreShelfWindow,
-      );
-      final shelf = DiscoveryShelf.of('More in ${genre.title}', page.items);
-      if (shelf != null) return shelf;
-    } on Object {
-      // One failure is the server saying no, not this genre saying no, so
-      // there is nothing to gain from trying the next one.
-      return null;
-    }
-  }
-  return null;
-});
+/// Recently added is on screen before the first frame from the cache and is
+/// the same six albums the server would send a moment later. The rest of the
+/// hubs have no local equivalent, which is why they are worth the request.
+const _duplicatesALocalShelf = {'music.recent.added'};
 
 /// A colour taken from one piece of artwork, for tinting behind it.
 ///

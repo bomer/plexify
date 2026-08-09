@@ -56,14 +56,20 @@ class HomeScreen extends ConsumerWidget {
                     title: 'Recently added',
                     items: _albums(recentlyAdded),
                   ),
-                  // The discovery rows, in the order they are most likely to
-                  // have something in them. Each is absent rather than empty
-                  // when it has nothing, so the screen closes up around the
-                  // gap instead of showing four "Nothing here yet" labels on a
-                  // fresh install or an offline start.
-                  _DiscoveryShelf(shelf: ref.watch(moreByArtistShelfProvider)),
-                  _DiscoveryShelf(shelf: ref.watch(mostPlayedShelfProvider)),
-                  _DiscoveryShelf(shelf: ref.watch(genreShelfProvider)),
+                  // Whatever the server publishes for this library, in its
+                  // order and under its own titles. More by an artist, more in
+                  // a genre, most played in a month, top albums from a decade,
+                  // and whatever a later Plex adds without this needing to
+                  // know. Absent rather than empty while unreachable, which is
+                  // the trade for not computing them here.
+                  for (final shelf
+                      in ref.watch(hubShelvesProvider).valueOrNull ??
+                          const <DiscoveryShelf>[])
+                    _Shelf(
+                      title: shelf.title,
+                      items: _albums(AsyncValue.data(shelf.albums)),
+                      hideWhenEmpty: true,
+                    ),
                   _Shelf(
                     title: 'Favourites',
                     items: _albums(ref.watch(favouriteAlbumsProvider)),

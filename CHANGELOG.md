@@ -26,6 +26,10 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Changed
 
+- Home's discovery rows come from Plex itself now. Instead of three rows this app worked out
+  on its own, it shows whatever the server publishes for the library, under the server's own
+  titles: more by an artist, more in a genre, most played in a month, top albums from a
+  decade, and whatever a later Plex adds. The three hand-made ones are gone.
 - Playlist thumbnails in the sidebar are larger, with the track count under the name. A
   mosaic at the old size was a colour swatch rather than a picture of anything.
 - Body text is a point larger and titles are semibold, so a name and the detail under it are

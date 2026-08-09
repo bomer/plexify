@@ -380,54 +380,6 @@ class PlexClient {
     }
   }
 
-  /// Every genre in a section, as Plex has tagged it.
-  ///
-  /// Genres are not synced into drift: they are a many-to-many that would need
-  /// its own table and its own delta path, and this is the only thing that
-  /// wants them. One small request per shelf, hidden when it fails, is the
-  /// cheaper trade.
-  Future<List<PlexGenre>> genres(String sectionKey) async {
-    try {
-      final container = await _getContainer(
-        '/library/sections/$sectionKey/genre',
-      );
-      return _listOf(
-        container,
-        'Directory',
-      ).map(PlexGenre.fromJson).where((g) => g.key.isNotEmpty).toList();
-    } on Object {
-      return const [];
-    }
-  }
-
-  /// One page of a genre's albums, with the total so a caller can pick a window
-  /// into it.
-  ///
-  /// [size] may be zero, which asks the server for the count alone. That is the
-  /// first half of the "show a different corner of Rock each day" shelf: the
-  /// second is a seeded offset, because without one the row would show the same
-  /// twenty alphabetically-first albums for ever.
-  Future<PlexPage<PlexAlbum>> genreAlbums(
-    String sectionKey,
-    String genreKey, {
-    int start = 0,
-    int size = 20,
-  }) async {
-    final container = await _getContainer(
-      '/library/sections/$sectionKey/all',
-      query: {'type': '$typeAlbum', 'genre': genreKey},
-      extraHeaders: {
-        'X-Plex-Container-Start': '$start',
-        'X-Plex-Container-Size': '$size',
-      },
-    );
-    return PlexPage<PlexAlbum>(
-      items: _listOf(container, 'Metadata').map(PlexAlbum.fromJson).toList(),
-      totalSize:
-          _asInt(container['totalSize']) ?? _asInt(container['size']) ?? 0,
-    );
-  }
-
   /// The server's own play history for a section, newest first.
   ///
   /// **Deliberately unfiltered by date.** A `viewedAt>` parameter would be the

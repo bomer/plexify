@@ -93,8 +93,10 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
             Text(
               report.hubs.isEmpty
                   ? 'None. Either this server publishes no music hubs or it '
-                        'refused the request, which look the same from here.'
-                  : 'What /hubs/sections publishes for this library.',
+                        'refused the request, which look the same from here. '
+                        'Home falls back to its local rows.'
+                  : 'Every one of these with albums in it is a row on Home, '
+                        'under the title the server gave it.',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
@@ -103,25 +105,15 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
             for (final hub in report.hubs)
               _Row(
                 label: hub.title.isEmpty ? hub.hubIdentifier : hub.title,
-                value: '${hub.type}  ·  ${hub.size}  ·  ${hub.hubIdentifier}',
-              ),
-
-            const Divider(height: 32),
-            Text('Genres', style: theme.textTheme.titleSmall),
-            const SizedBox(height: 4),
-            Text(
-              '${report.genreCount} tagged. The counts are what decide whether '
-              'a "More in …" row can be filled: a library usually has a long '
-              'tail of genres on one album each.',
-              style: theme.textTheme.bodySmall?.copyWith(
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ),
-            const SizedBox(height: 12),
-            for (final genre in report.genreSamples)
-              _Row(
-                label: genre.title,
-                value: genre.albums < 0 ? 'failed' : '${genre.albums} albums',
+                // Declared size *and* albums actually parsed. They are
+                // different questions: the first is what the hub says it
+                // holds, the second is what arrived in the response and is
+                // therefore what Home can render. A hub that declares six and
+                // parses none means the items are not inline, and every album
+                // row would be silently absent.
+                value:
+                    '${hub.type}  ·  declares ${hub.size}  ·  '
+                    'parsed ${hub.albums.length}',
               ),
 
             const Divider(height: 32),
@@ -208,11 +200,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       'Hubs (${report.hubs.length}):',
       if (report.hubs.isEmpty) '  none',
       for (final hub in report.hubs)
-        '  ${hub.hubIdentifier}  "${hub.title}"  type=${hub.type} size=${hub.size} context=${hub.context ?? '-'}',
-      '',
-      'Genres: ${report.genreCount} tagged',
-      for (final genre in report.genreSamples)
-        '  ${genre.title}: ${genre.albums < 0 ? 'failed' : '${genre.albums} albums'}',
+        '  ${hub.hubIdentifier}  "${hub.title}"  type=${hub.type} '
+            'size=${hub.size} parsed=${hub.albums.length}',
       '',
       'History: ${report.historyRows} rows, '
           '${_date(report.oldestPlay)} to ${_date(report.newestPlay)}',
