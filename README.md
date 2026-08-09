@@ -10,7 +10,7 @@ akin to Spotify with playlist on the left and easily jumping between playlists, 
 moving between "now playing" and "finding something else" without losing your place.
 Plex is the source of truth and your plays filter back, whilst handling transcoding on Mobile.
 
-This was built entirely with Claude (and potentially other AI Agents) to test their capability
+This was coded entirely with Claude (and potentially other AI Agents in future ) to test their capability
 in building custom software for me.
 
 As a developer, I really wanted a better experience but it would have taken me weeks to learn
@@ -172,21 +172,21 @@ The catalog is **MusicBrainz**: free, no API key, and the same ids Lidarr, Picar
 use. Two of its rules are enforced with the same status code and neither is guessable —
 roughly one request per second, and a `User-Agent` naming the application and a contact. It
 answers **503** for either, which reads as the service being down. Answers are cached in
-drift for a week and are *not* cleared on sign-out: MBIDs are global, unlike Plex's
+drift for a week and are _not_ cleared on sign-out: MBIDs are global, unlike Plex's
 server-scoped `ratingKey`s.
 
 **De-duplication is the part that fails quietly.** An album you own appearing in the list of
 albums you don't is noise you can see; a record you're missing silently never appearing is
 not. Matching prefers the MBID where Plex recorded one — it usually hasn't, since that
 depends on the agent and the file tags — and otherwise compares normalised artist and title
-with *edition* qualifiers removed. `Nevermind (Deluxe Edition)` is the same record as
+with _edition_ qualifiers removed. `Nevermind (Deluxe Edition)` is the same record as
 `Nevermind`; `Greatest Hits (Volume 1)` is not the same record as `(Volume 2)`, so only
 recognised edition words are stripped and never every bracket.
 
 Acquisition hands off to **qBittorrent**, adding with `category=Music` so existing automation
 routes it to the folder Plex watches. Nothing is renamed, retagged or post-processed. When a
 download finishes, Plex is asked to rescan and the library syncs on its own — that is a new
-*trigger* on the existing refresh path, not a fourth sync mechanism.
+_trigger_ on the existing refresh path, not a fourth sync mechanism.
 
 **The one-click button never queues on seeder count alone.** Torrent search matches
 filenames, so the most popular hit for an album is routinely a different record that shares a
@@ -202,7 +202,7 @@ then torrent files, with pages last and labelled, and tapping a page opens it in
 rather than pretending to queue it.
 
 Two qBittorrent traps are handled up front, and both answer 403 against a WebUI that works
-perfectly in a browser: `Referer`/`Origin` must match `Host` exactly *including the port*,
+perfectly in a browser: `Referer`/`Origin` must match `Host` exactly _including the port_,
 and 403 **also** means "this address is banned for repeated failed logins" — so the client
 makes one attempt and then stops rather than making a ban worse.
 
@@ -220,6 +220,6 @@ provides one and must be initialised at startup before any player is constructed
 Playlist editing (read-only), YouTube playback, explicit offline downloads, cross-device
 handoff, Last.fm, iOS, multi-user, Cast.
 
-Torrent *management* too. The Downloads screen is read-only: pausing, reprioritising and
+Torrent _management_ too. The Downloads screen is read-only: pausing, reprioritising and
 deleting all exist perfectly well in qBittorrent's own interface, and a second copy here
 would be one more thing to keep in step.

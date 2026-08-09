@@ -24,6 +24,18 @@ void main() {
             ),
           );
 
+  /// Records that this device started the playlist, which is what
+  /// `LibraryWriter.markStarted` does when you press play.
+  Future<void> played(String ratingKey, int at) => db
+      .into(db.playbackHistory)
+      .insert(
+        PlaybackHistoryCompanion.insert(
+          kind: 'playlist',
+          ratingKey: ratingKey,
+          startedAt: at,
+        ),
+      );
+
   Future<List<String>> titles(PlaylistSort sort, {int? limit}) async => [
     for (final row in await db.watchPlaylists(sort: sort, limit: limit).first)
       row.title,
@@ -44,6 +56,61 @@ void main() {
     await insert('Yesterday', lastViewedAt: 100);
 
     expect(await titles(PlaylistSort.recent), ['Yesterday', 'Never']);
+  });
+
+  group('played here, not just viewed on the server', () {
+    test('putting a playlist on moves it to the top', () async {
+      // The bug this join exists for. Plexify reports playback against the
+      // *track*, so Plex never learns a playlist was involved and its own
+      // lastViewedAt never moves — the sidebar sat frozen however much you
+      // listened.
+      await insert('Never touched', lastViewedAt: 900);
+      await insert('Played here');
+      await played('Played here', 950);
+
+      expect(await titles(PlaylistSort.recent), [
+        'Played here',
+        'Never touched',
+      ]);
+    });
+
+    test('the server still wins when it is the newer of the two', () async {
+      // A max rather than a coalesce. Played in Plexamp this morning and here
+      // a month ago, the morning is the honest answer.
+      await insert('Plexamp today', lastViewedAt: 2000);
+      await insert('Here last month');
+      await played('Here last month', 1000);
+
+      expect(await titles(PlaylistSort.recent), [
+        'Plexamp today',
+        'Here last month',
+      ]);
+    });
+
+    test('an album never lends its play time to a playlist', () async {
+      // Both kinds share one table and ratingKeys are only unique per type, so
+      // an unfiltered join would hand this playlist an album's listening.
+      await insert('7');
+      await insert('Genuinely recent', lastViewedAt: 500);
+      await db
+          .into(db.playbackHistory)
+          .insert(
+            PlaybackHistoryCompanion.insert(
+              kind: 'album',
+              ratingKey: '7',
+              startedAt: 9999,
+            ),
+          );
+
+      expect(await titles(PlaylistSort.recent), ['Genuinely recent', '7']);
+    });
+
+    test('one row per playlist, however it is joined', () async {
+      await insert('Only once');
+      await played('Only once', 100);
+
+      expect(await titles(PlaylistSort.recent), ['Only once']);
+    });
   });
 
   test('recent does not group smart playlists', () async {

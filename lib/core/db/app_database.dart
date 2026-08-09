@@ -389,17 +389,55 @@ class AppDatabase extends _$AppDatabase {
 
   /// Playlists, most recently played first.
   ///
-  /// Plex leaves `lastViewedAt` null on playlists that have never been played,
-  /// and those must sort last rather than first — a null sorting high would put
-  /// every unplayed playlist above the ones actually being used.
+  /// **Joined against the local play history, and that join is the whole point
+  /// of this being more than three lines.** `Playlists.lastViewedAt` is
+  /// *Plex's* column and Plexify never moves it: playback reports
+  /// `/:/timeline` and `/:/scrobble` against the **track**, so the server never
+  /// learns a playlist was involved, and its own last-viewed stays wherever
+  /// Plex web or Plexamp last left it. Every sync then writes that stale value
+  /// back over anything stored locally, so there was nowhere to put a local
+  /// one even if the write existed.
+  ///
+  /// The effect was a "Recent playlists" list that never moved however much you
+  /// listened, ordered by something no action in this app could change. Exactly
+  /// the bug [PlaybackHistory] was introduced to fix for albums at schema v5,
+  /// in a second place that never got the same treatment.
+  ///
+  /// The sort key is therefore the *later* of the two. Local wins when it is
+  /// newer, which is the normal case; Plex's fills in for a playlist played
+  /// elsewhere and never here, which is why this is a max rather than a
+  /// coalesce.
   Stream<List<Playlist>> watchPlaylists({
     int? limit,
     PlaylistSort sort = PlaylistSort.recent,
   }) {
-    final query = select(playlists)..orderBy(_playlistOrder(sort));
+    final query = select(playlists).join([
+      leftOuterJoin(
+        playbackHistory,
+        playbackHistory.ratingKey.equalsExp(playlists.ratingKey) &
+            // Albums and playlists share this table and ratingKeys are only
+            // unique per type, so without this an album would lend its play
+            // time to whichever playlist carried the same key.
+            playbackHistory.kind.equals('playlist'),
+      ),
+    ])..orderBy(_playlistOrder(sort));
+
     if (limit != null) query.limit(limit);
-    return query.watch();
+    return query.watch().map(
+      (rows) => [for (final row in rows) row.readTable(playlists)],
+    );
   }
+
+  /// The later of "played here" and "viewed on the server", as one number.
+  ///
+  /// SQLite's two-argument `MAX` is a scalar function rather than the aggregate
+  /// drift exposes, so this is written out. The table and column names are the
+  /// generated ones and are held to by the tests rather than by the compiler,
+  /// which is what reaching past the query builder costs.
+  static const _playlistRecency = CustomExpression<int>(
+    'MAX(COALESCE(playback_history.started_at, 0), '
+    'COALESCE(playlists.last_viewed_at, 0))',
+  );
 
   /// Ordering terms for one [PlaylistSort].
   ///
@@ -410,29 +448,24 @@ class AppDatabase extends _$AppDatabase {
   /// the order you use when you are looking for something specific, which is
   /// exactly when that distinction is worth surfacing. Recent is already an
   /// order of relevance and grouping by kind on top of it would only fight it.
-  List<OrderingTerm Function($PlaylistsTable)> _playlistOrder(
-    PlaylistSort sort,
-  ) => switch (sort) {
+  List<OrderingTerm> _playlistOrder(PlaylistSort sort) => switch (sort) {
     PlaylistSort.recent => [
-      // Nulls last, or every playlist never opened would sort above the one
-      // you were listening to an hour ago.
-      (p) => OrderingTerm(
-        expression: p.lastViewedAt,
-        mode: OrderingMode.desc,
-        nulls: NullsOrder.last,
-      ),
-      (p) => OrderingTerm.asc(p.normalisedTitle),
+      // No `nulls last` clause needed any more: the expression coalesces to
+      // zero, so a playlist neither played here nor viewed on the server sorts
+      // below every one that was, and ties fall through to the title.
+      OrderingTerm(expression: _playlistRecency, mode: OrderingMode.desc),
+      OrderingTerm.asc(playlists.normalisedTitle),
     ],
     PlaylistSort.titleAsc => [
-      (p) => OrderingTerm.desc(p.smart),
-      (p) => OrderingTerm.asc(p.normalisedTitle),
+      OrderingTerm.desc(playlists.smart),
+      OrderingTerm.asc(playlists.normalisedTitle),
     ],
     PlaylistSort.titleDesc => [
       // Still descending on `smart`, so the group stays at the top rather than
       // flipping to the bottom with the letters. Reversing the sort means
       // reversing the alphabet, not turning the list upside down.
-      (p) => OrderingTerm.desc(p.smart),
-      (p) => OrderingTerm.desc(p.normalisedTitle),
+      OrderingTerm.desc(playlists.smart),
+      OrderingTerm.desc(playlists.normalisedTitle),
     ],
   };
 

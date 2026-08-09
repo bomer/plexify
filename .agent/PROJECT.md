@@ -834,6 +834,15 @@ caught this on its first run, reporting 400 where 600 was expected, and the code
 whole time. `tester.view.physicalSize` is the other half, and asserting against
 `tester.getRect` of the widget rather than against a constant is better still.
 
+**`lastViewedAt` is Plex's, on every table that has one, and Plexify can move none of them.**
+Playback is reported against the *track*: `/:/timeline` and `/:/scrobble` carry a track
+ratingKey, so the server never learns which album or playlist it came from and never stamps
+one. Any local write is then overwritten by the next sync, which upserts the server's value.
+That is why `PlaybackHistory` exists (schema v5) and why anything meaning "what did *I* put on"
+must read it rather than `lastViewedAt`. It caught Home once and the sidebar a month later, and
+the symptom is identical both times: a list that looks plausible, is ordered by something real,
+and never moves no matter what you do in the app.
+
 **Material 3 tints your greys with the seed colour, twice, and neither is visible from
 reading the code.** `ColorScheme.fromSeed` derives the surface roles from the seed's tonal
 palette with chroma deliberately left in, so the "greys" are already tinted; then
