@@ -19,6 +19,64 @@ streams that it might make it's own issues. We'll find out.
 
 ![Plexify on Windows](https://github.com/bomer/plexify/blob/main/docs/windows.png?raw=true)
 
+## What it does
+
+**Browsing and search**
+
+- Signs in with Plex's PIN flow, so no password is ever handled by the app. Server discovery
+  races the LAN address, the remote one and the relay, and keeps whichever answers first.
+- Artists with an A to Z jump rail, albums sortable by added date, title or artist, and
+  playlists sortable by recent or by name with smart playlists grouped first.
+- One search box, three tiers: the local cache on every keystroke, Plex's own search merged
+  in behind it, and optionally records you do not own at all.
+- Everything renders from a local SQLite cache, so browsing is instant and works with the
+  server unreachable.
+
+**Home**
+
+- Jump back in, Recently added and Favourites.
+- More by whoever you played last, Most played in a given month counted from the server's own
+  history, More in a genre that changes daily, and Buried treasure for albums nothing has ever
+  played.
+
+**Playback**
+
+- Gapless playback with a queue you can shuffle, repeat, reorder and prune.
+- A desktop transport bar with scrubbing, shuffle and repeat, a queue button and volume.
+- Media keys on Windows. Background playback, lock screen controls and a notification on
+  Android.
+- What was playing comes back on the next launch, paused and at the right position.
+- Now Playing lifts a colour out of the album art and washes it behind the page. Album,
+  artist and playlist pages do the same.
+
+**Plex is the source of truth**
+
+- Plays are reported back, so history stays in one place whichever app you listened in.
+- Star ratings on albums, artists and tracks sync both ways.
+- Three sync mechanisms: a websocket that delivers a change the moment Plex finishes
+  scanning it, a cheap 30 second poll, and a slower unfiltered sweep for edits that move no
+  timestamp. Pull to refresh asks Plex to rescan and then pulls the result.
+- Reconnects on its own when the network changes or requests stop arriving, and rebuilds the
+  playing queue at the position it had reached.
+
+**Quality and storage**
+
+- Direct play at home, transcode over mobile data, overridable per connection.
+- Artwork cached on both platforms and audio cached on mobile, both bounded and both with a
+  budget you can set.
+
+**Albums you do not own** (off by default, one switch)
+
+- A "not in your library" tier under search and a missing albums grid on every artist page,
+  both from MusicBrainz.
+- One click hands off to qBittorrent, and the library refreshes itself when the download
+  lands.
+
+**Diagnostics**
+
+- A sync status screen that says which of the three mechanisms is working, plus probes for
+  the transcode endpoint, the delta filter and what the server offers the Home screen.
+
 ## Requirements
 
 - **Flutter** 3.44+ (`C:\Users\James\flutter-sdk\flutter`)
@@ -73,17 +131,43 @@ refuses to do it.
 ## Releasing
 
 ```
+powershell -File tool/release.ps1
+```
+
+Builds both targets, tags the commit, and publishes a GitHub release with the
+Windows zip and the Android APK attached. Needs the
+[GitHub CLI](https://cli.github.com/) (`winget install --id GitHub.cli`, then
+`gh auth login`).
+
+It refuses to run rather than publishing something wrong. The working tree must
+be clean and already pushed, since a release points at a tag; the tag must not
+already exist, because re-releasing a version swaps the files under anyone who
+has downloaded them; and [CHANGELOG.md](CHANGELOG.md) must have a section for
+the version, which becomes the release notes. While the major version is 0 the
+release is marked as a prerelease.
+
+To build the artefacts without publishing anything:
+
+```
 powershell -File tool/package.ps1
 ```
 
-Builds both targets into `dist/` and checks them before they leave: the APK must
-be signed with the real upload key rather than the debug one, it must be under
-its size budget, and the Windows bundle must contain the DLLs the exe cannot
-start without. [tool/README.md](tool/README.md) covers creating the signing key,
-which is a one-time job and has to be done by hand.
+Both go through the same checks: the APK must be signed with the real upload key
+rather than the debug one, it must be under its size budget, and the Windows
+bundle must contain the DLLs the exe cannot start without.
+[tool/README.md](tool/README.md) covers creating the signing key, which is a
+one-time job and has to be done by hand.
 
 The Windows deliverable is the **whole** `Release` folder, not just
 `plexify.exe`. The exe is about 150KB and will not start on its own.
+
+### Cutting a version
+
+1. Bump `version:` in `pubspec.yaml` and `PlexIdentity.version` together.
+   `test/packaging_test.dart` fails if they drift apart.
+2. Move the `Unreleased` notes in `CHANGELOG.md` under a heading for the new
+   version. The same test fails if there is no section for it.
+3. Commit, push, run `tool/release.ps1`.
 
 ## Architecture
 

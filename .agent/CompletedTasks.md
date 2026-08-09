@@ -7,7 +7,7 @@ Kept rather than deleted because most of these entries record a *decision* and t
 behind it. Several were bought with a bug. The reasoning is the only thing standing
 between the next reader and paying for it twice.
 
-**Last updated:** 10 August 2026 · **60 complete**
+**Last updated:** 10 August 2026 · **61 complete**
 
 ---
 
@@ -67,6 +67,7 @@ between the next reader and paying for it twice.
 | 51 | Use a delta filter Plex honours | `updatedAt>` works and `updatedAt>=` never did. Strict, so the client asks a second earlier than the cursor. Took two probe runs and one corrected verdict rule |
 | 52 | Filter the poll, never the sweep | A rating moves no timestamp, so a filtered sweep cannot find the one thing it exists for. Sweep and forced refresh go unfiltered, interval 5 → 15 min. The fake server now applies the filter, which is why the guard is real |
 | 53 | Recover from a handover that lands nowhere | A sticky re-resolve was clearing the failure streak, and the audio cache's own HTTP client was invisible to everything. Together they left playback dead until a restart |
+| 63 | Release to GitHub, and a changelog | `tool/release.ps1` builds through `package.ps1`, tags, and publishes with both artefacts attached. Every guard is for a mistake that is quiet at the time: a dirty or unpushed tree publishes a build matching no commit anyone can fetch, an existing tag swaps the files under people who already downloaded them, and an absent changelog section is how a release ends up with an empty body. `0.x` is marked prerelease automatically. The changelog section is also asserted by `packaging_test`, so the omission surfaces in an ordinary test run rather than mid-release |
 | 62 | Recent playlists actually move | The sidebar sorted on `Playlists.lastViewedAt`, which is Plex's column and which Plexify can never move: playback reports `/:/timeline` and `/:/scrobble` against the **track**, so the server never learns a playlist was involved, and every sync writes its stale value back over anything local. So the list was ordered by something no action in the app could change and sat frozen however much you listened. The same bug `PlaybackHistory` was introduced to fix for albums at schema v5, in the one place that never got the treatment. Now the later of the two, so playing here wins and Plexamp still counts |
 | 61 | Detail pages lose their app bar | The bar held one control and a copy of the title printed six lines below it, and cost a band of chrome plus a hard line straight across the gradient, which is the part of the page actually worth looking at. Back floats over the top-left instead, pinned rather than scrolled with the header, with its own scrim so it stays legible over a light sleeve. Album and playlist only: the artist page's collapsing hero is already the treatment this is reaching for, and Home keeps its bar because James wants the breathing room there |
 | 60 | Playlist page shaped like an album page | The sidebar shows a playlist's mosaic and opening one landed on a bare list with no artwork at all, which read as the wrong screen having loaded. Same header shape as the album page down to the cover size: mosaic, title, kind, songs and running time, Play. Rows numbered by position, since a playlist's order is an arrangement rather than a pressing. Six tests, because "the header is there" is obvious in a screenshot and invisible in a diff. Also collapsed the third copy of the clock formatter |
@@ -786,6 +787,10 @@ for what has.
   edition-word list either earns its keep or reports albums he owns as missing. And that a
   queued torrent lands, gets scanned, and appears — the one path that crosses three systems and
   is only ever end-to-end.
+- **#63**, the whole release path, which has never run. `gh` is not installed on this machine,
+  the Android signing keystore still does not exist, and `package.ps1` refuses to build without
+  it, so nothing downstream of that line has ever executed. Expect the first run to be the one
+  that finds whatever is wrong with it.
 - **#59**, the light theme. Six surface values were invented for it and only the dark set has
   been looked at; nothing in a test can tell whether they are pleasant, only that they exist.
   Also whether the cover shadow reads at all on a light background, where it has far less to

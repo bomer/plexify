@@ -38,6 +38,35 @@ void main() {
       );
     });
 
+    test('the changelog has something to say about this version', () {
+      final pubspec = File('pubspec.yaml').readAsStringSync();
+      final version = RegExp(r'^version:\s*(\S+)$', multiLine: true)
+          .firstMatch(pubspec)!
+          .group(1)!
+          .split('+')
+          .first;
+
+      final changelog = File('CHANGELOG.md').readAsStringSync();
+
+      // `tool/release.ps1` publishes this section as the release notes and
+      // refuses to run without it. Asserting it here means the omission is
+      // caught by the ordinary test run rather than at the moment of
+      // releasing, when the build has already been made and the impulse is to
+      // write two words and move on.
+      final heading = RegExp(
+        r'^##\s+\[?' + RegExp.escape(version) + r'\]?',
+        multiLine: true,
+      );
+
+      expect(
+        heading.hasMatch(changelog),
+        isTrue,
+        reason:
+            'CHANGELOG.md has no section for $version. Add one before the '
+            'release, not during it.',
+      );
+    });
+
     test('the signing key and its passwords cannot be committed', () {
       final ignore = File('.gitignore').readAsStringSync();
 

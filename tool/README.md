@@ -6,8 +6,36 @@ Build-time scripts. Nothing here runs as part of the app.
 |---|---|
 | `make_icons.py` | Regenerates every app icon from one definition. Needs Pillow. |
 | `package.ps1` | Builds both release artefacts into `dist/`, and checks them. |
+| `release.ps1` | Everything `package.ps1` does, then tags and publishes to GitHub. |
 
 ## Releasing
+
+```powershell
+powershell -File tool/release.ps1
+```
+
+Builds, tags the commit, and creates a GitHub release with both artefacts
+attached. Needs the GitHub CLI: `winget install --id GitHub.cli` then
+`gh auth login`.
+
+It stops rather than publishing something wrong, and every check is for a
+mistake that is quiet at the time and awkward later:
+
+- **The tree must be clean and HEAD already on `origin/main`.** A release points
+  at a tag, so a dirty tree publishes a build matching no commit, and an
+  unpushed one publishes a build nobody can get the source for.
+- **The tag must not exist.** Re-releasing a version replaces the files under
+  anyone who already downloaded them. Bump the version instead.
+- **`CHANGELOG.md` must have a section for the version**, and it becomes the
+  release notes. `test/packaging_test.dart` asserts the same thing, so the
+  omission surfaces during an ordinary test run rather than at the moment of
+  releasing.
+- Everything `package.ps1` checks, since it runs it.
+
+`0.x` releases are marked as prereleases automatically. `-Draft` publishes
+somewhere only you can see it; `-Yes` skips the confirmation prompt.
+
+To build the artefacts without publishing:
 
 ```powershell
 powershell -File tool/package.ps1
@@ -16,8 +44,18 @@ powershell -File tool/package.ps1
 Produces `dist/plexify-<version>-android-arm64.apk` and
 `dist/plexify-<version>-windows-x64.zip`, and refuses to produce either if the
 APK is debug-signed, the APK is over its size budget, or the Windows bundle is
-missing one of the DLLs the exe cannot start without. The version comes from
-`pubspec.yaml`; bump it there.
+missing one of the DLLs the exe cannot start without.
+
+### Cutting a version
+
+The version lives in two places that cannot read each other, so both move
+together:
+
+1. `version:` in `pubspec.yaml` and `PlexIdentity.version` in
+   `lib/core/plex/plex_identity.dart`.
+2. A new heading in `CHANGELOG.md` for it.
+
+`test/packaging_test.dart` fails on either being missed.
 
 ## The Android signing key, once
 

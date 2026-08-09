@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 60 complete · 2 open · 568 tests passing
+**Status:** 61 complete · 2 open · 569 tests passing
 
 ---
 
@@ -207,6 +207,11 @@ Run the probe and the answer decides whether it is worth wiring.
 so they resolve on the first Home build of a session and hold that answer until something
 invalidates them. A month rolling over, or an hour's listening, will not move "Most played"
 until the app restarts. Pull-to-refresh is the obvious place to hang the invalidation.
+
+**Releasing needs two things that do not exist yet.** The GitHub CLI is not installed
+(`winget install --id GitHub.cli`, then `gh auth login`), and neither is the Android signing
+keystore, which `tool/package.ps1` refuses to build without. Until both are done
+`tool/release.ps1` cannot get past its first few lines.
 
 **A detail page loses its title once scrolled.** The app bar that used to carry it is gone,
 and nothing replaces it on the way down a long track list. Spotify re-shows the title in a bar
