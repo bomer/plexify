@@ -889,14 +889,23 @@ expanded player drew the sleeve at 420 logical pixels while asking Plex for 600,
 request: many covers on the server are not much above 600 to begin with, so raising the ask
 just moves the upscaling into Plex's transcoder.
 
-**Plexamp's extra rows are not hubs.** Worth writing down because it looks like an endpoint
-problem and is not. Plexamp shows rows Plex Web does not, and the two disagree about their
-contents, because the rows are *aggregates somebody computes* rather than lists the server
-hands out: Plexamp computes its own from records it keeps locally and nobody else can read.
-Chasing a hub identifier that produces "Most played in January" is chasing something that
-does not exist. The server's contribution is the raw play history, and the counting is the
-client's job. `DiscoveryProbe` exists to keep that conclusion re-checkable rather than
-remembered.
+**Plexamp's extra rows *are* hubs, and this entry used to say the opposite.** It said the rows
+were aggregates a client computes, that no hub identifier produced "Most played in January",
+and that the counting was the client's job. Every part of that was wrong, and it was written
+from reasoning rather than measurement, in the same file that exists to stop exactly that.
+
+`/hubs/sections/{id}` returned eleven hubs from James's server on 10 August 2026, including
+`music.recent.artist` ("More by Regina Spektor"), `music.recent.genre` ("More in Folk") and
+`music.popular` ("Most Played in November") — which are, precisely, the three rows this app
+had spent a fortnight reimplementing beside them. It also publishes `music.top.period`,
+`music.vault`, `music.stations` and others nobody had thought of. Items arrive inline, so a
+hub is a finished row rather than a reference to fetch.
+
+Two lessons rather than one. The obvious: ask the server what it offers before building an
+approximation of it. The sharper one: this entry was *believed* for a fortnight because it was
+written down confidently in the file the next reader trusts, and the probe that would have
+disproved it in thirty seconds already existed and had been run for other reasons. A
+conclusion recorded here is worth as much as the measurement behind it and no more.
 
 ---
 

@@ -7,7 +7,7 @@ rationale, [PROJECT.md](PROJECT.md) for environment, conventions and known traps
 
 **Last updated:** 9 August 2026
 
-**Status:** 61 complete · 2 open · 569 tests passing
+**Status:** 62 complete · 2 open · 564 tests passing
 
 ---
 
@@ -198,10 +198,14 @@ every user of the server, so on a shared library "Most played in August" counts 
 people's listening as well. Harmless on a single-user server and wrong on any other.
 `accountID` is the parameter, and finding the right value for the owner is the work.
 
-**Nothing renders the server's own hubs.** `PlexClient.sectionHubs` exists and only
-`DiscoveryProbe` calls it. Deliberate: a hub identifier that is present on one server version
-and absent on the next is not something to build a row on before seeing what this one has.
-Run the probe and the answer decides whether it is worth wiring.
+**Artist and station hubs are not rendered.** `music.recent.played` ("Recently Played Music",
+6 artists) and `music.stations` (4 sonic stations) come back populated and are skipped,
+because each needs a tile and a tap this app does not have. The artist one is a small job. The
+stations one is the first evidence that #31 is viable on this server at all.
+
+**A hub with a single album still gets a heading.** `music.recent.label` returned one on
+James's server, and a row of one tile under a title reads as an accident. A minimum of two or
+three would fix it, at the cost of hiding a row Plex thought worth publishing.
 
 **The two server-backed shelves are fetched once and never again.** They are `FutureProvider`s,
 so they resolve on the first Home build of a session and hold that answer until something
