@@ -350,6 +350,40 @@ track's ratingKey. Plexamp works the same way from the other side: its "Top Albu
 is eleven *track* plays rolled up. There is no album-level play to find on either side of the
 API.
 
+### 3.8 Sonic neighbours, which is where radio comes from
+
+```
+GET /library/metadata/{ratingKey}/nearest?limit=60
+```
+
+Returns the tracks Plex's sonic model considers closest to that one, nearest first. This is
+built during **library analysis**, which is a server setting (Settings, Library, Analyze) that
+is off by default and takes hours to days on a large library. Nothing here works until it has
+run.
+
+**Seed it with a track, never an album or an artist.** Similarity is measured per track, so
+asking about a container is a question with no defined answer: the server may reply with
+albums, with tracks, or with nothing. Radio from an album therefore picks one of its tracks
+and asks about that. `PlexClient.nearest` takes a track ratingKey and the type system is the
+only documentation of that anyone will read.
+
+**No `type` filter is sent.** It is the obvious parameter to reach for and it is exactly the
+shape this server silently ignores; see section 3.3 and section 3.7 for the two bugs that
+cost. The response is filtered on each row's own declared `type` instead, which cannot be got
+wrong the same way.
+
+Two things about the response that shape the caller:
+
+- **The seed comes back among its own neighbours**, usually first. Starting a station from a
+  song wants that; refilling a running one does not.
+- **A missing endpoint and an unanalysed library look the same from here** — 404 or an empty
+  container. Both are ordinary states of a server rather than faults, so the client returns
+  empty rather than throwing and the UI says which is likely.
+
+Whether the Stations hub (`music.stations`, section 3.6) can be *played* is a separate and
+still unmeasured question. Its rows are stations rather than albums or tracks, and starting
+one probably needs a server-side play queue, which this app does not create.
+
 ---
 
 ## 4. Artwork

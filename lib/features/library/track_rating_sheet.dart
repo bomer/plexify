@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../radio/radio_action.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
 
@@ -43,6 +44,20 @@ Future<void> showTrackRatingSheet(
               ),
             ],
             const SizedBox(height: 12),
+            // Under the stars rather than above them, because rating is what
+            // this sheet has always been for and a new action should not
+            // displace the reason people open it.
+            ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.radio),
+              title: const Text('Start radio'),
+              subtitle: const Text('Music that sounds like this'),
+              onTap: () async {
+                Navigator.of(sheetContext).pop();
+                await startRadioFrom(context, ref, track);
+              },
+            ),
+            const Divider(height: 24),
             Center(
               child: Consumer(
                 builder: (context, ref, _) => StarRating(

@@ -26,6 +26,7 @@ class AppSettings {
     this.audioCacheMaxBytes,
     this.artworkCacheMaxBytes,
     this.catalogEnabled = false,
+    this.autoplayRadio = true,
     this.qbitUrl,
     this.volume = 1,
     this.sidebarPlaylists = 12,
@@ -57,6 +58,16 @@ class AppSettings {
   /// nothing and one number that means the same thing everywhere is simpler
   /// than one that only exists sometimes.
   final double volume;
+
+  /// Whether a finished queue continues into music that sounds like it.
+  ///
+  /// On by default, because the alternative is silence at the end of every
+  /// album and the whole point of a station is that you did not have to ask for
+  /// it. Off is for people who put a record on and want it to end.
+  ///
+  /// Only ever extends a queue that ran to its end on its own. Stopping,
+  /// clearing or replacing a queue ends the station with it.
+  final bool autoplayRadio;
 
   /// Whether to look up records the library does not hold.
   ///
@@ -136,6 +147,7 @@ class AppSettings {
     Object? audioCacheMaxBytes = _unchanged,
     Object? artworkCacheMaxBytes = _unchanged,
     bool? catalogEnabled,
+    bool? autoplayRadio,
     Object? qbitUrl = _unchanged,
     double? volume,
     int? sidebarPlaylists,
@@ -143,6 +155,7 @@ class AppSettings {
     volume: volume ?? this.volume,
     sidebarPlaylists: sidebarPlaylists ?? this.sidebarPlaylists,
     catalogEnabled: catalogEnabled ?? this.catalogEnabled,
+    autoplayRadio: autoplayRadio ?? this.autoplayRadio,
     qbitUrl: identical(qbitUrl, _unchanged) ? this.qbitUrl : qbitUrl as String?,
     themeMode: themeMode ?? this.themeMode,
     preferredServerId: identical(preferredServerId, _unchanged)
@@ -174,6 +187,7 @@ class AppSettings {
       other.audioCacheMaxBytes == audioCacheMaxBytes &&
       other.artworkCacheMaxBytes == artworkCacheMaxBytes &&
       other.catalogEnabled == catalogEnabled &&
+      other.autoplayRadio == autoplayRadio &&
       other.qbitUrl == qbitUrl &&
       other.volume == volume &&
       other.sidebarPlaylists == sidebarPlaylists;
@@ -187,6 +201,7 @@ class AppSettings {
     audioCacheMaxBytes,
     artworkCacheMaxBytes,
     catalogEnabled,
+    autoplayRadio,
     qbitUrl,
     volume,
     sidebarPlaylists,
@@ -215,6 +230,7 @@ class SettingsStore {
   static const _audioCacheMaxKey = 'settings_audio_cache_max_bytes';
   static const _artworkCacheMaxKey = 'settings_artwork_cache_max_bytes';
   static const _catalogEnabledKey = 'settings_catalog_enabled';
+  static const _autoplayRadioKey = 'settings_autoplay_radio';
   static const _qbitUrlKey = 'settings_qbit_url';
   static const _volumeKey = 'settings_volume';
   static const _sidebarPlaylistsKey = 'settings_sidebar_playlists';
@@ -223,6 +239,8 @@ class SettingsStore {
     catalogEnabled:
         _prefs.getBool(_catalogEnabledKey) ??
         const AppSettings().catalogEnabled,
+    autoplayRadio:
+        _prefs.getBool(_autoplayRadioKey) ?? const AppSettings().autoplayRadio,
     qbitUrl: _prefs.getString(_qbitUrlKey),
     themeMode: _themeMode(),
     preferredServerId: _prefs.getString(_preferredServerKey),
@@ -253,6 +271,7 @@ class SettingsStore {
     await _writeInt(_audioCacheMaxKey, settings.audioCacheMaxBytes);
     await _writeInt(_artworkCacheMaxKey, settings.artworkCacheMaxBytes);
     await _prefs.setBool(_catalogEnabledKey, settings.catalogEnabled);
+    await _prefs.setBool(_autoplayRadioKey, settings.autoplayRadio);
     await _write(_qbitUrlKey, settings.qbitUrl);
     await _prefs.setDouble(_volumeKey, settings.volume);
     await _prefs.setInt(_sidebarPlaylistsKey, settings.sidebarPlaylists);
@@ -338,6 +357,9 @@ class SettingsController extends Notifier<AppSettings> {
   /// together. See [AppSettings.catalogEnabled] for why they share a switch.
   void setCatalogEnabled(bool enabled) =>
       _apply(state.copyWith(catalogEnabled: enabled));
+
+  void setAutoplayRadio(bool enabled) =>
+      _apply(state.copyWith(autoplayRadio: enabled));
 
   /// Sets the qBittorrent address, or clears it with null.
   ///

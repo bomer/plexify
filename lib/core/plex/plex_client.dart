@@ -482,6 +482,48 @@ class PlexClient {
     return _listOf(container, 'Metadata').map(PlexTrack.fromJson).toList();
   }
 
+  /// Tracks that sound like [trackRatingKey], closest first.
+  ///
+  /// This is the sonic model Plex builds during library analysis, and the same
+  /// one behind the Stations hub. It usually returns the seed itself as the
+  /// first result, which the caller is left to keep or drop — starting a radio
+  /// *from a song* wants that song first, and continuing one when the queue
+  /// runs dry does not.
+  ///
+  /// **The seed must be a track, never an album.** Sonic similarity is measured
+  /// per track, and asking about an album is a question with no obvious answer:
+  /// Plex may reply with albums, or with tracks, or honour a `type` we did not
+  /// send. Callers wanting radio from an album pick one of its tracks and ask
+  /// about that, which is a question with exactly one meaning.
+  ///
+  /// **No `type` filter is sent, and the filtering happens here instead.** Plex
+  /// discards query parameters it does not implement rather than rejecting
+  /// them, so a `type` that this endpoint ignores would look identical to one
+  /// it honoured, and a `type` it half-honours has already cost this project
+  /// three bugs. Whatever comes back is filtered on the row's own declared
+  /// type, which cannot be got wrong the same way.
+  ///
+  /// Returns empty rather than throwing when the endpoint is missing or the
+  /// library has never been analysed, because both are ordinary states of a
+  /// server rather than faults: see [SonicRadio] for how that is surfaced.
+  Future<List<PlexTrack>> nearest(
+    String trackRatingKey, {
+    int limit = 50,
+  }) async {
+    try {
+      final container = await _getContainer(
+        '/library/metadata/$trackRatingKey/nearest',
+        query: {'limit': '$limit'},
+      );
+      return [
+        for (final row in _listOf(container, 'Metadata'))
+          if (row['type'] == 'track') PlexTrack.fromJson(row),
+      ];
+    } on PlexClientException {
+      return const [];
+    }
+  }
+
   /// A displayable artwork URL for a `thumb` path.
   ///
   /// Plex's thumb paths aren't directly fetchable — they must go through the

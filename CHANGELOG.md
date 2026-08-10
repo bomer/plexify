@@ -24,6 +24,15 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ## [Unreleased]
 
+### Added
+
+- Radio. A **Radio** button on any album and a **Start radio** action on any track build a
+  queue from Plex's own sonic analysis of the library, which is the same model behind its
+  Stations row.
+- Playback keeps going when a queue ends, continuing with music that sounds like what was
+  playing. The next tracks are queued a few songs before the end, so it joins without a gap.
+  There is a switch under Settings, Playback to turn it off.
+
 ### Changed
 
 - "Jump back in" follows you between devices and survives a reinstall. It reads the server's

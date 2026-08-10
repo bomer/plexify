@@ -65,6 +65,15 @@ class _PlaybackSection extends ConsumerWidget {
     return _Section(
       title: 'Playback',
       children: [
+        SwitchListTile(
+          value: settings.autoplayRadio,
+          onChanged: controller.setAutoplayRadio,
+          title: const Text('Keep playing when the queue ends'),
+          subtitle: const Text(
+            'Continues with music that sounds like what you were listening '
+            'to, chosen by the sonic analysis Plex runs over the library.',
+          ),
+        ),
         _QualityTile(
           label: 'On wifi and ethernet',
           value: settings.qualityUnmetered,

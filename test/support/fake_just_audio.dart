@@ -141,6 +141,17 @@ class FakeAudioPlayer extends AudioPlayerPlatform {
   }
 
   @override
+  Future<ConcatenatingInsertAllResponse> concatenatingInsertAll(
+    ConcatenatingInsertAllRequest request,
+  ) async {
+    final at = request.index.clamp(0, _sources.length);
+    _sources.insertAll(at, [
+      for (final child in request.children) ..._urisOf(child),
+    ]);
+    return ConcatenatingInsertAllResponse();
+  }
+
+  @override
   Future<ConcatenatingRemoveRangeResponse> concatenatingRemoveRange(
     ConcatenatingRemoveRangeRequest request,
   ) async {

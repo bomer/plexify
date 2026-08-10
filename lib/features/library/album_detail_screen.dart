@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/playback_source.dart';
 
 import '../../core/plex/plex_models.dart';
+import '../radio/radio_action.dart';
 import '../../core/providers.dart';
 import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
@@ -306,23 +307,42 @@ class _Header extends ConsumerWidget {
                 ),
 
                 const SizedBox(height: 10),
-                FilledButton.icon(
-                  icon: const Icon(Icons.play_arrow),
-                  label: const Text('Play'),
-                  onPressed: () async {
-                    final items = await ref.read(
-                      tracksProvider(album.ratingKey).future,
-                    );
-                    ref
-                        .read(playbackControllerProvider)
-                        ?.playTracks(
-                          items,
-                          source: PlaybackSource(
-                            PlaybackSourceKind.album,
-                            album.ratingKey,
-                          ),
+                // Wrapped rather than a Row, so the two buttons stack on a
+                // narrow phone instead of squeezing their labels away.
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    FilledButton.icon(
+                      icon: const Icon(Icons.play_arrow),
+                      label: const Text('Play'),
+                      onPressed: () async {
+                        final items = await ref.read(
+                          tracksProvider(album.ratingKey).future,
                         );
-                  },
+                        ref
+                            .read(playbackControllerProvider)
+                            ?.playTracks(
+                              items,
+                              source: PlaybackSource(
+                                PlaybackSourceKind.album,
+                                album.ratingKey,
+                              ),
+                            );
+                      },
+                    ),
+                    OutlinedButton.icon(
+                      icon: const Icon(Icons.radio),
+                      label: const Text('Radio'),
+                      onPressed: () async {
+                        final items = await ref.read(
+                          tracksProvider(album.ratingKey).future,
+                        );
+                        if (!context.mounted) return;
+                        await startRadioFromFirstOf(context, ref, items);
+                      },
+                    ),
+                  ],
                 ),
               ],
             ),

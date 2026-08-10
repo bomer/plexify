@@ -13,6 +13,7 @@ import '../features/library/library_screen.dart';
 import '../features/player/mini_player.dart';
 import '../features/player/now_playing_screen.dart';
 import '../features/player/playback_controller.dart';
+import '../features/radio/autoplay.dart';
 import '../features/player/player_providers.dart';
 import '../features/search/search_screen.dart';
 import '../features/settings/settings_screen.dart';
@@ -207,6 +208,9 @@ class _AppShellState extends ConsumerState<AppShell> {
     // against, so walking out of the house breaks not just the track playing
     // but every one after it.
     ref.watch(playbackRecoveryProvider);
+    // Installs the refill hook on the handler. Without it the queue simply
+    // ends, which is the behaviour the setting turns off.
+    ref.watch(autoplayProvider);
 
     final content = IndexedStack(
       index: destination.index,

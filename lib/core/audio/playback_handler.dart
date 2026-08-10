@@ -59,6 +59,9 @@ class PlexifyAudioHandler extends BaseAudioHandler
       if (index != _currentIndex) {
         _currentIndex = index;
         _streamStartedAt = Duration.zero;
+        // Only on a real advance, so reloading the current track at an offset
+        // cannot ask for a refill it already got.
+        _checkRunningLow(index, items);
       }
       mediaItem.add(items[index]);
     });
@@ -80,11 +83,41 @@ class PlexifyAudioHandler extends BaseAudioHandler
     if (!_states.isClosed) _states.add(state);
   }
 
-  /// Called when the queue runs dry. Phase 6 hooks sonic radio in here to keep
-  /// playback going; until then it simply stops.
+  /// Called when the queue runs dry, after the last track has finished.
+  ///
+  /// Sonic radio does **not** hang off this, and the difference is audible: by
+  /// the time this fires the engine has stopped, so anything appended here
+  /// arrives after a silence and needs an explicit skip to reach. Autoplay uses
+  /// [onQueueRunningLow] instead and refills while there is still music
+  /// playing, which is what makes the join gapless. This remains what it always
+  /// was: the queue ended, and nothing is going to follow it.
   void Function()? _onQueueExhausted;
   set onQueueExhausted(void Function()? callback) =>
       _onQueueExhausted = callback;
+
+  /// Called on advancing into the last few tracks, with room left to refill.
+  ///
+  /// The engine is handed the whole queue up front so it can pre-buffer across
+  /// a track boundary, which is also why a refill has to arrive *before* the
+  /// boundary rather than at it. Fired on a genuine change of track only, so a
+  /// transcode reloaded at an offset cannot ask twice.
+  void Function()? onQueueRunningLow;
+
+  /// How close to the end counts as low.
+  ///
+  /// Three rather than one, because a refill is a network round trip against a
+  /// server that may be a relay away, and the track it has to finish inside
+  /// could be ninety seconds long. Asking three from the end gives it the best
+  /// part of ten minutes.
+  static const _refillWithin = 3;
+
+  void _checkRunningLow(int index, List<MediaItem> items) {
+    if (items.length - index > _refillWithin) return;
+    // Repeat-all never runs dry, so there is nothing to continue into and
+    // appending would quietly extend a queue the user asked to loop.
+    if (_repeat != AudioServiceRepeatMode.none) return;
+    onQueueRunningLow?.call();
+  }
 
   /// Rebuilds a playback URL to begin at [offset], or returns null if the item
   /// cannot be restarted partway in.
@@ -173,6 +206,22 @@ class PlexifyAudioHandler extends BaseAudioHandler
     // arrives as a deliberate upgrade rather than a surprise.
     // ignore: experimental_member_use
     return LockCachingAudioSource(uri, cacheFile: file);
+  }
+
+  /// Adds [items] to the end of the queue, disturbing nothing.
+  ///
+  /// Deliberately touches neither the position nor the playing state: this runs
+  /// while a track is mid-flight and its only visible effect should be that Up
+  /// Next got longer. Appending to an empty queue is refused rather than
+  /// treated as a start, because starting playback is [setQueueAndPlay]'s job
+  /// and a caller reaching for the wrong one would begin playing music nobody
+  /// asked for.
+  Future<void> appendToQueue(List<MediaItem> items) async {
+    if (items.isEmpty || queue.value.isEmpty) return;
+
+    await _player.addAudioSources(items.map(_toAudioSource).toList());
+    queue.add([...queue.value, ...items]);
+    _republish();
   }
 
   /// Swaps the queue for one built against a new connection, carrying on from

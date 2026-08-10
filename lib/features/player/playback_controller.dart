@@ -141,6 +141,40 @@ class PlaybackController {
     }
   }
 
+  /// Adds [tracks] to the end of the queue, built against the connection the
+  /// app is on *now*.
+  ///
+  /// Rebuilt fresh rather than reusing anything, because a station refills an
+  /// hour into a session and the queue it is joining may have been built on a
+  /// different network entirely.
+  ///
+  /// **The cache is not released here, and that is the whole difference from
+  /// [playTracks].** Releasing marks the current queue's files as evictable,
+  /// which is right when that queue is being thrown away and wrong when it is
+  /// still playing out of them.
+  Future<void> appendTracks(
+    List<PlexTrack> tracks, {
+    PlaybackSource? source,
+  }) async {
+    if (tracks.isEmpty) return;
+
+    final connectivity = await _checkConnectivity();
+    _cacheFillAllowed = QualityPolicy.unmetered(connectivity);
+    await _audioCache?.ensureReady();
+
+    final items = <MediaItem>[];
+    for (final track in tracks) {
+      if (!track.isPlayable) continue;
+      final item = _toMediaItem(track, connectivity, source);
+      if (item != null) items.add(item);
+    }
+    if (items.isEmpty) return;
+
+    await _handler.appendToQueue(items);
+    unawaited(save());
+    unawaited(_audioCache?.settle() ?? Future.value());
+  }
+
   /// Runs [work] after whatever queue rebuild is already in flight.
   ///
   /// `setAudioSources` aborts a load that is still running when a second one
