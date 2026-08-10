@@ -1031,16 +1031,19 @@ final hubShelvesProvider = FutureProvider<List<DiscoveryShelf>>((ref) async {
 
   return [
     for (final hub in await client.sectionHubs(section.key))
-      if (!_duplicatesALocalShelf.contains(hub.hubIdentifier))
+      if (!_duplicatesALocalShelf.contains(hub.kind))
         ?DiscoveryShelf.of(hub.title, hub.albums),
   ];
 });
 
 /// Hubs skipped because a local row already answers them, faster.
 ///
-/// Recently added is on screen before the first frame from the cache and is
-/// the same six albums the server would send a moment later. The rest of the
-/// hubs have no local equivalent, which is why they are worth the request.
+/// Recently added is on screen before the first frame from the cache and is the
+/// same six albums the server would send a moment later. The rest of the hubs
+/// have no local equivalent, which is why they are worth the request.
+///
+/// Matched against [PlexHub.kind] and not the raw identifier, which carries the
+/// section id on the end.
 const _duplicatesALocalShelf = {'music.recent.added'};
 
 /// A colour taken from one piece of artwork, for tinting behind it.

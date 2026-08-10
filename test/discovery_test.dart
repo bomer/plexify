@@ -461,6 +461,56 @@ void main() {
       expect(hub.albums, hasLength(1));
     });
 
+    test('the section id is stripped before an identifier is compared', () async {
+      // **The bug this caught, on Home, in front of James.** Plex suffixes
+      // every hub identifier with its section, so `music.recent.added` arrives
+      // as `music.recent.added.3` and the skip list could never fire: Recently
+      // added and Recently Added in Music sat side by side showing the same six
+      // albums. The probe output had said `.3` on every row for a fortnight.
+      final client = clientReturning(
+        jsonEncode({
+          'MediaContainer': {
+            'Hub': [
+              {
+                'hubIdentifier': 'music.recent.added.3',
+                'title': 'Recently Added in Music',
+                'type': 'album',
+                'size': 1,
+                'Metadata': [
+                  {'ratingKey': '1', 'title': 'One', 'parentTitle': 'Someone'},
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      final hub = (await client.sectionHubs('3')).single;
+      expect(hub.hubIdentifier, 'music.recent.added.3');
+      expect(hub.kind, 'music.recent.added');
+    });
+
+    test('an identifier with no section suffix is left alone', () async {
+      // Not every server names them the same way, and stripping something that
+      // is not there would be a second, quieter version of the same bug.
+      final client = clientReturning(
+        jsonEncode({
+          'MediaContainer': {
+            'Hub': [
+              {
+                'hubIdentifier': 'home.music.recent',
+                'title': 'Recently Played',
+                'type': 'album',
+                'size': 0,
+              },
+            ],
+          },
+        }),
+      );
+
+      expect((await client.sectionHubs('3')).single.kind, 'home.music.recent');
+    });
+
     test('a hub with nothing in it is not a row', () async {
       // Real: "Artists on Tour" and "Haven't played in 5 years" both came back
       // empty from James's server. A heading with nothing under it is worse

@@ -210,6 +210,18 @@ class PlexHub {
   /// Plex's own hint at why the hub exists, e.g. `hub.music.recentlyAdded`.
   final String? context;
 
+  /// The identifier with the section id taken off the end.
+  ///
+  /// **Plex suffixes every hub identifier with the section it belongs to**, so
+  /// `music.recent.added` arrives as `music.recent.added.3`. Comparing the raw
+  /// value against a known identifier therefore never matches, which is exactly
+  /// how "Recently added" and "Recently Added in Music" ended up side by side
+  /// on Home: the skip list was right and could not fire.
+  ///
+  /// Anything comparing against a known hub must use this rather than
+  /// [hubIdentifier], which is only worth showing in the probe.
+  String get kind => hubIdentifier.replaceFirst(RegExp(r'\.\d+$'), '');
+
   factory PlexHub.fromJson(Map<String, dynamic> json) {
     final items = json['Metadata'];
     final rows = items is List

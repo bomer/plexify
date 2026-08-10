@@ -26,6 +26,9 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Changed
 
+- Favourites sits above the recommendations on Home, and is ordered newest first within a
+  star rating rather than alphabetically. Most favourites end up at the same four or five
+  stars, so an alphabetical tiebreak showed the same handful of artists for ever.
 - Home's discovery rows come from Plex itself now. Instead of three rows this app worked out
   on its own, it shows whatever the server publishes for the library, under the server's own
   titles: more by an artist, more in a genre, most played in a month, top albums from a
@@ -43,6 +46,8 @@ Two things do not belong here, and leaving them out is what keeps it readable:
   it asked Plex for play history in a way that answers with an empty result rather than an
   error. Plex's own version of the row replaces it, so it works now for a different reason
   than the one that was fixed.
+- "Recently added" no longer appears twice on Home, once from the cache and once from Plex.
+  The row that was meant to suppress the duplicate could never match it.
 - The discovery probe can say *why* play history is empty rather than only that it is. It
   asks the same question five ways, and an empty answer from all of them is a different
   problem from an empty answer from only the one the app uses.

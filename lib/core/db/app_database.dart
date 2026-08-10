@@ -220,10 +220,22 @@ class AppDatabase extends _$AppDatabase {
       ..where(
         (a) => a.userRating.isBiggerOrEqualValue(PlexRating.favouriteThreshold),
       )
+      // **Newest first within a rating, not alphabetical.** Most favourites end
+      // up at the same four or five stars, so an alphabetical tiebreak makes
+      // the row degenerate to whichever artists happen to start with A, for
+      // ever. Sorting the tier by when the album arrived means the shelf moves
+      // as the library does, and something rated last week is visible without
+      // scrolling past two hundred that were not.
       ..orderBy([
         (a) => OrderingTerm.desc(a.userRating),
+        (a) => OrderingTerm(
+          expression: a.addedAt,
+          mode: OrderingMode.desc,
+          nulls: NullsOrder.last,
+        ),
+        // Deterministic where both above tie, so the row does not reshuffle
+        // between rebuilds.
         (a) => OrderingTerm.asc(a.normalisedArtist),
-        (a) => OrderingTerm.asc(a.year),
       ]);
     if (limit != null) query.limit(limit);
     return query.watch();

@@ -56,6 +56,16 @@ class HomeScreen extends ConsumerWidget {
                     title: 'Recently added',
                     items: _albums(recentlyAdded),
                   ),
+                  // Above the server's rows, because these are records already
+                  // chosen rather than suggested, and a shelf of them is worth
+                  // more than any recommendation underneath it.
+                  _Shelf(
+                    title: 'Favourites',
+                    items: _albums(ref.watch(favouriteAlbumsProvider)),
+                    // Nothing rated yet is the normal state on day one, and an
+                    // empty row would read as broken rather than unused.
+                    hideWhenEmpty: true,
+                  ),
                   // Whatever the server publishes for this library, in its
                   // order and under its own titles. More by an artist, more in
                   // a genre, most played in a month, top albums from a decade,
@@ -70,13 +80,6 @@ class HomeScreen extends ConsumerWidget {
                       items: _albums(AsyncValue.data(shelf.albums)),
                       hideWhenEmpty: true,
                     ),
-                  _Shelf(
-                    title: 'Favourites',
-                    items: _albums(ref.watch(favouriteAlbumsProvider)),
-                    // Nothing rated yet is the normal state on day one, and an
-                    // empty row would read as broken rather than unused.
-                    hideWhenEmpty: true,
-                  ),
                   _DiscoveryShelf(
                     shelf: ref.watch(buriedTreasureShelfProvider),
                   ),
