@@ -39,13 +39,13 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Fixed
 
-- "Most played in {month}" now appears on Home. It never has, for two reasons in a row: the
-  request for play history carried a filter the endpoint answers with an empty result rather
-  than an error, and the rows it then returns name the track rather than the album, so
-  counting them by album found nothing to count.
-- The discovery probe can now say *why* play history is empty, rather than only that it is.
-  It asks the same question five ways, and an empty answer from every one of them is a
-  different problem from an empty answer from just the one the app uses.
+- A "most played this month" row appears on Home. The one in 0.9.0 never did, on any server:
+  it asked Plex for play history in a way that answers with an empty result rather than an
+  error. Plex's own version of the row replaces it, so it works now for a different reason
+  than the one that was fixed.
+- The discovery probe can say *why* play history is empty rather than only that it is. It
+  asks the same question five ways, and an empty answer from all of them is a different
+  problem from an empty answer from only the one the app uses.
 
 ## [0.9.0] - 2026-08-10
 
