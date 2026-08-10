@@ -2,8 +2,11 @@
 
 A fast, clean and simple music client for a Plex library. Windows desktop and Android, one codebase.
 
-The full build plan (decisions, phases, API details and known risks) is in
-[docs/PLAN.md](docs/PLAN.md). This README covers architecture and how to run things.
+The full build plan (decisions, phases and known risks) is in [docs/PLAN.md](docs/PLAN.md),
+and [docs/PLEX-API.md](docs/PLEX-API.md) documents the Plex API as this app actually uses it:
+every endpoint, what is sent, and what will mislead you. Plex has no public documentation, so
+several things in there were found by building an instrument after guessing gave a wrong
+answer. This README covers architecture and how to run things.
 
 Built because Plexamp's UI basically just a mobile wrapped experience. I wanted something more
 akin to Spotify with playlist on the left and easily jumping between playlists, searching, and

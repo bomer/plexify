@@ -7,6 +7,11 @@ already paid for.
 What is left to do lives in [TASKS.md](TASKS.md); what is already done, and why it was done
 that way, lives in [CompletedTasks.md](CompletedTasks.md).
 
+**Before changing anything under `lib/core/plex/`, read
+[docs/PLEX-API.md](../docs/PLEX-API.md).** It documents every endpoint this app calls, what is
+sent, and what will mislead you, with the date and machine attached to anything that came from
+a measurement. The traps below overlap it deliberately; that file is the one to keep current.
+
 ---
 
 ## What this is
