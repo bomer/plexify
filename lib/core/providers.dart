@@ -933,14 +933,18 @@ final recentlyPlayedPlaylistsProvider = StreamProvider<List<ShelfItem>>((
   }
 });
 
-/// What was listened to, of either kind, newest first — Home's "Jump back in".
+/// Home's "Jump back in", from this device and from every other one.
 ///
-/// Merged here rather than in SQL because the two live in different tables
-/// with no sensible join, and the lists are twenty rows each: sorting them in
-/// Dart costs nothing and keeps both queries simple and separately testable.
+/// The local half is merged in Dart rather than in SQL because albums and
+/// playlists live in different tables with no sensible join, and the lists are
+/// twenty rows each: sorting them here costs nothing and keeps both queries
+/// simple and separately testable.
 ///
-/// Loading only while *both* are, so the shelf does not flash a half-list on
-/// the way in.
+/// **The server half is what makes this survive a new phone.** See
+/// [jumpBackIn] for why it is a union of the two rather than a choice between
+/// them. It resolves asynchronously and the row is populated from the local
+/// table in the meantime, so a cold start is never waiting on the network for
+/// a shelf it could already draw.
 final recentlyPlayedProvider = Provider<AsyncValue<List<ShelfItem>>>((ref) {
   final albums = ref.watch(recentlyPlayedAlbumsProvider);
   final playlists = ref.watch(recentlyPlayedPlaylistsProvider);
@@ -949,13 +953,67 @@ final recentlyPlayedProvider = Provider<AsyncValue<List<ShelfItem>>>((ref) {
     return const AsyncValue<List<ShelfItem>>.loading();
   }
 
-  final merged = <ShelfItem>[
+  final local = <ShelfItem>[
     ...albums.valueOrNull ?? const <ShelfItem>[],
     ...playlists.valueOrNull ?? const <ShelfItem>[],
   ]..sort((a, b) => b.startedAt.compareTo(a.startedAt));
 
-  return AsyncValue.data(merged.take(20).toList());
+  final merged = ref.watch(_serverPlaysProvider).valueOrNull;
+  if (merged == null) return AsyncValue.data(local.take(20).toList());
+
+  return AsyncValue.data(
+    jumpBackIn(
+      local: local,
+      serverPlays: merged.plays,
+      albumOfTrack: merged.albumOfTrack,
+      owned: merged.owned,
+    ),
+  );
 });
+
+/// The server's play history, with everything needed to turn it into tiles.
+///
+/// Fetched once per session rather than watched. It is one request against an
+/// endpoint that answers with a thousand rows, and the local half of the shelf
+/// already updates live, so re-asking on every rebuild would buy nothing.
+final _serverPlaysProvider = FutureProvider<_ServerPlays?>((ref) async {
+  final client = ref.watch(plexClientProvider);
+  final section = await ref.watch(musicSectionProvider.future);
+  if (client == null || section == null) return null;
+
+  final plays = await client.playHistory(section.key);
+  if (plays.isEmpty) return null;
+
+  // Plex's history rows name the track and not the album, so the link comes
+  // from the synced tracks table. Artwork and titles come from the cache too,
+  // which is why this costs one request however many albums come back.
+  final db = ref.watch(databaseProvider);
+  final albumOfTrack = await db.albumKeysForTracks(
+    plays.map((play) => play.trackRatingKey),
+  );
+  final rows = await db.albumsByKeys({
+    for (final play in plays)
+      ?(play.albumRatingKey ?? albumOfTrack[play.trackRatingKey]),
+  });
+
+  return _ServerPlays(
+    plays: plays,
+    albumOfTrack: albumOfTrack,
+    owned: {for (final row in rows) row.ratingKey: row.toDomain()},
+  );
+});
+
+class _ServerPlays {
+  const _ServerPlays({
+    required this.plays,
+    required this.albumOfTrack,
+    required this.owned,
+  });
+
+  final List<PlexPlay> plays;
+  final Map<String, String> albumOfTrack;
+  final Map<String, PlexAlbum> owned;
+}
 
 /// Albums added most recently, for Home.
 final recentlyAddedProvider = StreamProvider<List<PlexAlbum>>((ref) async* {

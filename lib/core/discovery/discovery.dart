@@ -48,6 +48,67 @@ int daySeed(DateTime now) => now.toUtc().difference(_epoch).inDays;
 
 final DateTime _epoch = DateTime.utc(1970);
 
+/// What was listened to, from this device and from every other one.
+///
+/// **A union rather than a choice, and each side covers the other's gap.**
+///
+/// The local table is stamped the moment playback *starts*, so putting an album
+/// on and wandering off after two minutes still counts. It is also the only
+/// record of playlists, which the server never learns about. But it is
+/// client-owned and unsynced, so it is empty on a new phone and was wiped
+/// entirely by a keystore change that forced a reinstall.
+///
+/// The server's history covers every client going back years and survives any
+/// reinstall. But it is stamped at the 90% scrobble mark, so it misses exactly
+/// the case the local table was built for, and its rows name tracks with no
+/// album on them and no playlist at all.
+///
+/// Taking either alone reintroduces a bug that has already been fixed once, so
+/// this takes the later timestamp of the two per album, and keeps every local
+/// playlist.
+///
+/// [serverPlays] is newest-first, as the history endpoint returns it, and maps
+/// through [albumOfTrack] because Plex's rows carry no `parentRatingKey`.
+List<ShelfItem> jumpBackIn({
+  required List<ShelfItem> local,
+  required List<PlexPlay> serverPlays,
+  required Map<String, String> albumOfTrack,
+  required Map<String, PlexAlbum> owned,
+  int limit = 20,
+}) {
+  final startedAt = <String, int>{};
+  final byKey = <String, ShelfItem>{};
+
+  for (final item in local) {
+    // Playlists are keyed apart from albums: the two share a ratingKey space
+    // only by accident, and an album lending its timestamp to a playlist that
+    // happens to carry the same number is a bug nobody would look for.
+    final key = '${item.isPlaylist ? 'playlist' : 'album'}:${item.ratingKey}';
+    startedAt[key] = item.startedAt;
+    byKey[key] = item;
+  }
+
+  for (final play in serverPlays) {
+    final album = play.albumRatingKey ?? albumOfTrack[play.trackRatingKey];
+    if (album == null) continue;
+
+    // Anything the cache does not hold has no title and no artwork, so it
+    // cannot be a tile whatever the server remembers about it.
+    final match = owned[album];
+    if (match == null) continue;
+
+    final key = 'album:$album';
+    if (play.viewedAt <= (startedAt[key] ?? 0)) continue;
+    startedAt[key] = play.viewedAt;
+    byKey[key] = ShelfItem.album(match, play.viewedAt);
+  }
+
+  final ordered = byKey.keys.toList()
+    ..sort((a, b) => startedAt[b]!.compareTo(startedAt[a]!));
+
+  return [for (final key in ordered.take(limit)) byKey[key]!];
+}
+
 /// Albums that have never been played, in a different order each day.
 ///
 /// The point of the row is a library big enough that most of it is invisible:

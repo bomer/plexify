@@ -26,6 +26,12 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Changed
 
+- "Jump back in" follows you between devices and survives a reinstall. It reads the server's
+  own play history as well as this device's, so a new phone has a useful shelf on first login
+  rather than an empty one. Playlists are still local only: Plex is never told which playlist
+  a track came from.
+- Home shows the artist rows Plex publishes as well as the album ones, including its own
+  "Recently Played Music", which is correct across devices from the moment you sign in.
 - Favourites sits above the recommendations on Home, and is ordered newest first within a
   star rating rather than alphabetically. Most favourites end up at the same four or five
   stars, so an alphabetical tiebreak showed the same handful of artists for ever.
