@@ -187,14 +187,25 @@ class PlexHub {
     required this.size,
     this.context,
     this.albums = const [],
+    this.artists = const [],
   });
 
   /// The hub's items, when they are albums.
-  ///
-  /// Empty for every other type. A hub of artists, stations or music videos is
-  /// a row this app has nowhere to put yet, and an empty list is what stops it
-  /// being rendered as a heading with nothing under it.
   final List<PlexAlbum> albums;
+
+  /// The hub's items, when they are artists.
+  ///
+  /// `music.recent.played` is the server's own recently-played row and it is
+  /// artists rather than albums, which is the entire reason this exists: it is
+  /// a cross-device "jump back in" that Plex has already computed, and it was
+  /// being dropped on the floor for want of a tile.
+  final List<PlexArtist> artists;
+
+  /// Whether there is anything here this app knows how to draw.
+  ///
+  /// Stations and music videos parse to nothing. A heading with nothing under
+  /// it is worse than an absent row.
+  bool get hasItems => albums.isNotEmpty || artists.isNotEmpty;
 
   /// e.g. `home.music.recent`. Stable enough to key on, if it is there at all.
   final String hubIdentifier;
@@ -241,6 +252,9 @@ class PlexHub {
       context: _str(json['context']),
       albums: type == 'album'
           ? rows.map(PlexAlbum.fromJson).toList()
+          : const [],
+      artists: type == 'artist'
+          ? rows.map(PlexArtist.fromJson).toList()
           : const [],
     );
   }

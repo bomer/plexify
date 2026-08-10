@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:plexify/core/audio/playback_source.dart';
 import 'package:plexify/core/db/app_database.dart';
-import 'package:plexify/core/db/recently_played.dart';
+import 'package:plexify/core/db/shelf_item.dart';
 import 'package:plexify/core/plex/plex_models.dart';
 import 'package:plexify/core/providers.dart';
 import 'package:plexify/core/sync/library_writer.dart';
@@ -63,7 +63,7 @@ void main() {
     }
   }
 
-  Future<List<RecentlyPlayed>> recent() async {
+  Future<List<ShelfItem>> recent() async {
     // Both underlying streams must deliver before the merge is meaningful.
     await container.read(recentlyPlayedAlbumsProvider.future);
     await container.read(recentlyPlayedPlaylistsProvider.future);

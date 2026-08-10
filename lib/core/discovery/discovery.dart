@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 
+import '../db/shelf_item.dart';
 import '../plex/plex_models.dart';
 
 /// A Home row whose title is worked out at runtime rather than written down.
@@ -12,15 +13,28 @@ import '../plex/plex_models.dart';
 /// rather than that it should render blank.
 @immutable
 class DiscoveryShelf {
-  const DiscoveryShelf({required this.title, required this.albums});
+  const DiscoveryShelf({required this.title, required this.items});
 
   final String title;
-  final List<PlexAlbum> albums;
+
+  /// Already in tile form, because a shelf may hold albums or artists and the
+  /// row does not care which.
+  final List<ShelfItem> items;
 
   /// Built only when there is something to show, so `null` and "an empty shelf"
   /// are the same thing everywhere and the Home screen never has to test both.
-  static DiscoveryShelf? of(String title, List<PlexAlbum> albums) =>
-      albums.isEmpty ? null : DiscoveryShelf(title: title, albums: albums);
+  static DiscoveryShelf? of(String title, List<ShelfItem> items) =>
+      items.isEmpty ? null : DiscoveryShelf(title: title, items: items);
+
+  /// The albums of a hub, as tiles. Zero for the timestamp: these rows have
+  /// their own order and never sort on it.
+  static List<ShelfItem> albums(List<PlexAlbum> albums) => [
+    for (final album in albums) ShelfItem.album(album, 0),
+  ];
+
+  static List<ShelfItem> artists(List<PlexArtist> artists) => [
+    for (final artist in artists) ShelfItem.artist(artist, 0),
+  ];
 }
 
 /// The seed that makes a rotating shelf rotate once a day.
@@ -47,5 +61,8 @@ DiscoveryShelf? buriedTreasureShelf(
   int limit = 20,
 }) {
   final pool = [...neverPlayed]..shuffle(Random(seed));
-  return DiscoveryShelf.of('Buried treasure', pool.take(limit).toList());
+  return DiscoveryShelf.of(
+    'Buried treasure',
+    DiscoveryShelf.albums(pool.take(limit).toList()),
+  );
 }

@@ -31,9 +31,9 @@ void main() {
     List<PlexAlbum> pool() => [for (var i = 0; i < 60; i++) album('$i')];
 
     test('holds still all day and moves tomorrow', () {
-      final today = buriedTreasureShelf(pool(), seed: 20310)!.albums;
-      final again = buriedTreasureShelf(pool(), seed: 20310)!.albums;
-      final tomorrow = buriedTreasureShelf(pool(), seed: 20311)!.albums;
+      final today = buriedTreasureShelf(pool(), seed: 20310)!.items;
+      final again = buriedTreasureShelf(pool(), seed: 20310)!.items;
+      final tomorrow = buriedTreasureShelf(pool(), seed: 20311)!.items;
 
       // Twice in one day must match exactly. Home rebuilds several times a
       // second on a screen backed by live database streams, and a fresh
@@ -511,6 +511,35 @@ void main() {
       expect((await client.sectionHubs('3')).single.kind, 'home.music.recent');
     });
 
+    test('an artist hub arrives with its artists', () async {
+      // `music.recent.played` is the server's own recently-played row and it is
+      // artists rather than albums. It is a cross-device jump-back-in Plex has
+      // already computed, and it was being dropped for want of a tile.
+      final client = clientReturning(
+        jsonEncode({
+          'MediaContainer': {
+            'Hub': [
+              {
+                'hubIdentifier': 'music.recent.played.3',
+                'title': 'Recently Played Music',
+                'type': 'artist',
+                'size': 2,
+                'Metadata': [
+                  {'ratingKey': '10', 'title': 'Nick Drake'},
+                  {'ratingKey': '11', 'title': 'Radiohead'},
+                ],
+              },
+            ],
+          },
+        }),
+      );
+
+      final hub = (await client.sectionHubs('3')).single;
+      expect(hub.albums, isEmpty);
+      expect(hub.artists.map((a) => a.title), ['Nick Drake', 'Radiohead']);
+      expect(hub.hasItems, isTrue);
+    });
+
     test('a hub with nothing in it is not a row', () async {
       // Real: "Artists on Tour" and "Haven't played in 5 years" both came back
       // empty from James's server. A heading with nothing under it is worse
@@ -531,7 +560,7 @@ void main() {
       );
 
       final hub = (await client.sectionHubs('3')).single;
-      expect(DiscoveryShelf.of(hub.title, hub.albums), isNull);
+      expect(hub.hasItems, isFalse);
     });
   });
 }

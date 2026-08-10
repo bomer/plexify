@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../core/db/recently_played.dart';
+import '../../core/db/shelf_item.dart';
 import '../../core/discovery/discovery.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
@@ -10,6 +10,7 @@ import '../../shell/layout.dart';
 import '../settings/sync_actions.dart';
 import '../library/album_detail_screen.dart';
 import '../library/album_cover.dart';
+import '../library/artist_detail_screen.dart';
 import '../library/artwork.dart';
 import '../library/cover_frame.dart';
 import '../library/playlist_detail_screen.dart';
@@ -77,7 +78,7 @@ class HomeScreen extends ConsumerWidget {
                           const <DiscoveryShelf>[])
                     _Shelf(
                       title: shelf.title,
-                      items: _albums(AsyncValue.data(shelf.albums)),
+                      items: AsyncValue.data(shelf.items),
                       hideWhenEmpty: true,
                     ),
                   _DiscoveryShelf(
@@ -106,11 +107,11 @@ double _shelfChrome(bool compact) => compact ? 58 : 70;
 /// Only "Jump back in" holds two kinds of thing; the rest are albums by
 /// definition, and giving them their own widget would mean two copies of the
 /// tile to keep in step.
-AsyncValue<List<RecentlyPlayed>> _albums(AsyncValue<List<PlexAlbum>> albums) =>
+AsyncValue<List<ShelfItem>> _albums(AsyncValue<List<PlexAlbum>> albums) =>
     albums.whenData(
       // Zero for the timestamp: these shelves have their own order — added
       // date, rating — and never sort on it.
-      (list) => [for (final a in list) RecentlyPlayed.album(a, 0)],
+      (list) => [for (final a in list) ShelfItem.album(a, 0)],
     );
 
 /// A row whose title the provider worked out, and which is not there at all
@@ -132,9 +133,7 @@ class _DiscoveryShelf extends StatelessWidget {
     if (value == null) return const SizedBox.shrink();
     return _Shelf(
       title: value.title,
-      items: AsyncValue.data([
-        for (final album in value.albums) RecentlyPlayed.album(album, 0),
-      ]),
+      items: AsyncValue.data(value.items),
       hideWhenEmpty: true,
     );
   }
@@ -150,14 +149,14 @@ class _Shelf extends ConsumerWidget {
   });
 
   final String title;
-  final AsyncValue<List<RecentlyPlayed>> items;
+  final AsyncValue<List<ShelfItem>> items;
   final bool hideWhenEmpty;
   final double tileSize;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final entries = items.valueOrNull ?? const <RecentlyPlayed>[];
+    final entries = items.valueOrNull ?? const <ShelfItem>[];
 
     if (entries.isEmpty) {
       if (hideWhenEmpty || items.isLoading) return const SizedBox.shrink();
@@ -203,16 +202,21 @@ class _Shelf extends ConsumerWidget {
 class _ShelfTile extends StatelessWidget {
   const _ShelfTile({required this.entry, required this.size});
 
-  final RecentlyPlayed entry;
+  final ShelfItem entry;
   final double size;
 
   void _open(BuildContext context) {
-    final playlist = entry.playlist;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => playlist != null
-            ? PlaylistDetailScreen(playlist: playlist)
-            : AlbumDetailScreen(album: entry.album!),
+        builder: (_) => switch (entry) {
+          ShelfItem(playlist: final playlist?) => PlaylistDetailScreen(
+            playlist: playlist,
+          ),
+          ShelfItem(artist: final artist?) => ArtistDetailScreen(
+            artist: artist,
+          ),
+          _ => AlbumDetailScreen(album: entry.album!),
+        },
       ),
     );
   }
@@ -244,7 +248,7 @@ class _ShelfTile extends StatelessWidget {
                       child: Artwork(
                         thumb: entry.thumb,
                         size: 600,
-                        icon: Icons.queue_music,
+                        icon: entry.isArtist ? Icons.person : Icons.queue_music,
                       ),
                     ),
             ),

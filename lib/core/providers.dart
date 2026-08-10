@@ -20,7 +20,7 @@ import 'catalog/catalog_store.dart';
 import 'catalog/musicbrainz_client.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
-import 'db/recently_played.dart';
+import 'db/shelf_item.dart';
 import 'discovery/discovery.dart';
 import 'qbit/download_monitor.dart';
 import 'qbit/qbit_client.dart';
@@ -908,27 +908,27 @@ final recentPlaylistsProvider = StreamProvider<List<PlexPlaylist>>((
 });
 
 /// Albums this device started playing, newest first.
-final recentlyPlayedAlbumsProvider = StreamProvider<List<RecentlyPlayed>>((
+final recentlyPlayedAlbumsProvider = StreamProvider<List<ShelfItem>>((
   ref,
 ) async* {
   final db = ref.watch(databaseProvider);
   await for (final rows in db.watchRecentlyPlayedAlbums()) {
     yield [
       for (final (row, startedAt) in rows)
-        RecentlyPlayed.album(row.toDomain(), startedAt),
+        ShelfItem.album(row.toDomain(), startedAt),
     ];
   }
 });
 
 /// Playlists this device started playing, newest first.
-final recentlyPlayedPlaylistsProvider = StreamProvider<List<RecentlyPlayed>>((
+final recentlyPlayedPlaylistsProvider = StreamProvider<List<ShelfItem>>((
   ref,
 ) async* {
   final db = ref.watch(databaseProvider);
   await for (final rows in db.watchRecentlyPlayedPlaylists()) {
     yield [
       for (final (row, startedAt) in rows)
-        RecentlyPlayed.playlist(row.toDomain(), startedAt),
+        ShelfItem.playlist(row.toDomain(), startedAt),
     ];
   }
 });
@@ -941,19 +941,17 @@ final recentlyPlayedPlaylistsProvider = StreamProvider<List<RecentlyPlayed>>((
 ///
 /// Loading only while *both* are, so the shelf does not flash a half-list on
 /// the way in.
-final recentlyPlayedProvider = Provider<AsyncValue<List<RecentlyPlayed>>>((
-  ref,
-) {
+final recentlyPlayedProvider = Provider<AsyncValue<List<ShelfItem>>>((ref) {
   final albums = ref.watch(recentlyPlayedAlbumsProvider);
   final playlists = ref.watch(recentlyPlayedPlaylistsProvider);
 
   if (albums.isLoading && playlists.isLoading) {
-    return const AsyncValue<List<RecentlyPlayed>>.loading();
+    return const AsyncValue<List<ShelfItem>>.loading();
   }
 
-  final merged = <RecentlyPlayed>[
-    ...albums.valueOrNull ?? const <RecentlyPlayed>[],
-    ...playlists.valueOrNull ?? const <RecentlyPlayed>[],
+  final merged = <ShelfItem>[
+    ...albums.valueOrNull ?? const <ShelfItem>[],
+    ...playlists.valueOrNull ?? const <ShelfItem>[],
   ]..sort((a, b) => b.startedAt.compareTo(a.startedAt));
 
   return AsyncValue.data(merged.take(20).toList());
@@ -1032,7 +1030,12 @@ final hubShelvesProvider = FutureProvider<List<DiscoveryShelf>>((ref) async {
   return [
     for (final hub in await client.sectionHubs(section.key))
       if (!_duplicatesALocalShelf.contains(hub.kind))
-        ?DiscoveryShelf.of(hub.title, hub.albums),
+        ?DiscoveryShelf.of(
+          hub.title,
+          hub.albums.isNotEmpty
+              ? DiscoveryShelf.albums(hub.albums)
+              : DiscoveryShelf.artists(hub.artists),
+        ),
   ];
 });
 
