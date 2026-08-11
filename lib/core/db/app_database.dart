@@ -624,6 +624,26 @@ class AppDatabase extends _$AppDatabase {
     return (select(albums)..where((a) => a.ratingKey.isIn(keys))).get();
   }
 
+  /// One real track to ask the server about, for [DiscoveryProbe].
+  ///
+  /// **A played track for preference**, falling back to any track at all.
+  /// Sonic analysis covers the whole library so any seed would exercise the
+  /// endpoint, but a song the user knows makes the answer checkable by ear —
+  /// "these are nothing like it" is a finding no count can show. Null means the
+  /// cache is empty, which is a different result from the server having nothing
+  /// to say and must not be reported as one.
+  Future<Track?> aTrackWorthProbing() async {
+    final played =
+        await (select(tracks)
+              ..where((t) => t.lastViewedAt.isNotNull())
+              ..orderBy([(t) => OrderingTerm.desc(t.lastViewedAt)])
+              ..limit(1))
+            .getSingleOrNull();
+    if (played != null) return played;
+
+    return (select(tracks)..limit(1)).getSingleOrNull();
+  }
+
   /// Tracks in a playlist, in stored playlist order.
   Stream<List<Track>> watchPlaylistTracks(String playlistRatingKey) {
     final query =

@@ -9,13 +9,14 @@ import '../../core/providers.dart';
 import '../../core/radio/sonic_radio.dart';
 import '../../core/settings/app_settings.dart';
 import '../player/playback_controller.dart';
+import 'radio_action.dart';
 
 /// Starts a station from one track, replacing whatever was playing.
 ///
-/// Null until there is a server to ask. Returns false when the library has
-/// nothing that sounds like the seed, which on an unanalysed library is *every*
-/// seed — see [radioUnavailableMessage].
-typedef StartRadio = Future<bool> Function(PlexTrack seed);
+/// Null until there is a server to ask. Returns null on success and a
+/// [RadioFailure] otherwise, so the caller can say which of the several
+/// indistinguishable reasons applied.
+typedef StartRadio = Future<RadioFailure?> Function(PlexTrack seed);
 
 final startRadioProvider = Provider<StartRadio?>((ref) {
   final client = ref.watch(plexClientProvider);
@@ -27,22 +28,12 @@ final startRadioProvider = Provider<StartRadio?>((ref) {
     // One track back means the seed and nothing else, which is not a station.
     // Playing it anyway would look like the button played a single song, which
     // is a different feature the user did not press.
-    if (tracks.length < 2) return false;
+    if (tracks.length < 2) return RadioFailure.noNeighbours;
 
     await controller.playTracks(tracks);
-    return true;
+    return null;
   };
 });
-
-/// What to say when a station cannot be built.
-///
-/// Names the likely cause rather than the symptom. An unanalysed library is by
-/// far the most common one and is nobody's fault: sonic analysis is a server
-/// setting that is off by default and takes days to run on a large library, so
-/// "nothing sounds like this" without that context reads as a broken button.
-const radioUnavailableMessage =
-    'No similar tracks. Plex builds these during library analysis '
-    '(Settings, Library, Analyze) — it may not have run yet.';
 
 /// Keeps a queue that is about to end running, when the setting allows it.
 ///

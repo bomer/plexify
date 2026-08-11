@@ -172,6 +172,37 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               ),
 
             const SizedBox(height: 24),
+            Text('Sonic neighbours', style: theme.textTheme.titleSmall),
+            Text(
+              'What radio is built from. Empty here and empty everywhere: an '
+              'unanalysed library answers exactly like a track with nothing '
+              'near it, so the seed is named to make the answer checkable.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            if (report.nearest case final sample?) ...[
+              _Row(label: 'Seed', value: sample.seedTitle),
+              _Row(
+                label: '/nearest',
+                value: sample.verdict,
+                emphasis: sample.isEmpty || sample.error != null,
+              ),
+              if (sample.isEmpty)
+                const _Row(
+                  label: '',
+                  value:
+                      'Radio cannot work until Plex has analysed the library: '
+                      'Settings, Manage, Libraries, then Analyze. It takes '
+                      'hours to days and only has to run once.',
+                  emphasis: true,
+                ),
+            ] else
+              const _Row(
+                label: '/nearest',
+                value: 'no track in the cache to ask about',
+              ),
+
+            const SizedBox(height: 24),
             OutlinedButton.icon(
               icon: const Icon(Icons.copy_all),
               label: const Text('Copy report'),
@@ -210,6 +241,12 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       for (final month in report.months)
         '  ${month.label}: ${month.plays} plays, ${month.albums} albums, '
             '${month.inLibrary} in library',
+      '',
+      if (report.nearest case final sample?) ...[
+        'Nearest, seeded from ${sample.seedTitle} (${sample.seedRatingKey}):',
+        '  ${sample.verdict}',
+      ] else
+        'Nearest: no track in the cache to ask about',
     ];
     return lines.join('\n');
   }

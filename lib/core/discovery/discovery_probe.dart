@@ -53,6 +53,48 @@ class HistoryAttempt {
   }
 }
 
+/// Whether this server can build a sonic station, and from what.
+///
+/// **The one thing that cannot be inferred from anywhere else.** `/nearest` is
+/// undocumented, and a server that has never run library analysis answers it
+/// exactly the same way as one that has no music near the seed: politely, with
+/// nothing in it. Naming the seed and counting what came back is the only way
+/// to tell those apart, and to tell both apart from the endpoint not existing.
+class NearestSample {
+  const NearestSample({
+    required this.seedTitle,
+    required this.seedRatingKey,
+    required this.rows,
+    required this.tracks,
+    required this.playable,
+    this.error,
+  });
+
+  /// What was asked about, so a surprising answer can be checked by ear.
+  final String seedTitle;
+  final String seedRatingKey;
+
+  /// Rows in the container, whatever their type.
+  final int rows;
+
+  /// Of those, rows declaring `type=track` — what the client keeps.
+  final int tracks;
+
+  /// Of those, ones with a playable part. A station is built from these.
+  final int playable;
+
+  final String? error;
+
+  /// Nothing to seed a station with, which is the state being diagnosed.
+  bool get isEmpty => error == null && playable == 0;
+
+  String get verdict {
+    if (error != null) return 'failed: $error';
+    if (rows == 0) return 'nothing came back';
+    return '$rows rows  ·  $tracks tracks  ·  $playable playable';
+  }
+}
+
 /// What this server actually offers for a fuller Home screen.
 class DiscoveryReport {
   const DiscoveryReport({
@@ -62,7 +104,13 @@ class DiscoveryReport {
     required this.oldestPlay,
     required this.newestPlay,
     required this.months,
+    required this.nearest,
   });
+
+  /// Sonic neighbours for one real track from the library. Null when the cache
+  /// held no track to ask about, which is a different finding from an empty
+  /// answer.
+  final NearestSample? nearest;
 
   /// The hubs `/hubs/sections/{id}` published. Empty means the endpoint
   /// answered with nothing, or refused, which the client does not distinguish
@@ -143,6 +191,7 @@ class DiscoveryProbe {
       historyAttempts: attempts,
       oldestPlay: _at(plays.isEmpty ? null : plays.last.viewedAt),
       newestPlay: _at(plays.isEmpty ? null : plays.first.viewedAt),
+      nearest: await _nearest(),
       months: [
         await _month(
           plays,
@@ -197,6 +246,47 @@ class DiscoveryProbe {
       await attempt('Neither narrowing', tracksOnly: false),
       await attempt('Account 1 only', tracksOnly: false, accountId: '1'),
     ];
+  }
+
+  /// Asks `/nearest` about a track this library actually holds.
+  ///
+  /// Seeded from a *played* track where possible. Sonic analysis runs over the
+  /// whole library, so any track should do, but one that has been played is one
+  /// the user can recognise in the answer, and "these are nothing like it" is
+  /// itself a finding the counts cannot show.
+  Future<NearestSample?> _nearest() async {
+    final seed = await _db.aTrackWorthProbing();
+    if (seed == null) return null;
+
+    try {
+      // Deliberately the raw container rather than PlexClient.nearest, which
+      // filters to tracks and swallows the failure. Both of those are the right
+      // call in the app and would destroy the evidence here: a response that is
+      // all albums and a response that is empty must not arrive looking the
+      // same.
+      final rows = await _client.nearestRaw(seed.ratingKey);
+      final tracks = [
+        for (final row in rows)
+          if (row['type'] == 'track') PlexTrack.fromJson(row),
+      ];
+
+      return NearestSample(
+        seedTitle: '${seed.artistTitle} — ${seed.title}',
+        seedRatingKey: seed.ratingKey,
+        rows: rows.length,
+        tracks: tracks.length,
+        playable: tracks.where((t) => t.isPlayable).length,
+      );
+    } on Object catch (e) {
+      return NearestSample(
+        seedTitle: '${seed.artistTitle} — ${seed.title}',
+        seedRatingKey: seed.ratingKey,
+        rows: 0,
+        tracks: 0,
+        playable: 0,
+        error: '$e',
+      );
+    }
   }
 
   Future<MonthSample> _month(

@@ -27,52 +27,60 @@ class NowPlayingScreen extends ConsumerWidget {
     final handler = ref.watch(audioHandlerProvider);
     final theme = Theme.of(context);
 
-    return Material(
-      color: theme.colorScheme.surface,
-      child: StreamBuilder<MediaItem?>(
-        stream: handler.mediaItem,
-        builder: (context, snapshot) {
-          final item = snapshot.data;
-          if (item == null) return const SizedBox.shrink();
+    // **Its own messenger, because this screen is drawn over the shell's
+    // Scaffold rather than inside it.** Now Playing is a sibling layer in the
+    // shell's Stack and sits above it, so a snackbar from the app-level
+    // messenger renders underneath this and is never seen. That made every way
+    // radio could fail look identical to a button that did nothing, which is
+    // exactly what it was reported as.
+    return ScaffoldMessenger(
+      child: Scaffold(
+        backgroundColor: theme.colorScheme.surface,
+        body: StreamBuilder<MediaItem?>(
+          stream: handler.mediaItem,
+          builder: (context, snapshot) {
+            final item = snapshot.data;
+            if (item == null) return const SizedBox.shrink();
 
-          return ArtworkBackdrop(
-            thumb: item.extras?['thumb'] as String?,
-            child: SafeArea(
-              child: Column(
-                children: [
-                  _DragHandle(
-                    item: item,
-                    onCollapse: () =>
-                        ref.read(nowPlayingExpandedProvider.notifier).state =
-                            false,
-                  ),
-                  Expanded(
-                    child: SingleChildScrollView(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: Column(
-                        children: [
-                          _Artwork(item: item),
-                          const SizedBox(height: 32),
-                          _TrackInfo(item: item),
-                          const SizedBox(height: 24),
-                          SeekControl(
-                            handler: handler,
-                            duration: item.duration,
-                          ),
-                          const SizedBox(height: 8),
-                          _TransportControls(handler: handler),
-                          const SizedBox(height: 24),
-                          _UpNext(handler: handler),
-                          const SizedBox(height: 24),
-                        ],
+            return ArtworkBackdrop(
+              thumb: item.extras?['thumb'] as String?,
+              child: SafeArea(
+                child: Column(
+                  children: [
+                    _DragHandle(
+                      item: item,
+                      onCollapse: () =>
+                          ref.read(nowPlayingExpandedProvider.notifier).state =
+                              false,
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        padding: const EdgeInsets.symmetric(horizontal: 24),
+                        child: Column(
+                          children: [
+                            _Artwork(item: item),
+                            const SizedBox(height: 32),
+                            _TrackInfo(item: item),
+                            const SizedBox(height: 24),
+                            SeekControl(
+                              handler: handler,
+                              duration: item.duration,
+                            ),
+                            const SizedBox(height: 8),
+                            _TransportControls(handler: handler),
+                            const SizedBox(height: 24),
+                            _UpNext(handler: handler),
+                            const SizedBox(height: 24),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }

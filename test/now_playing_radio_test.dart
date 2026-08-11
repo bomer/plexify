@@ -9,6 +9,7 @@ import 'package:plexify/core/plex/plex_identity.dart';
 import 'package:plexify/core/providers.dart';
 import 'package:plexify/core/settings/app_settings.dart';
 import 'package:plexify/features/player/now_playing_screen.dart';
+import 'package:plexify/features/radio/radio_action.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'support/fake_just_audio.dart';
@@ -75,6 +76,43 @@ void main() {
     );
 
     expect(find.byIcon(Icons.radio), findsOneWidget);
+  });
+
+  testWidgets('can show a message over itself, not under the shell', (
+    tester,
+  ) async {
+    // The bug this exists for. Now Playing is a sibling layer in the shell's
+    // Stack and is painted *above* the Scaffold, so a snackbar from the
+    // app-level messenger renders underneath it and is never seen. Every way
+    // radio could fail then looked exactly like a button that did nothing,
+    // which is how it was reported.
+    //
+    // Asserting on the messenger rather than on pixels: what went wrong was
+    // which messenger owned the message, and that is the thing to pin.
+    await pumpNowPlaying(
+      tester,
+      const MediaItem(
+        id: 'https://tower/1',
+        title: 'Idioteque',
+        extras: {'ratingKey': 't1'},
+      ),
+    );
+
+    // No Plex connection in this container, so pressing it fails at the first
+    // step and has something to say.
+    await tester.tap(find.byIcon(Icons.radio));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.descendant(
+        of: find.byType(NowPlayingScreen),
+        matching: find.text(RadioFailure.noServer.message),
+      ),
+      findsOneWidget,
+      reason:
+          'the message has to render inside Now Playing, because the '
+          'shell Scaffold that would otherwise own it is painted underneath',
+    );
   });
 
   testWidgets('keeps the grab handle centred when there is no key', (
