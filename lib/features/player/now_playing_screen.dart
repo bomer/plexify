@@ -9,6 +9,7 @@ import '../library/artist_detail_screen.dart';
 import '../library/library_screen.dart' show openAlbum;
 import '../library/artwork.dart';
 import '../library/artwork_backdrop.dart';
+import '../radio/radio_action.dart';
 import 'player_providers.dart';
 import 'seek_control.dart';
 import 'transport_buttons.dart';
@@ -40,6 +41,7 @@ class NowPlayingScreen extends ConsumerWidget {
               child: Column(
                 children: [
                   _DragHandle(
+                    item: item,
                     onCollapse: () =>
                         ref.read(nowPlayingExpandedProvider.notifier).state =
                             false,
@@ -77,7 +79,10 @@ class NowPlayingScreen extends ConsumerWidget {
 }
 
 class _DragHandle extends StatelessWidget {
-  const _DragHandle({required this.onCollapse});
+  const _DragHandle({required this.item, required this.onCollapse});
+
+  /// Carried only for its ratingKey, which is what a station is seeded from.
+  final MediaItem item;
 
   final VoidCallback onCollapse;
 
@@ -115,8 +120,24 @@ class _DragHandle extends StatelessWidget {
                 ),
               ),
             ),
-            // Balances the leading icon so the grab handle sits centred.
-            const SizedBox(width: 48),
+            // Occupies the 48 pixels that used to be a spacer balancing the
+            // collapse chevron, so the grab handle still sits centred and the
+            // one action worth having here is not hidden behind a gesture.
+            //
+            // Now Playing is where this belongs more than anywhere else: it is
+            // the only screen that always knows exactly which song you mean,
+            // and wanting more like *this one* is a thought you have while
+            // listening to it rather than while looking at a list.
+            if (item.extras?['ratingKey'] case final String key)
+              Consumer(
+                builder: (context, ref, _) => IconButton(
+                  icon: const Icon(Icons.radio),
+                  tooltip: 'Start radio from this song',
+                  onPressed: () => startRadioFromNowPlaying(context, ref, key),
+                ),
+              )
+            else
+              const SizedBox(width: 48),
           ],
         ),
       ),

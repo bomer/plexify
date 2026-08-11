@@ -1343,6 +1343,19 @@ final artistRatingProvider = StreamProvider.autoDispose.family<int?, String>((
   return query.watchSingleOrNull().map((row) => row?.userRating).distinct();
 });
 
+/// One track from the cache. See [albumByKeyProvider].
+///
+/// Wanted because a `MediaItem` carries a ratingKey and not much else, so
+/// anything that needs the *track* behind what is playing has to look it up.
+final trackByKeyProvider = FutureProvider.autoDispose
+    .family<PlexTrack?, String>((ref, ratingKey) async {
+      final db = ref.watch(databaseProvider);
+      final row = await (db.select(
+        db.tracks,
+      )..where((t) => t.ratingKey.equals(ratingKey))).getSingleOrNull();
+      return row?.toDomain();
+    });
+
 /// One artist from the cache. See [albumByKeyProvider].
 final artistByKeyProvider = FutureProvider.autoDispose
     .family<PlexArtist?, String>((ref, ratingKey) async {

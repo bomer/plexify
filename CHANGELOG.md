@@ -26,9 +26,10 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Added
 
-- Radio. A **Radio** button on any album and a **Start radio** action on any track build a
-  queue from Plex's own sonic analysis of the library, which is the same model behind its
-  Stations row.
+- Radio. A **Radio** button in the Now Playing header starts a station from the song you are
+  listening to, and there is one on every album too. On a phone, long-pressing a track offers
+  the same from any list. All three build a queue from Plex's own sonic analysis of the
+  library, the model behind its Stations row.
 - Playback keeps going when a queue ends, continuing with music that sounds like what was
   playing. The next tracks are queued a few songs before the end, so it joins without a gap.
   There is a switch under Settings, Playback to turn it off.
