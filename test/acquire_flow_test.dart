@@ -6,9 +6,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
+import 'package:plexify/core/acquire/download_source.dart';
 import 'package:plexify/core/catalog/catalog_models.dart';
 import 'package:plexify/core/providers.dart';
 import 'package:plexify/core/qbit/qbit_client.dart';
+import 'package:plexify/core/slskd/slskd_client.dart';
 import 'package:plexify/features/acquire/download_sheet.dart';
 
 /// The one-click path, end to end through the widget layer.
@@ -95,7 +97,14 @@ void main() {
   /// download on an artist and landed back on the album you came from. A flat
   /// `MaterialApp` cannot express that at all, and the original test used one.
   Widget host(QbitClient client) => ProviderScope(
-    overrides: [qbitClientProvider.overrideWith((ref) async => client)],
+    overrides: [
+      qbitClientProvider.overrideWith((ref) async => client),
+      // Pinned, because the flow now asks which source is chosen before it does
+      // anything, and that answer normally comes from persisted settings.
+      downloadSourceKindProvider.overrideWithValue(
+        DownloadSourceKind.qbittorrent,
+      ),
+    ],
     child: MaterialApp(
       home: Scaffold(
         body: Navigator(
@@ -220,6 +229,144 @@ void main() {
     // reads as "nobody is seeding this" for every album ever asked for.
     expect(fake.added, isEmpty);
     expect(find.textContaining('search plugins'), findsOneWidget);
+  });
+
+  group('the same screen, the other source', () {
+    /// An slskd sharing one folder that names the record.
+    ({SlskdClient client, List<String> enqueued}) fakeSlskd({
+      String directory = r'@@abc\Music\Radiohead\OK Computer',
+      bool loggedIn = true,
+      int trackCount = 12,
+    }) {
+      final enqueued = <String>[];
+      final client = SlskdClient(
+        baseUrl: 'https://nas.local:5031',
+        apiKey: 'k3y',
+        httpClient: MockClient((request) async {
+          final path = request.url.path;
+
+          if (path.endsWith('/application')) {
+            return http.Response(
+              jsonEncode({
+                'version': {'full': '0.22.3'},
+                'server': {'isConnected': true, 'isLoggedIn': loggedIn},
+              }),
+              200,
+            );
+          }
+          if (path.endsWith('/responses')) {
+            return http.Response(
+              jsonEncode([
+                {
+                  'username': 'peer',
+                  'hasFreeUploadSlot': true,
+                  'uploadSpeed': 900000,
+                  'queueLength': 0,
+                  'files': [
+                    for (var i = 1; i <= trackCount; i++)
+                      {
+                        'filename': '$directory\\0$i Track.flac',
+                        'size': 30000000,
+                        'extension': 'flac',
+                      },
+                  ],
+                },
+              ]),
+              200,
+            );
+          }
+          if (request.method == 'GET' && path.contains('/searches/')) {
+            // Finished on the first poll, so nothing waits out an interval.
+            return http.Response(
+              jsonEncode({'id': 'x', 'state': 'Completed, TimedOut'}),
+              200,
+            );
+          }
+          if (path.contains('/transfers/downloads/')) {
+            enqueued.add(request.body);
+            return http.Response('', 200);
+          }
+          return http.Response('{}', 200);
+        }),
+      );
+      return (client: client, enqueued: enqueued);
+    }
+
+    Widget slskdHost(SlskdClient client) => ProviderScope(
+      overrides: [
+        slskdClientProvider.overrideWith((ref) async => client),
+        downloadSourceKindProvider.overrideWithValue(
+          DownloadSourceKind.soulseek,
+        ),
+      ],
+      child: MaterialApp(
+        home: Scaffold(
+          body: Navigator(
+            onGenerateRoute: (_) => MaterialPageRoute<void>(
+              builder: (context) => TextButton(
+                onPressed: () => Navigator.of(context).push(
+                  MaterialPageRoute<void>(builder: (_) => const _ArtistPage()),
+                ),
+                child: const Text('Open artist'),
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    testWidgets('one click queues the whole folder from one peer', (
+      tester,
+    ) async {
+      // **The point of the seam.** Not one line of the sheet, the one-click
+      // flow or the snackbar was written twice, and this is the proof: the same
+      // button, the same page, a completely different server behind it.
+      final fake = fakeSlskd();
+      await tester.pumpWidget(slskdHost(fake.client));
+      await openArtist(tester);
+
+      await tester.tap(find.text('Get'));
+      await settleWithoutSpinner(tester);
+
+      expect(fake.enqueued, hasLength(1));
+      // All twelve tracks in one request. Half a record in the folder Plex
+      // watches is worse than nothing there: it scans, looks complete, and the
+      // gaps are only found on playing it.
+      expect(jsonDecode(fake.enqueued.single), hasLength(12));
+      expect(find.textContaining('Queued'), findsOneWidget);
+      expect(find.byType(_ArtistPage), findsOneWidget);
+    });
+
+    testWidgets('a folder that does not name the album is never queued', (
+      tester,
+    ) async {
+      final fake = fakeSlskd(directory: r'@@abc\Music\Various\Computer Love');
+      await tester.pumpWidget(slskdHost(fake.client));
+      await openArtist(tester);
+
+      await tester.tap(find.text('Get'));
+      await settleWithoutSpinner(tester);
+
+      expect(fake.enqueued, isEmpty);
+      expect(find.textContaining('No result clearly names'), findsOneWidget);
+    });
+
+    testWidgets('an slskd logged out of Soulseek is named, not silently empty', (
+      tester,
+    ) async {
+      // The exact counterpart of missing search plugins, and just as invisible:
+      // every request answers perfectly and every search finds nothing, which
+      // reads as "nobody has this" for every album forever.
+      final fake = fakeSlskd(loggedIn: false);
+      await tester.pumpWidget(slskdHost(fake.client));
+      await openArtist(tester);
+
+      await tester.tap(find.text('Get'));
+      await settleWithoutSpinner(tester);
+
+      expect(fake.enqueued, isEmpty);
+      expect(find.textContaining('not logged in to Soulseek'), findsOneWidget);
+    });
   });
 }
 

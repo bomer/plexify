@@ -5,6 +5,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
 import '../features/acquire/acquire_controller.dart';
+import '../features/acquire/slskd_acquire_controller.dart';
+import 'acquire/download_monitor.dart';
+import 'acquire/download_source.dart';
+import 'slskd/slskd_client.dart';
+import 'slskd/slskd_credentials.dart';
 import 'package:flutter/painting.dart' show Color, ImageProvider;
 
 import 'artwork/artwork_cache.dart';
@@ -22,10 +27,8 @@ import 'db/app_database.dart';
 import 'db/mappers.dart';
 import 'db/shelf_item.dart';
 import 'discovery/discovery.dart';
-import 'qbit/download_monitor.dart';
 import 'qbit/qbit_client.dart';
 import 'qbit/qbit_credentials.dart';
-import 'qbit/qbit_models.dart';
 import 'plex/connection_health.dart';
 import 'plex/connection_monitor.dart';
 import 'plex/plex_auth.dart';
@@ -1552,25 +1555,84 @@ final qbitClientProvider = FutureProvider<QbitClient?>((ref) async {
   return client;
 });
 
-final acquireControllerProvider = FutureProvider<AcquireController?>((
-  ref,
-) async {
-  final client = await ref.watch(qbitClientProvider.future);
-  return client == null ? null : AcquireController(client);
+// ---------------------------------------------------------------------------
+// slskd, and choosing between the two download sources.
+// ---------------------------------------------------------------------------
+
+final slskdCredentialsProvider = Provider<SlskdCredentials>(
+  (ref) => SlskdCredentials(),
+);
+
+/// A configured slskd client, or null.
+///
+/// Null for the same three reasons `qbitClientProvider` is, collapsed the same
+/// way: the catalog is off, no address, or no API key. Rebuilt when the address
+/// changes so saving a new one takes effect without a restart.
+final slskdClientProvider = FutureProvider<SlskdClient?>((ref) async {
+  if (!ref.watch(catalogEnabledProvider)) return null;
+
+  final url = ref.watch(settingsProvider.select((s) => s.slskdUrl));
+  if (url == null || url.isEmpty) return null;
+
+  final apiKey = await ref.watch(slskdCredentialsProvider).read();
+  if (apiKey == null || apiKey.isEmpty) return null;
+
+  final client = SlskdClient(baseUrl: url, apiKey: apiKey);
+  ref.onDispose(client.close);
+  return client;
 });
 
-/// Watches the Music category and asks Plex to rescan when something lands.
+/// Which source the user chose. Read on its own so screens that only need the
+/// name do not wait on a client being built.
+final downloadSourceKindProvider = Provider<DownloadSourceKind>(
+  (ref) => ref.watch(settingsProvider.select((s) => s.downloadSource)),
+);
+
+/// The one source that does the downloading, or null when it is not set up.
+///
+/// **Only the chosen one is ever built.** The other client is never
+/// constructed, so an slskd address left over from an experiment costs no
+/// requests while qBittorrent is selected.
+final downloadSourceProvider = FutureProvider<DownloadSource?>((ref) async {
+  switch (ref.watch(downloadSourceKindProvider)) {
+    case DownloadSourceKind.qbittorrent:
+      final client = await ref.watch(qbitClientProvider.future);
+      return client == null ? null : AcquireController(client);
+    case DownloadSourceKind.soulseek:
+      final client = await ref.watch(slskdClientProvider.future);
+      return client == null ? null : SlskdAcquireController(client);
+  }
+});
+
+/// Watches what is arriving and asks Plex to rescan when something lands.
 ///
 /// Nothing reads its value — it exists for its side effects, like
 /// [liveSyncProvider], so [AppShell] watches it to keep it alive for the
-/// session. Null when qBittorrent is not configured, so a phone with the
+/// session. Null when the chosen source is not configured, so a phone with the
 /// catalog switched off never makes a request.
 final downloadMonitorProvider = Provider<DownloadMonitor?>((ref) {
-  final client = ref.watch(qbitClientProvider).valueOrNull;
-  if (client == null) return null;
+  final poll = switch (ref.watch(downloadSourceKindProvider)) {
+    DownloadSourceKind.qbittorrent => switch (ref
+        .watch(qbitClientProvider)
+        .valueOrNull) {
+      final client? => () async => [
+        for (final torrent in await client.torrents()) torrent.asJob,
+      ],
+      null => null,
+    },
+    DownloadSourceKind.soulseek => switch (ref
+        .watch(slskdClientProvider)
+        .valueOrNull) {
+      final client? => () async => [
+        for (final download in await client.downloads()) download.asJob,
+      ],
+      null => null,
+    },
+  };
+  if (poll == null) return null;
 
   final monitor = DownloadMonitor(
-    client: () => client,
+    poll: poll,
     onComplete: () async {
       // The same two steps the refresh button runs, in the same order: ask Plex
       // to look at the disk, then sync what it found. Deliberately not a new
@@ -1589,13 +1651,13 @@ final downloadMonitorProvider = Provider<DownloadMonitor?>((ref) {
   return monitor;
 });
 
-/// The Music category, live.
-final downloadsProvider = StreamProvider<List<QbitTorrent>>((ref) {
+/// What is arriving, live.
+final downloadsProvider = StreamProvider<List<DownloadJob>>((ref) {
   final monitor = ref.watch(downloadMonitorProvider);
-  if (monitor == null) return const Stream<List<QbitTorrent>>.empty();
+  if (monitor == null) return const Stream<List<DownloadJob>>.empty();
   // Seeded with whatever the last poll saw, so opening the screen shows the
   // current state rather than waiting out an interval for the next tick.
-  return monitor.torrents.transform(
+  return monitor.jobs.transform(
     StreamTransformer.fromBind((stream) async* {
       yield monitor.latest;
       yield* stream;

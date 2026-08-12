@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:plexify/core/acquire/download_source.dart';
 import 'package:plexify/core/audio/quality_policy.dart';
 import 'package:plexify/core/plex/plex_identity.dart';
 import 'package:plexify/core/plex/plex_server.dart';
@@ -141,6 +142,66 @@ void main() {
       // reason.
       expect(prefs.getString('settings_qbit_url'), isNull);
       expect(store.read().qbitUrl, isNull);
+    });
+  });
+
+  group('choosing a download source', () {
+    test('an existing install keeps downloading from qBittorrent', () async {
+      // The upgrade path, and the reason the default is not "whichever is
+      // configured". Someone who has only ever used torrents must not find
+      // their next download coming from somewhere else because a new option
+      // appeared.
+      final (store, _) = await freshStore();
+      expect(store.read().downloadSource, DownloadSourceKind.qbittorrent);
+    });
+
+    test('the choice round-trips', () async {
+      final (store, prefs) = await freshStore();
+      final c = await container(store);
+
+      c.read(settingsProvider.notifier).setDownloadSource(
+        DownloadSourceKind.soulseek,
+      );
+      await pumpEventQueue();
+
+      // Stored by name, not by index.
+      expect(prefs.getString('settings_download_source'), 'soulseek');
+      expect(store.read().downloadSource, DownloadSourceKind.soulseek);
+    });
+
+    test('an unrecognised stored value falls back rather than throwing', () async {
+      // A value written by a future version, or a corrupted preferences file.
+      // Refusing to start over one string would be a poor trade.
+      final (store, _) = await freshStore({
+        'settings_download_source': 'gnutella',
+      });
+      expect(store.read().downloadSource, DownloadSourceKind.qbittorrent);
+    });
+
+    test('the slskd address round-trips and loses its trailing slash', () async {
+      final (store, prefs) = await freshStore();
+      final c = await container(store);
+
+      c.read(settingsProvider.notifier).setSlskdUrl('https://nas.local:5031/');
+      await pumpEventQueue();
+
+      // slskd tolerates a doubled slash; a reverse proxy in front of it very
+      // often does not, and the resulting 404 names nothing useful.
+      expect(prefs.getString('settings_slskd_url'), 'https://nas.local:5031');
+      expect(store.read().slskdUrl, 'https://nas.local:5031');
+    });
+
+    test('clearing the slskd address removes the key', () async {
+      final (store, prefs) = await freshStore();
+      final c = await container(store);
+
+      c.read(settingsProvider.notifier).setSlskdUrl('https://nas.local:5031');
+      await pumpEventQueue();
+      c.read(settingsProvider.notifier).setSlskdUrl('  ');
+      await pumpEventQueue();
+
+      expect(prefs.getString('settings_slskd_url'), isNull);
+      expect(store.read().slskdUrl, isNull);
     });
   });
 

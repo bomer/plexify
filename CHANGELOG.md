@@ -26,6 +26,22 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Added
 
+- **Soulseek as a second place to download from**, alongside qBittorrent. Availability there
+  is far higher for anything that is not current and popular, because people share what is
+  already in their music folder rather than having to seed a whole record. Choose which one
+  is used under Settings, Albums you do not own; only the chosen one is ever asked.
+
+  It needs [slskd](https://github.com/slskd/slskd) running somewhere, since Soulseek itself
+  has no API. Two things Plexify cannot check for you and both are silent when wrong:
+  slskd's downloads folder has to reach the folder Plex watches, because it has no
+  per-download category to route with, and slskd needs to be sharing something, since many
+  people's queues refuse anyone who shares nothing.
+
+  A record is queued as a whole folder from one person, all of it or none of it, and Plexify
+  only picks one for you when the folder actually names the artist and the album. Lossless is
+  preferred as it already was for torrents, and because Soulseek reports a real bitrate
+  rather than one guessed from a filename, that figure now breaks ties between MP3s.
+
 - Plex's own radio stations appear on Home. Library Radio, Deep Cuts, Time Travel and Random
   Album come from the server, so tapping one plays whatever it decides belongs in it.
 

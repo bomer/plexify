@@ -75,8 +75,12 @@ streams, and that might make its own issues. We'll find out.
 
 - A "not in your library" tier under search and a missing albums grid on every artist page,
   both from MusicBrainz.
-- One click hands off to qBittorrent, and the library refreshes itself when the download
-  lands.
+- One click hands off to qBittorrent or to Soulseek, whichever you pick, and the library
+  refreshes itself when the download lands. Soulseek needs
+  [slskd](https://github.com/slskd/slskd) running somewhere; see
+  [docs/SOULSEEK.md](docs/SOULSEEK.md).
+- Nothing is queued for you unless the name actually matches the record, whichever source it
+  came from.
 
 **Diagnostics**
 
@@ -161,6 +165,7 @@ lib/
 |---|---|
 | [.agent/PROJECT.md](.agent/PROJECT.md) | How a change reaches the screen, the twelve architecture invariants, code conventions, how the tests lie, and every trap already paid for. Start here before changing anything. |
 | [docs/PLEX-API.md](docs/PLEX-API.md) | The Plex API as this app actually uses it: every endpoint, what is sent, and what will mislead you. Plex publishes no documentation, so several findings here came from building an instrument after guessing gave a wrong answer. |
+| [docs/SOULSEEK.md](docs/SOULSEEK.md) | Downloading from Soulseek through slskd: why a daemon rather than the protocol, the endpoints, and the two things the app cannot check for you. |
 | [docs/PLAN.md](docs/PLAN.md) | The original build plan: decisions, phases and known risks. |
 | [CHANGELOG.md](CHANGELOG.md) | What changed in each release. |
 | [tool/README.md](tool/README.md) | Packaging, signing and the release script. |

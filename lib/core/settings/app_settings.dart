@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../acquire/download_source.dart';
 import '../audio/quality_policy.dart';
 
 /// Everything the user has chosen, as one immutable value.
@@ -28,6 +29,8 @@ class AppSettings {
     this.catalogEnabled = false,
     this.autoplayRadio = true,
     this.qbitUrl,
+    this.slskdUrl,
+    this.downloadSource = DownloadSourceKind.qbittorrent,
     this.volume = 1,
     this.sidebarPlaylists = 12,
   });
@@ -90,6 +93,22 @@ class AppSettings {
   /// platforms.
   final String? qbitUrl;
 
+  /// Scheme, host and port of slskd, `https://nas.local:5031`.
+  ///
+  /// Same split as [qbitUrl] for the same reason: the address is a preference,
+  /// and the API key is a secret living in `SlskdCredentials`.
+  final String? slskdUrl;
+
+  /// Which server downloads things.
+  ///
+  /// **Only one is consulted, ever.** Searching both and merging was considered
+  /// and rejected: they rank on entirely different evidence, so a combined list
+  /// would be sorted by a number meaning different things in each half.
+  ///
+  /// Defaults to qBittorrent so that an existing install does not silently
+  /// change where its downloads come from on upgrade.
+  final DownloadSourceKind downloadSource;
+
   /// Dark by default, because the app is designed dark-first and following the
   /// system would put most users in a theme that was never the intent.
   final ThemeMode themeMode;
@@ -149,6 +168,8 @@ class AppSettings {
     bool? catalogEnabled,
     bool? autoplayRadio,
     Object? qbitUrl = _unchanged,
+    Object? slskdUrl = _unchanged,
+    DownloadSourceKind? downloadSource,
     double? volume,
     int? sidebarPlaylists,
   }) => AppSettings(
@@ -157,6 +178,10 @@ class AppSettings {
     catalogEnabled: catalogEnabled ?? this.catalogEnabled,
     autoplayRadio: autoplayRadio ?? this.autoplayRadio,
     qbitUrl: identical(qbitUrl, _unchanged) ? this.qbitUrl : qbitUrl as String?,
+    slskdUrl: identical(slskdUrl, _unchanged)
+        ? this.slskdUrl
+        : slskdUrl as String?,
+    downloadSource: downloadSource ?? this.downloadSource,
     themeMode: themeMode ?? this.themeMode,
     preferredServerId: identical(preferredServerId, _unchanged)
         ? this.preferredServerId
@@ -189,6 +214,8 @@ class AppSettings {
       other.catalogEnabled == catalogEnabled &&
       other.autoplayRadio == autoplayRadio &&
       other.qbitUrl == qbitUrl &&
+      other.slskdUrl == slskdUrl &&
+      other.downloadSource == downloadSource &&
       other.volume == volume &&
       other.sidebarPlaylists == sidebarPlaylists;
 
@@ -203,6 +230,8 @@ class AppSettings {
     catalogEnabled,
     autoplayRadio,
     qbitUrl,
+    slskdUrl,
+    downloadSource,
     volume,
     sidebarPlaylists,
   );
@@ -232,6 +261,8 @@ class SettingsStore {
   static const _catalogEnabledKey = 'settings_catalog_enabled';
   static const _autoplayRadioKey = 'settings_autoplay_radio';
   static const _qbitUrlKey = 'settings_qbit_url';
+  static const _slskdUrlKey = 'settings_slskd_url';
+  static const _downloadSourceKey = 'settings_download_source';
   static const _volumeKey = 'settings_volume';
   static const _sidebarPlaylistsKey = 'settings_sidebar_playlists';
 
@@ -242,6 +273,12 @@ class SettingsStore {
     autoplayRadio:
         _prefs.getBool(_autoplayRadioKey) ?? const AppSettings().autoplayRadio,
     qbitUrl: _prefs.getString(_qbitUrlKey),
+    slskdUrl: _prefs.getString(_slskdUrlKey),
+    // By name rather than by index, so reordering the enum cannot silently
+    // change which source an existing install downloads from.
+    downloadSource: DownloadSourceKind.byName(
+      _prefs.getString(_downloadSourceKey),
+    ),
     themeMode: _themeMode(),
     preferredServerId: _prefs.getString(_preferredServerKey),
     qualityUnmetered: _quality(_qualityUnmeteredKey),
@@ -273,6 +310,8 @@ class SettingsStore {
     await _prefs.setBool(_catalogEnabledKey, settings.catalogEnabled);
     await _prefs.setBool(_autoplayRadioKey, settings.autoplayRadio);
     await _write(_qbitUrlKey, settings.qbitUrl);
+    await _write(_slskdUrlKey, settings.slskdUrl);
+    await _prefs.setString(_downloadSourceKey, settings.downloadSource.name);
     await _prefs.setDouble(_volumeKey, settings.volume);
     await _prefs.setInt(_sidebarPlaylistsKey, settings.sidebarPlaylists);
   }
@@ -378,6 +417,29 @@ class SettingsController extends Notifier<AppSettings> {
       cleaned = cleaned.substring(0, cleaned.length - 1);
     }
     _apply(state.copyWith(qbitUrl: cleaned));
+  }
+
+  /// Sets the slskd address, or clears it with null.
+  ///
+  /// Trailing slashes are removed for a related but different reason to
+  /// qBittorrent's: slskd itself tolerates a doubled slash, but a reverse proxy
+  /// in front of it very often does not, and the resulting 404 names nothing
+  /// useful.
+  void setSlskdUrl(String? url) =>
+      _apply(state.copyWith(slskdUrl: _cleanUrl(url)));
+
+  /// Chooses which server downloads things. Only the chosen one is ever asked.
+  void setDownloadSource(DownloadSourceKind source) =>
+      _apply(state.copyWith(downloadSource: source));
+
+  static String? _cleanUrl(String? url) {
+    final trimmed = url?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    var cleaned = trimmed;
+    while (cleaned.endsWith('/')) {
+      cleaned = cleaned.substring(0, cleaned.length - 1);
+    }
+    return cleaned;
   }
 
   /// Sets the output level, 0 to 1.

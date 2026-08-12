@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/acquire/download_source.dart';
 import '../../core/artwork/artwork_cache.dart';
 import '../../core/audio/audio_cache.dart';
 import '../../core/audio/quality_policy.dart';
@@ -11,6 +12,7 @@ import '../acquire/downloads_screen.dart';
 import 'account_controller.dart';
 import 'qbittorrent_screen.dart';
 import 'server_picker_screen.dart';
+import 'slskd_screen.dart';
 import 'sync_status_screen.dart';
 
 /// The Settings destination.
@@ -322,9 +324,13 @@ class _UsageLine extends StatelessWidget {
 /// wanted here: on a phone this is noise, and on the desktop, where downloads
 /// actually happen, it is the point.
 ///
-/// The qBittorrent rows sit inside the same section but stay visible when the
+/// The download rows sit inside the same section but stay visible when the
 /// switch is off, so an address typed in once is not hidden by turning the
 /// feature off and mysteriously absent when it goes back on.
+///
+/// **Both sources are always listed, not just the chosen one.** Hiding the
+/// other would mean turning the selector before you could fill in the thing you
+/// were about to select, which is the wrong way round.
 class _CatalogSection extends ConsumerWidget {
   const _CatalogSection();
 
@@ -345,6 +351,55 @@ class _CatalogSection extends ConsumerWidget {
             'artist released that you do not have. Uses MusicBrainz.',
           ),
         ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Download from',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: enabled
+                      ? null
+                      : Theme.of(context).disabledColor,
+                ),
+              ),
+              const SizedBox(height: 8),
+              SegmentedButton<DownloadSourceKind>(
+                segments: const [
+                  ButtonSegment(
+                    value: DownloadSourceKind.qbittorrent,
+                    label: Text('qBittorrent'),
+                    icon: Icon(Icons.downloading),
+                  ),
+                  ButtonSegment(
+                    value: DownloadSourceKind.soulseek,
+                    label: Text('Soulseek'),
+                    icon: Icon(Icons.people_outline),
+                  ),
+                ],
+                selected: {settings.downloadSource},
+                onSelectionChanged: enabled
+                    ? (selected) => ref
+                          .read(settingsProvider.notifier)
+                          .setDownloadSource(selected.first)
+                    : null,
+              ),
+              const SizedBox(height: 6),
+              Text(
+                // Said plainly, because "why did it find nothing" has a
+                // different answer depending on which one was asked, and only
+                // one of them is ever asked.
+                'Only the chosen one is used. Soulseek usually has far more '
+                'albums available; torrents are better for anything popular '
+                'and recent.',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        ),
         ListTile(
           enabled: enabled,
           leading: const Icon(Icons.downloading),
@@ -357,6 +412,20 @@ class _CatalogSection extends ConsumerWidget {
           trailing: const Icon(Icons.chevron_right),
           onTap: () => Navigator.of(context).push(
             MaterialPageRoute<void>(builder: (_) => const QbittorrentScreen()),
+          ),
+        ),
+        ListTile(
+          enabled: enabled,
+          leading: const Icon(Icons.people_outline),
+          title: const Text('Soulseek'),
+          subtitle: Text(
+            settings.slskdUrl == null
+                ? 'Not set up. Needs slskd running somewhere.'
+                : settings.slskdUrl!,
+          ),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const SlskdScreen()),
           ),
         ),
         ListTile(

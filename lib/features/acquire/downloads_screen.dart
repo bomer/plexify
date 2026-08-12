@@ -1,21 +1,26 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/acquire/download_source.dart';
 import '../../core/providers.dart';
-import '../../core/qbit/qbit_models.dart';
-import '../settings/qbittorrent_screen.dart';
-import 'download_sheet.dart' show formatBytes;
+import '../settings/download_source_screen.dart';
 
-/// What qBittorrent is downloading into the Music category.
+/// What the chosen source is currently bringing in.
 ///
 /// Read-only on purpose. This is a music player that can ask for a record, not
-/// a torrent client: pausing, reprioritising and deleting all exist perfectly
-/// well in qBittorrent's own interface, and rebuilding them here would mean
-/// keeping a second one in step for no gain.
+/// a torrent client and not a Soulseek client: pausing, reprioritising and
+/// deleting all exist perfectly well in qBittorrent's and slskd's own
+/// interfaces, and rebuilding them here would mean keeping a second copy in
+/// step for no gain.
 ///
-/// What it *is* for is answering the question the flow creates — "I asked for
-/// that album twenty minutes ago, where is it?" — which otherwise means opening
+/// What it *is* for is answering the question the flow creates, "I asked for
+/// that album twenty minutes ago, where is it?", which otherwise means opening
 /// another app to find out.
+///
+/// **Not a history.** Nothing here is persisted: it mirrors whatever the server
+/// currently holds, so an item disappears from this screen when it is cleared
+/// there. A torrent stays visible while qBittorrent seeds it; a Soulseek folder
+/// stays until the transfers are removed.
 class DownloadsScreen extends ConsumerStatefulWidget {
   const DownloadsScreen({super.key});
 
@@ -39,24 +44,25 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
     final theme = Theme.of(context);
     final monitor = ref.watch(downloadMonitorProvider);
     final downloads = ref.watch(downloadsProvider);
+    final kind = ref.watch(downloadSourceKindProvider);
 
     return Scaffold(
       appBar: AppBar(
         title: const Text('Downloads'),
         actions: [
           IconButton(
-            tooltip: 'qBittorrent settings',
+            tooltip: '${kind.label} settings',
             icon: const Icon(Icons.settings_outlined),
             onPressed: () => Navigator.of(context).push(
               MaterialPageRoute<void>(
-                builder: (_) => const QbittorrentScreen(),
+                builder: (_) => DownloadSourceScreen(kind: kind),
               ),
             ),
           ),
         ],
       ),
       body: monitor == null
-          ? const _NotConfigured()
+          ? _NotConfigured(kind: kind)
           : RefreshIndicator(
               onRefresh: () async => monitor.pollNow(),
               child: ListView(
@@ -75,8 +81,7 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                     null => [const _Waiting()],
                     final list when list.isEmpty => [const _Nothing()],
                     final list => [
-                      for (final torrent in list)
-                        _TorrentTile(torrent: torrent),
+                      for (final job in list) _JobTile(job: job),
                     ],
                   },
                   const SizedBox(height: 24),
@@ -98,31 +103,31 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
   }
 }
 
-class _TorrentTile extends StatelessWidget {
-  const _TorrentTile({required this.torrent});
+class _JobTile extends StatelessWidget {
+  const _JobTile({required this.job});
 
-  final QbitTorrent torrent;
+  final DownloadJob job;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final percent = (torrent.progress * 100).clamp(0, 100).round();
+    final percent = (job.progress * 100).clamp(0, 100).round();
 
     return ListTile(
       leading: Icon(
-        torrent.isFailed
+        job.isFailed
             ? Icons.error_outline
-            : torrent.isComplete
+            : job.isComplete
             ? Icons.check_circle_outline
             : Icons.downloading,
-        color: torrent.isFailed
+        color: job.isFailed
             ? theme.colorScheme.error
-            : torrent.isComplete
+            : job.isComplete
             ? theme.colorScheme.primary
             : null,
       ),
       title: Text(
-        torrent.name,
+        job.name,
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: theme.textTheme.bodyMedium,
@@ -131,41 +136,47 @@ class _TorrentTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const SizedBox(height: 4),
-          if (!torrent.isComplete && !torrent.isFailed)
-            LinearProgressIndicator(value: torrent.progress),
+          if (!job.isComplete && !job.isFailed)
+            LinearProgressIndicator(value: job.progress),
           const SizedBox(height: 4),
-          Text(_status(torrent, percent)),
+          Text(_status(job, percent)),
         ],
       ),
       isThreeLine: true,
     );
   }
 
-  static String _status(QbitTorrent torrent, int percent) {
-    if (torrent.isFailed) return 'Failed — ${torrent.state}';
-    if (torrent.isComplete) {
-      return 'Done · ${formatBytes(torrent.sizeBytes)}';
+  static String _status(DownloadJob job, int percent) {
+    // The source's own words on failure. A generic "it failed" is useless, and
+    // the two sources fail for entirely different reasons.
+    if (job.isFailed) {
+      return job.detail == null ? 'Failed' : 'Failed, ${job.detail}';
     }
-    final rate = torrent.downloadRateBytes > 0
-        ? ' · ${formatBytes(torrent.downloadRateBytes)}/s'
-        : '';
-    return '$percent% of ${formatBytes(torrent.sizeBytes)}$rate';
+    if (job.isComplete) return 'Done · ${formatBytes(job.sizeBytes)}';
+
+    final rate = job.rateBytes > 0 ? ' · ${formatBytes(job.rateBytes)}/s' : '';
+    return '$percent% of ${formatBytes(job.sizeBytes)}$rate';
   }
 }
 
 class _NotConfigured extends StatelessWidget {
-  const _NotConfigured();
+  const _NotConfigured({required this.kind});
+
+  final DownloadSourceKind kind;
 
   @override
   Widget build(BuildContext context) => _Message(
     icon: Icons.cloud_off,
-    title: 'qBittorrent is not set up',
+    // Names the source rather than saying "downloads are not set up", because
+    // with two of them the generic phrasing sends someone to check the one they
+    // already filled in.
+    title: '${kind.label} is not set up',
     detail:
-        'Add the WebUI address and sign-in under Settings, Downloads. Nothing '
-        'is downloaded until you ask for something.',
+        'Add its address and sign-in under Settings, Albums you do not own. '
+        'Nothing is downloaded until you ask for something.',
     action: FilledButton(
       onPressed: () => Navigator.of(context).push(
-        MaterialPageRoute<void>(builder: (_) => const QbittorrentScreen()),
+        MaterialPageRoute<void>(builder: (_) => DownloadSourceScreen(kind: kind)),
       ),
       child: const Text('Set it up'),
     ),
