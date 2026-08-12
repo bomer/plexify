@@ -147,17 +147,22 @@ on a desktop whose transport never changes it is the only signal there is. Neith
 sufficient alone.
 
 A fourth thing now *triggers* that machinery without being part of it. `DownloadMonitor`
-watches qBittorrent's Music category and, when a torrent finishes, calls exactly what the
-refresh button calls — `refreshSection` then `refreshNow`. That is invariant 10 honoured
-rather than bent: a download is one more trigger, not a fifth path into the cache. It polls
-adaptively, every 5s with something in flight and every 60s otherwise, and it is null unless
-qBittorrent is configured *and* the catalog switch is on, so a phone with the feature off never
-makes a request.
+watches whatever the chosen download source is bringing in and, when something finishes, calls
+exactly what the refresh button calls — `refreshSection` then `refreshNow`. That is invariant
+10 honoured rather than bent: a download is one more trigger, not a fifth path into the cache.
+It polls adaptively, every 5s with something in flight and every 60s otherwise, and it is null
+unless the chosen source is configured *and* the catalog switch is on, so a phone with the
+feature off never makes a request.
+
+**Adding Soulseek added a second source of that trigger, not a second mechanism.** The monitor
+takes a poll function rather than a client, so there is still one of it, and it is now
+testable without any server at all.
 
 Two mistakes are easy in it and neither is visible on screen: announcing everything already
 complete on the first poll asks Plex to rescan the whole library on every cold start, and
-announcing a finished torrent on every subsequent poll does the same continuously, because
-qBittorrent keeps seeding it and it never leaves the list. Both are guarded by tests.
+announcing a finished download on every subsequent poll does the same continuously, because
+both servers keep it in the list afterwards. qBittorrent seeds it; slskd holds the transfers
+until they are cleared. Both are guarded by tests.
 
 Its counters live on the **Downloads** screen rather than on Sync status. That screen *is* the
 instrument for this mechanism — the live list, the completion count and the last error, in the
@@ -545,16 +550,32 @@ lopsided — an unrecognised URL is `unknown` and allowed, because plenty of rea
 download links have no extension and calling them pages would rule out whole
 trackers.
 
-**A qBittorrent search that is not deleted is leaked.** The server keeps finished searches
-until they are removed and caps how many may exist, so leaking them means searching stops
-working after a few dozen attempts with an error naming nothing relevant. `QbitClient.search`
-stops and deletes in a `finally`.
+**A search that is not deleted is leaked, on both download servers.** qBittorrent keeps
+finished searches until removed and caps how many may exist, so leaking them means searching
+stops working after a few dozen attempts with an error naming nothing relevant. slskd keeps
+them too, on a machine the user runs and did not ask to have filled up. Both clients stop and
+delete in a `finally`, and both have a test that the cleanup still happens when polling throws.
 
 **Filenames are not normalised text, and `normalise` is the wrong tool for them.** It drops
 punctuation entirely, which is right for typed queries — "dont look back" finds "Don't Look
 Back" — and wrong here, because punctuation *is* the word separator: `OK_Computer` folds to
-`okcomputer` and stops containing either word. `torrentTokens` splits on non-alphanumerics
+`okcomputer` and stops containing either word. `nameTokens` splits on non-alphanumerics
 instead. Two different normalisers on purpose.
+
+That normaliser, the stop words, the karaoke and tribute list and `AudioFormat` all live in
+`lib/core/acquire/matching.dart`, **shared rather than copied** between the two rankers. Both
+ask the same two questions of different things: qBittorrent of a torrent filename, Soulseek of
+the folder a peer keeps the record in. Two copies would drift, and the day one of them learned
+about a new flavour of karaoke release and the other did not would be very hard to spot from
+the outside.
+
+**Soulseek paths use backslashes, whatever the peer is running, and getting this wrong fails
+silently.** Split on `/` and no separator is found, so every file reports the whole path as
+its directory, every file becomes its own group of one, and the ranking scores a hundred
+imaginary singles instead of the real records. Nothing throws and nothing looks wrong; the
+search simply stops finding albums. `SlskdFile.directory` splits on either separator and has
+its own tests. See [docs/SOULSEEK.md](../docs/SOULSEEK.md) for the rest of that integration,
+including the two deployment facts the app cannot check for itself.
 
 **Drift singularises table names, and two of the catalog ones collided with the domain
 models.** `CatalogReleases` would have generated `CatalogRelease`, which is the model in
@@ -1021,12 +1042,20 @@ cellular, which is the expensive direction to be wrong in.
   playback. Building successfully proves nothing here.
 - **Run Plex's sonic analysis** (Settings → Library → Analyze). Takes hours to days and gates
   sonic radio.
-- **Enter the qBittorrent username and password.** Credentials are never typed by an agent;
-  the screen exists so James enters his own into his own keystore.
+- **Enter the qBittorrent username and password, and the slskd API key.** Credentials are
+  never typed by an agent; the screens exist so James enters his own into his own keystore.
 - **Install and enable a qBittorrent search plugin.** Without one the search endpoints answer
   200 and return nothing, which is indistinguishable from "nobody is seeding this album" for
   every album ever asked for. `hasSearchPlugins` exists to tell those apart, and Save and test
   reports it.
+- **Point slskd's downloads directory at the folder Plex watches, and give slskd something to
+  share.** The exact counterparts of the plugin problem above, and both are worse because
+  neither can be detected from in here at all: downloads succeed and land somewhere Plex never
+  looks, or peers quietly refuse a client that shares nothing. Said on the Soulseek settings
+  screen, which is the only thing the app can do about either.
+- **Log slskd in to Soulseek.** It answers every API request perfectly while logged out, so a
+  server that can find nothing looks identical to a healthy one. `isConnectedToSoulseek` is
+  asked before every search for that reason.
 - **Install software or change system settings.**
 - **Anything needing the real Plex library.** Tests run against fixtures, so behaviour that
   depends on what the server actually returns, whether a filter is honoured, what a
