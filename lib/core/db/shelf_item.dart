@@ -23,10 +23,12 @@ import '../plex/plex_models.dart';
 class ShelfItem {
   const ShelfItem.album(PlexAlbum this.album, this.startedAt)
     : playlist = null,
-      artist = null;
+      artist = null,
+      station = null;
   const ShelfItem.playlist(PlexPlaylist this.playlist, this.startedAt)
     : album = null,
-      artist = null;
+      artist = null,
+      station = null;
 
   /// An artist, which only ever comes from a Plex hub.
   ///
@@ -35,7 +37,18 @@ class ShelfItem {
   /// own recently-played row and it is artists, which is why the branch exists.
   const ShelfItem.artist(PlexArtist this.artist, this.startedAt)
     : album = null,
-      playlist = null;
+      playlist = null,
+      station = null;
+
+  /// One of the server's own stations, which only ever comes from a Plex hub.
+  ///
+  /// **The one branch that is not a destination.** Every other tile opens a
+  /// screen; a station has no screen to open, because its key cannot be fetched
+  /// at all. Tapping it creates a play queue and starts playing.
+  const ShelfItem.station(PlexStation this.station, this.startedAt)
+    : album = null,
+      playlist = null,
+      artist = null;
 
   /// When *this device* started it, from `PlaybackHistory`, or zero for a row
   /// that has its own order and never sorts on time.
@@ -47,16 +60,25 @@ class ShelfItem {
   final PlexAlbum? album;
   final PlexPlaylist? playlist;
   final PlexArtist? artist;
+  final PlexStation? station;
 
   bool get isPlaylist => playlist != null;
   bool get isArtist => artist != null;
+  bool get isStation => station != null;
 
+  /// A station's key is a path rather than a rating key, and nothing sorts or
+  /// dedupes stations, so it stands in here unchanged.
   String get ratingKey =>
-      album?.ratingKey ?? playlist?.ratingKey ?? artist!.ratingKey;
+      album?.ratingKey ??
+      playlist?.ratingKey ??
+      artist?.ratingKey ??
+      station!.key;
 
-  String get title => album?.title ?? playlist?.title ?? artist!.title;
+  String get title =>
+      album?.title ?? playlist?.title ?? artist?.title ?? station!.title;
 
-  String? get thumb => album?.thumb ?? playlist?.thumb ?? artist!.thumb;
+  String? get thumb =>
+      album?.thumb ?? playlist?.thumb ?? artist?.thumb ?? station!.thumb;
 
   /// The second line on a tile.
   ///
@@ -67,6 +89,9 @@ class ShelfItem {
   String get subtitle {
     if (album case final album?) return album.artist;
     if (artist != null) return '';
+    // Says what it is, because a station tile is the only one in a row that
+    // plays on tap rather than opening something.
+    if (station != null) return 'Radio';
 
     final count = playlist!.itemCount;
     return count > 0

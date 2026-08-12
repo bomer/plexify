@@ -11,6 +11,7 @@ import '../settings/sync_actions.dart';
 import '../library/album_detail_screen.dart';
 import '../library/album_cover.dart';
 import '../library/artist_detail_screen.dart';
+import '../radio/radio_action.dart';
 import '../library/artwork.dart';
 import '../library/cover_frame.dart';
 import '../library/playlist_detail_screen.dart';
@@ -199,13 +200,20 @@ class _Shelf extends ConsumerWidget {
   }
 }
 
-class _ShelfTile extends StatelessWidget {
+class _ShelfTile extends ConsumerWidget {
   const _ShelfTile({required this.entry, required this.size});
 
   final ShelfItem entry;
   final double size;
 
-  void _open(BuildContext context) {
+  /// **A station plays; everything else opens.** Its key is a play queue source
+  /// rather than a path, so there is no screen to push and nothing to fetch: the
+  /// server decides what is in it at the moment you ask.
+  Future<void> _tap(BuildContext context, WidgetRef ref) async {
+    if (entry.station case final station?) {
+      return playStation(context, ref, station);
+    }
+
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => switch (entry) {
@@ -222,7 +230,7 @@ class _ShelfTile extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final album = entry.album;
 
@@ -230,7 +238,7 @@ class _ShelfTile extends StatelessWidget {
       width: size,
       child: InkWell(
         borderRadius: BorderRadius.circular(8),
-        onTap: () => _open(context),
+        onTap: () => _tap(context, ref),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -248,7 +256,11 @@ class _ShelfTile extends StatelessWidget {
                       child: Artwork(
                         thumb: entry.thumb,
                         size: 600,
-                        icon: entry.isArtist ? Icons.person : Icons.queue_music,
+                        icon: switch (entry) {
+                          ShelfItem(isArtist: true) => Icons.person,
+                          ShelfItem(isStation: true) => Icons.radio,
+                          _ => Icons.queue_music,
+                        },
                       ),
                     ),
             ),

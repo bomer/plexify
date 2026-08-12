@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../player/playback_controller.dart';
 import '../player/player_providers.dart';
 import 'autoplay.dart';
 
@@ -78,10 +80,48 @@ Future<void> startRadioForArtist(
     );
 }
 
-void _say(ScaffoldMessengerState messenger, RadioFailure failure) {
+void _say(ScaffoldMessengerState messenger, RadioFailure failure) =>
+    _tell(messenger, failure.message);
+
+void _tell(ScaffoldMessengerState messenger, String message) {
   messenger
     ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(failure.message)));
+    ..showSnackBar(SnackBar(content: Text(message)));
+}
+
+/// Plays one of the server's own stations.
+///
+/// **Distinct from artist radio in where the tracks come from.** Artist radio
+/// asks Plex who is similar and then builds a queue out of the local cache;
+/// a station is chosen entirely by the server, so the only thing to do is ask
+/// for it and play what arrives.
+///
+/// The error is shown rather than swallowed, and that is deliberate for now:
+/// nothing about `/playQueues` has been measured against this server, and a
+/// station that will not start should say what the server said rather than
+/// join the list of buttons that appear to do nothing.
+Future<void> playStation(
+  BuildContext context,
+  WidgetRef ref,
+  PlexStation station,
+) async {
+  final client = ref.read(plexClientProvider);
+  final controller = ref.read(playbackControllerProvider);
+  final messenger = ScaffoldMessenger.of(context);
+
+  if (client == null || controller == null) {
+    return _say(messenger, RadioFailure.noServer);
+  }
+
+  try {
+    final tracks = await client.playQueueTracks(station.key);
+    if (tracks.isEmpty) return _say(messenger, RadioFailure.noNeighbours);
+
+    await controller.playTracks(tracks);
+    _tell(messenger, 'Playing ${station.title}');
+  } on Object catch (error) {
+    _tell(messenger, '${station.title} could not start: $error');
+  }
 }
 
 /// Starts a station from the artist who made [albumRatingKey].

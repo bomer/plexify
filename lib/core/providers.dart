@@ -1088,14 +1088,20 @@ final hubShelvesProvider = FutureProvider<List<DiscoveryShelf>>((ref) async {
   return [
     for (final hub in await client.sectionHubs(section.key))
       if (!_duplicatesALocalShelf.contains(hub.kind))
-        ?DiscoveryShelf.of(
-          hub.title,
-          hub.albums.isNotEmpty
-              ? DiscoveryShelf.albums(hub.albums)
-              : DiscoveryShelf.artists(hub.artists),
-        ),
+        ?DiscoveryShelf.of(hub.title, _tilesFor(hub)),
   ];
 });
+
+/// Whichever of a hub's three item kinds it turned out to hold.
+///
+/// Stations are the odd one and were dropped for a while because of it: they
+/// are the only tiles that play rather than open, since a station's key is a
+/// play queue source and cannot be fetched at all.
+List<ShelfItem> _tilesFor(PlexHub hub) {
+  if (hub.albums.isNotEmpty) return DiscoveryShelf.albums(hub.albums);
+  if (hub.artists.isNotEmpty) return DiscoveryShelf.artists(hub.artists);
+  return DiscoveryShelf.stations(hub.stations);
+}
 
 /// Hubs skipped because a local row already answers them, faster.
 ///

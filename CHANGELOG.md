@@ -26,6 +26,9 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Added
 
+- Plex's own radio stations appear on Home. Library Radio, Deep Cuts, Time Travel and Random
+  Album come from the server, so tapping one plays whatever it decides belongs in it.
+
 - Artist radio. A **Radio** button on any artist, album and in the Now Playing header builds a
   queue from that artist plus the artists Plex considers similar, alternating between them
   rather than playing one discography after another. On a phone, long-pressing a track offers

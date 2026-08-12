@@ -499,6 +499,46 @@ class PlexClient {
     return _listOf(container, 'Metadata');
   }
 
+  /// Creates a server-side play queue from [sourceKey] and returns its tracks.
+  ///
+  /// **The only way to play one of Plex's own stations.** A station's key is a
+  /// play queue source rather than a fetchable path, so `GET`ting it 404s; this
+  /// hands the same key to `/playQueues` and plays whatever the server decides
+  /// belongs in it.
+  ///
+  /// The `uri` is `server://{machineIdentifier}/com.plexapp.plugins.library` and
+  /// then the key. The machine identifier is [PlexServer.clientIdentifier],
+  /// which plex.tv already gave us during discovery — a server addressed by its
+  /// own URL still has to be *named* in the source URI, because a play queue
+  /// can in principle draw from more than one.
+  ///
+  /// Filtered to tracks on each row's declared type rather than by asking for
+  /// one, for the reason every other call here gives.
+  ///
+  /// **Throws rather than returning empty**, unlike its neighbours. A station
+  /// is something the user just pressed, so a failure has somewhere to go and
+  /// saying nothing would be the third time this feature looked like a dead
+  /// button.
+  Future<List<PlexTrack>> playQueueTracks(String sourceKey) async {
+    final container = await _postContainer(
+      '/playQueues',
+      query: {
+        'type': 'audio',
+        'uri':
+            'server://${_server.clientIdentifier}'
+            '/com.plexapp.plugins.library$sourceKey',
+        'shuffle': '0',
+        'repeat': '0',
+        'continuous': '0',
+      },
+    );
+
+    return [
+      for (final row in _listOf(container, 'Metadata'))
+        if (row['type'] == 'track') PlexTrack.fromJson(row),
+    ];
+  }
+
   /// Artists this server considers similar to [artistRatingKey].
   ///
   /// **The only sonic endpoint that answers.** Measured across eleven request
@@ -697,18 +737,35 @@ class PlexClient {
     String path, {
     Map<String, String>? query,
     Map<String, String>? extraHeaders,
+  }) => _container('GET', path, query: query, extraHeaders: extraHeaders);
+
+  /// `POST` with everything in the query string, which is how Plex takes it.
+  ///
+  /// No body: `/playQueues` reads its parameters off the URL exactly as a GET
+  /// would, and sending them as a form gets an empty queue back rather than an
+  /// error.
+  Future<Map<String, dynamic>> _postContainer(
+    String path, {
+    Map<String, String>? query,
+  }) => _container('POST', path, query: query);
+
+  Future<Map<String, dynamic>> _container(
+    String method,
+    String path, {
+    Map<String, String>? query,
+    Map<String, String>? extraHeaders,
   }) async {
     final uri = Uri.parse(
       '${_server.baseUrl}$path',
     ).replace(queryParameters: query);
 
-    final response = await _http.get(
-      uri,
-      headers: {
-        ..._identity.headers(token: _server.token),
-        ...?extraHeaders,
-      },
-    );
+    final headers = {
+      ..._identity.headers(token: _server.token),
+      ...?extraHeaders,
+    };
+    final response = method == 'POST'
+        ? await _http.post(uri, headers: headers)
+        : await _http.get(uri, headers: headers);
 
     if (response.statusCode == 401) {
       throw const PlexClientException(

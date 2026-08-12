@@ -26,6 +26,7 @@ void main() {
     token: 'servertoken',
     isLocal: true,
     isRelay: false,
+    clientIdentifier: 'abc123',
   );
 
   PlexClient clientReturning(
@@ -105,6 +106,98 @@ void main() {
       final client = clientReturning('Not Found', status: 404);
 
       expect(await client.similarArtists('57754'), isEmpty);
+    });
+  });
+
+  group('play queues, which is how a station is played', () {
+    PlexClient posting({
+      required String body,
+      void Function(http.Request request)? onRequest,
+    }) => PlexClient(
+      server: server,
+      identity: PlexIdentity.forTesting(),
+      httpClient: MockClient((request) async {
+        onRequest?.call(request);
+        return http.Response(
+          body,
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+
+    Map<String, dynamic> trackJson(String key) => {
+      'ratingKey': key,
+      'type': 'track',
+      'title': 'Track $key',
+      'index': 1,
+      'duration': 200000,
+      'parentTitle': 'An album',
+      'grandparentTitle': 'An artist',
+      'Media': [
+        {
+          'Part': [
+            {'key': '/library/parts/$key/file.flac', 'size': 5000000},
+          ],
+        },
+      ],
+    };
+
+    test('posts the station key as a play queue source', () async {
+      // A station's key is a source URI, not a path: fetching
+      // /library/sections/3/stations/1 directly is a 404 on a real server, and
+      // reading it as a path is what made the Stations hub look broken. The
+      // server has to be named in the uri as well as addressed, because a play
+      // queue can in principle draw from more than one.
+      http.Request? sent;
+      final client = posting(
+        body: container([trackJson('1')]),
+        onRequest: (request) => sent = request,
+      );
+
+      await client.playQueueTracks('/library/sections/3/stations/1');
+
+      expect(sent!.method, 'POST');
+      expect(sent!.url.path, '/playQueues');
+      expect(sent!.url.queryParameters['type'], 'audio');
+      expect(
+        sent!.url.queryParameters['uri'],
+        'server://abc123/com.plexapp.plugins.library'
+        '/library/sections/3/stations/1',
+      );
+    });
+
+    test(
+      'plays the tracks the server chose, not a container to fetch',
+      () async {
+        final client = posting(
+          body: container([trackJson('1'), trackJson('2')]),
+        );
+
+        final tracks = await client.playQueueTracks(
+          '/library/sections/3/stations/1',
+        );
+
+        expect(tracks.map((t) => t.ratingKey), ['1', '2']);
+      },
+    );
+
+    test('a refusal reaches the caller rather than going quiet', () async {
+      // The opposite of every other call in this client, and deliberate: a
+      // station is something the user just pressed, so there is somewhere to
+      // put the reason. Nothing about /playQueues has been measured against a
+      // real server yet, and a silent failure would be the third time this
+      // feature looked like a dead button.
+      final client = PlexClient(
+        server: server,
+        identity: PlexIdentity.forTesting(),
+        httpClient: MockClient((_) async => http.Response('nope', 400)),
+      );
+
+      expect(
+        () => client.playQueueTracks('/library/sections/3/stations/1'),
+        throwsA(isA<PlexClientException>()),
+      );
     });
   });
 

@@ -35,6 +35,10 @@ class DiscoveryShelf {
   static List<ShelfItem> artists(List<PlexArtist> artists) => [
     for (final artist in artists) ShelfItem.artist(artist, 0),
   ];
+
+  static List<ShelfItem> stations(List<PlexStation> stations) => [
+    for (final station in stations) ShelfItem.station(station, 0),
+  ];
 }
 
 /// The seed that makes a rotating shelf rotate once a day.

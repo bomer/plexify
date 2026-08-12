@@ -211,11 +211,18 @@ class PlexHub {
   /// being dropped on the floor for want of a tile.
   final List<PlexArtist> artists;
 
+  /// The hub's items, when they are stations. See [PlexStation].
+  List<PlexStation> get stations => [
+    for (final row in items)
+      if (row['type'] == 'station') ?PlexStation.fromJson(row),
+  ];
+
   /// Whether there is anything here this app knows how to draw.
   ///
   /// Stations and music videos parse to nothing. A heading with nothing under
   /// it is worse than an absent row.
-  bool get hasItems => albums.isNotEmpty || artists.isNotEmpty;
+  bool get hasItems =>
+      albums.isNotEmpty || artists.isNotEmpty || stations.isNotEmpty;
 
   /// e.g. `home.music.recent`. Stable enough to key on, if it is there at all.
   final String hubIdentifier;
@@ -321,6 +328,37 @@ class PlexPlay {
       artistRatingKey: _str(json['grandparentRatingKey']),
       viewedAt: _int(json['viewedAt']) ?? 0,
       type: _str(json['type']),
+    );
+  }
+}
+
+/// One of the server's own radio stations.
+///
+/// **Not a container you can fetch.** The `key` looks like an ordinary path —
+/// `/library/sections/3/stations/1` — and every one of them 404s on a GET. It is
+/// a *play queue source*: the only way to hear a station is to POST it to
+/// `/playQueues` and play the tracks that come back. Reading it as a path is
+/// what made the Stations hub look broken.
+///
+/// Rule-based rather than sonic, whatever the hub's name suggests. The four
+/// this server publishes are everything, rarely played, by era and by album,
+/// and none of them needs sonic analysis to exist.
+class PlexStation {
+  const PlexStation({required this.key, required this.title, this.thumb});
+
+  /// The play queue source, e.g. `/library/sections/3/stations/1`.
+  final String key;
+
+  final String title;
+  final String? thumb;
+
+  static PlexStation? fromJson(Map<String, dynamic> json) {
+    final key = _str(json['key']);
+    if (key == null || key.isEmpty) return null;
+    return PlexStation(
+      key: key,
+      title: _str(json['title']) ?? 'Radio',
+      thumb: _str(json['thumb']) ?? _str(json['composite']),
     );
   }
 }
