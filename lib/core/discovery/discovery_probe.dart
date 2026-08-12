@@ -53,46 +53,64 @@ class HistoryAttempt {
   }
 }
 
-/// Whether this server can build a sonic station, and from what.
+/// One way of asking for sonic neighbours, and what came back.
 ///
-/// **The one thing that cannot be inferred from anywhere else.** `/nearest` is
-/// undocumented, and a server that has never run library analysis answers it
-/// exactly the same way as one that has no music near the seed: politely, with
-/// nothing in it. Naming the seed and counting what came back is the only way
-/// to tell those apart, and to tell both apart from the endpoint not existing.
-class NearestSample {
-  const NearestSample({
-    required this.seedTitle,
-    required this.seedRatingKey,
+/// **The `_historyAttempts` pattern, for the same reason.** `/nearest` returned
+/// an empty container on a library whose Stations hub is full, so sonic
+/// analysis has plainly run and the request is wrong rather than the server.
+/// A single shaped guess cannot tell which part is wrong: the path, the seed's
+/// type, or a parameter. Asking several ways and reporting each is the only
+/// thing that separates them, and the first form that returns rows is the
+/// answer.
+class NearestAttempt {
+  const NearestAttempt({
+    required this.label,
+    required this.path,
     required this.rows,
     required this.tracks,
-    required this.playable,
     this.error,
   });
 
-  /// What was asked about, so a surprising answer can be checked by ear.
-  final String seedTitle;
-  final String seedRatingKey;
+  final String label;
 
-  /// Rows in the container, whatever their type.
-  final int rows;
+  /// The exact path asked, so a working one can be read straight off.
+  final String path;
 
-  /// Of those, rows declaring `type=track` — what the client keeps.
+  /// Rows in the container, or null when the request failed outright.
+  final int? rows;
+
+  /// Of those, rows declaring `type=track`.
   final int tracks;
 
-  /// Of those, ones with a playable part. A station is built from these.
-  final int playable;
-
+  /// Set when the server refused, which it does *not* do for an empty result.
+  /// A 404 means the path does not exist; an empty 200 means it does and had
+  /// nothing to say. Those are different findings and must not be merged.
   final String? error;
 
-  /// Nothing to seed a station with, which is the state being diagnosed.
-  bool get isEmpty => error == null && playable == 0;
+  bool get worked => (rows ?? 0) > 0;
 
   String get verdict {
     if (error != null) return 'failed: $error';
-    if (rows == 0) return 'nothing came back';
-    return '$rows rows  ·  $tracks tracks  ·  $playable playable';
+    if (rows == 0) return 'nothing';
+    return '$rows rows, $tracks tracks';
   }
+}
+
+/// What the server publishes about its own sonic stations.
+///
+/// The rows of the `music.stations` hub, unparsed. Their `key` is the URI
+/// Plex's own client calls to play a station, and it is the only description of
+/// the sonic API that can be obtained without guessing.
+class StationRow {
+  const StationRow({
+    required this.title,
+    required this.key,
+    required this.type,
+  });
+
+  final String title;
+  final String key;
+  final String type;
 }
 
 /// What this server actually offers for a fuller Home screen.
@@ -104,13 +122,25 @@ class DiscoveryReport {
     required this.oldestPlay,
     required this.newestPlay,
     required this.months,
-    required this.nearest,
+    required this.nearestAttempts,
+    required this.stations,
+    required this.nearestSeed,
   });
 
-  /// Sonic neighbours for one real track from the library. Null when the cache
-  /// held no track to ask about, which is a different finding from an empty
-  /// answer.
-  final NearestSample? nearest;
+  /// Every way of asking for sonic neighbours that was tried.
+  final List<NearestAttempt> nearestAttempts;
+
+  /// What the Stations hub actually contains, unparsed.
+  final List<StationRow> stations;
+
+  /// The track the attempts were seeded from, named so a surprising answer can
+  /// be checked by ear. Null when the cache held nothing to ask about.
+  final String? nearestSeed;
+
+  /// A way of asking that returned something. Non-null means the endpoint
+  /// exists, the analysis has run, and only the request was wrong.
+  NearestAttempt? get workingNearest =>
+      nearestAttempts.where((a) => a.worked).firstOrNull;
 
   /// The hubs `/hubs/sections/{id}` published. Empty means the endpoint
   /// answered with nothing, or refused, which the client does not distinguish
@@ -191,7 +221,9 @@ class DiscoveryProbe {
       historyAttempts: attempts,
       oldestPlay: _at(plays.isEmpty ? null : plays.last.viewedAt),
       newestPlay: _at(plays.isEmpty ? null : plays.first.viewedAt),
-      nearest: await _nearest(),
+      nearestAttempts: await _nearestAttempts(section),
+      stations: _stations(hubs),
+      nearestSeed: await _seedName(),
       months: [
         await _month(
           plays,
@@ -248,45 +280,91 @@ class DiscoveryProbe {
     ];
   }
 
-  /// Asks `/nearest` about a track this library actually holds.
-  ///
-  /// Seeded from a *played* track where possible. Sonic analysis runs over the
-  /// whole library, so any track should do, but one that has been played is one
-  /// the user can recognise in the answer, and "these are nothing like it" is
-  /// itself a finding the counts cannot show.
-  Future<NearestSample?> _nearest() async {
+  /// The rows of the Stations hub, which name the endpoint Plex itself uses.
+  static List<StationRow> _stations(List<PlexHub> hubs) => [
+    for (final hub in hubs)
+      if (hub.kind == 'music.stations')
+        for (final row in hub.items)
+          StationRow(
+            title: '${row['title']}',
+            key: '${row['key']}',
+            type: '${row['type']}',
+          ),
+  ];
+
+  Future<String?> _seedName() async {
     final seed = await _db.aTrackWorthProbing();
     if (seed == null) return null;
+    return '${seed.artistTitle} — ${seed.title}  (${seed.ratingKey})';
+  }
 
-    try {
-      // Deliberately the raw container rather than PlexClient.nearest, which
-      // filters to tracks and swallows the failure. Both of those are the right
-      // call in the app and would destroy the evidence here: a response that is
-      // all albums and a response that is empty must not arrive looking the
-      // same.
-      final rows = await _client.nearestRaw(seed.ratingKey);
-      final tracks = [
-        for (final row in rows)
-          if (row['type'] == 'track') PlexTrack.fromJson(row),
-      ];
+  /// Asks for sonic neighbours several ways, and reports each.
+  ///
+  /// Ordered so the first entry is exactly what the app ships and each one
+  /// after it changes one thing. **Including `type=10`**, which the shipping
+  /// client deliberately does not send: refusing to send a parameter the server
+  /// might ignore is the right call in the app and the wrong call here, where
+  /// the question is precisely which parameters this endpoint honours.
+  ///
+  /// Seeded from a track, its album and its artist in turn, because "similarity
+  /// is measured per track" is an assumption of mine and not a measurement.
+  Future<List<NearestAttempt>> _nearestAttempts(PlexSection section) async {
+    final seed = await _db.aTrackWorthProbing();
+    if (seed == null) return const [];
 
-      return NearestSample(
-        seedTitle: '${seed.artistTitle} — ${seed.title}',
-        seedRatingKey: seed.ratingKey,
-        rows: rows.length,
-        tracks: tracks.length,
-        playable: tracks.where((t) => t.isPlayable).length,
-      );
-    } on Object catch (e) {
-      return NearestSample(
-        seedTitle: '${seed.artistTitle} — ${seed.title}',
-        seedRatingKey: seed.ratingKey,
-        rows: 0,
-        tracks: 0,
-        playable: 0,
-        error: '$e',
-      );
+    Future<NearestAttempt> attempt(
+      String label,
+      String path, {
+      Map<String, String>? query,
+    }) async {
+      try {
+        final rows = await _client.rawRows(path, query: query);
+        return NearestAttempt(
+          label: label,
+          path: path,
+          rows: rows.length,
+          tracks: rows.where((r) => r['type'] == 'track').length,
+        );
+      } on Object catch (e) {
+        return NearestAttempt(
+          label: label,
+          path: path,
+          rows: null,
+          tracks: 0,
+          error: '$e',
+        );
+      }
     }
+
+    final track = seed.ratingKey;
+    final album = seed.albumRatingKey;
+
+    return [
+      await attempt(
+        'As the app asks',
+        '/library/metadata/$track/nearest',
+        query: {'limit': '60'},
+      ),
+      await attempt('Without the limit', '/library/metadata/$track/nearest'),
+      await attempt(
+        'With type=10',
+        '/library/metadata/$track/nearest',
+        query: {'type': '10', 'limit': '60'},
+      ),
+      await attempt('Similar, not nearest', '/library/metadata/$track/similar'),
+      if (album != null)
+        await attempt(
+          'Seeded from the album',
+          '/library/metadata/$album/nearest',
+        ),
+      // The shape Plexamp's station URIs use, which the Stations rows above
+      // should confirm or contradict.
+      await attempt('As a station', '/library/metadata/$track/station/8'),
+      await attempt(
+        'The section stations endpoint',
+        '/library/sections/${section.key}/stations',
+      ),
+    ];
   }
 
   Future<MonthSample> _month(

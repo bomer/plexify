@@ -188,7 +188,17 @@ class PlexHub {
     this.context,
     this.albums = const [],
     this.artists = const [],
+    this.items = const [],
   });
+
+  /// The hub's rows exactly as sent, before anything was made of them.
+  ///
+  /// **Kept for [DiscoveryProbe] and nothing else.** Every typed field here
+  /// throws away whatever it did not recognise, and for `music.stations` that
+  /// is the entire row — including the `key` naming the endpoint Plex's own
+  /// client calls to play one. That key is the only documentation of the sonic
+  /// API that exists, and parsing it away is how it stayed unknown.
+  final List<Map<String, dynamic>> items;
 
   /// The hub's items, when they are albums.
   final List<PlexAlbum> albums;
@@ -250,6 +260,7 @@ class PlexHub {
       // actually be shown.
       size: _int(json['size']) ?? rows.length,
       context: _str(json['context']),
+      items: rows,
       albums: type == 'album'
           ? rows.map(PlexAlbum.fromJson).toList()
           : const [],

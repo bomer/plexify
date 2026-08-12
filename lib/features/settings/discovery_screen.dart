@@ -174,33 +174,43 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
             const SizedBox(height: 24),
             Text('Sonic neighbours', style: theme.textTheme.titleSmall),
             Text(
-              'What radio is built from. Empty here and empty everywhere: an '
-              'unanalysed library answers exactly like a track with nothing '
-              'near it, so the seed is named to make the answer checkable.',
+              'What radio is built from. /nearest returns nothing on a library '
+              'whose Stations hub is full, so analysis has run and the request '
+              'is wrong. The first row that returns anything is the answer.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
-            if (report.nearest case final sample?) ...[
-              _Row(label: 'Seed', value: sample.seedTitle),
+            _Row(label: 'Seed', value: report.nearestSeed ?? 'no track cached'),
+            for (final attempt in report.nearestAttempts)
               _Row(
-                label: '/nearest',
-                value: sample.verdict,
-                emphasis: sample.isEmpty || sample.error != null,
+                label: attempt.label,
+                value: attempt.verdict,
+                emphasis: attempt.worked,
               ),
-              if (sample.isEmpty)
-                const _Row(
-                  label: '',
-                  value:
-                      'Radio cannot work until Plex has analysed the library: '
-                      'Settings, Manage, Libraries, then Analyze. It takes '
-                      'hours to days and only has to run once.',
-                  emphasis: true,
-                ),
-            ] else
+            if (report.nearestAttempts.isNotEmpty &&
+                report.workingNearest == null)
               const _Row(
-                label: '/nearest',
-                value: 'no track in the cache to ask about',
+                label: '',
+                value:
+                    'No form of the request returned anything. Copy the report '
+                    'below: the station keys are what Plex itself calls, and '
+                    'they are the next thing to try.',
+                emphasis: true,
               ),
+
+            const SizedBox(height: 16),
+            Text('Stations Plex publishes', style: theme.textTheme.titleSmall),
+            Text(
+              'Unparsed. Each key is the URI Plex own clients call to play a '
+              'station, which is the only description of this API that exists.',
+              style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 8),
+            if (report.stations.isEmpty)
+              const _Row(label: 'Stations', value: 'none published')
+            else
+              for (final station in report.stations)
+                _Row(label: station.title, value: station.key),
 
             const SizedBox(height: 24),
             OutlinedButton.icon(
@@ -242,11 +252,14 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
         '  ${month.label}: ${month.plays} plays, ${month.albums} albums, '
             '${month.inLibrary} in library',
       '',
-      if (report.nearest case final sample?) ...[
-        'Nearest, seeded from ${sample.seedTitle} (${sample.seedRatingKey}):',
-        '  ${sample.verdict}',
-      ] else
-        'Nearest: no track in the cache to ask about',
+      'Nearest, seeded from ${report.nearestSeed ?? "nothing cached"}:',
+      for (final attempt in report.nearestAttempts)
+        '  ${attempt.label}: ${attempt.verdict}   [${attempt.path}]',
+      '',
+      'Stations (${report.stations.length}):',
+      if (report.stations.isEmpty) '  none',
+      for (final station in report.stations)
+        '  "${station.title}"  type=${station.type}  key=${station.key}',
     ];
     return lines.join('\n');
   }

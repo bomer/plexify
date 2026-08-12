@@ -506,21 +506,22 @@ class PlexClient {
   /// Returns empty rather than throwing when the endpoint is missing or the
   /// library has never been analysed, because both are ordinary states of a
   /// server rather than faults: see [SonicRadio] for how that is surfaced.
-  /// The unfiltered container `/nearest` returns, for [DiscoveryProbe].
+  /// Any path on this server, unparsed, for [DiscoveryProbe].
   ///
-  /// Everything [nearest] does to make the response usable — keeping only
-  /// tracks, turning a refusal into an empty list — also destroys the evidence
-  /// needed to explain why a station could not be built. A library with no
-  /// sonic analysis, a server without the endpoint, and a track with genuinely
-  /// nothing near it all arrive as an empty list there, and must not here.
-  Future<List<Map<String, dynamic>>> nearestRaw(
-    String trackRatingKey, {
-    int limit = 60,
+  /// **The probe has to be able to ask questions the client does not know how
+  /// to ask**, which is the whole point of having one: everything the typed
+  /// methods do to make a response usable also destroys the evidence for why a
+  /// response was not usable. `/nearest` returning nothing on a library that
+  /// has definitely been analysed is exactly that situation, and it cannot be
+  /// diagnosed by a method that already assumes the path is right.
+  ///
+  /// Throws rather than swallowing, because which paths fail and how is the
+  /// finding.
+  Future<List<Map<String, dynamic>>> rawRows(
+    String path, {
+    Map<String, String>? query,
   }) async {
-    final container = await _getContainer(
-      '/library/metadata/$trackRatingKey/nearest',
-      query: {'limit': '$limit'},
-    );
+    final container = await _getContainer(path, query: query);
     return _listOf(container, 'Metadata');
   }
 
