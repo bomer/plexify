@@ -104,6 +104,26 @@ void main() {
       }
     });
 
+    test('local server details cannot be committed', () {
+      // The same guard as the signing key, for the same reason and in the same
+      // shape. slskd.local.json holds an API key in plain text so the
+      // integration can be tried against a real server by hand; the app never
+      // reads it. An example file sits beside it in the tree deliberately, so
+      // the shape is documented without the secret being.
+      expect(File('.gitignore').readAsStringSync(), contains('slskd.local'));
+
+      final tracked = Process.runSync('git', ['ls-files', 'slskd.local.json']);
+      if (tracked.exitCode == 0) {
+        expect(
+          (tracked.stdout as String).trim(),
+          isEmpty,
+          reason:
+              'slskd.local.json is committed and it holds an API key. Remove '
+              'it from git and reissue the key in slskd.yml.',
+        );
+      }
+    });
+
     test('the release manifest declares INTERNET', () {
       final manifest = File(
         'android/app/src/main/AndroidManifest.xml',

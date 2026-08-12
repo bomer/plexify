@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Copy this to slskd.local.json and fill it in. That name is gitignored;",
+    "this one is not, so never put a real key here.",
+    "",
+    "Used only for hand-testing the slskd integration against a real server.",
+    "The app itself never reads this file: it takes the address from Settings",
+    "and the API key from the platform keystore.",
+    "",
+    "Generate a key with: openssl rand -base64 48",
+    "then add it to slskd.yml under web.authentication.api_keys."
+  ],
+  "url": "https://nas.local:5031",
+  "apiKey": ""
+}

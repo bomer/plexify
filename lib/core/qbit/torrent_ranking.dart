@@ -1,20 +1,21 @@
-/// Orders search hits, and decides whether any of them is good enough to queue
-/// without asking.
+/// Orders torrent search hits, and decides whether any of them is good enough
+/// to queue without asking.
 ///
-/// This is the only part of acquisition with real judgement in it, so it is a
-/// pure function over a list — no client, no futures, no state — and it is
-/// tested directly. Everything else in the flow is plumbing whose failure is
-/// obvious; this one fails by quietly downloading the wrong thing.
+/// This is the only part of qBittorrent acquisition with real judgement in it,
+/// so it is a pure function over a list, no client and no futures and no state,
+/// and it is tested directly. Everything else in the flow is plumbing whose
+/// failure is obvious; this one fails by quietly downloading the wrong thing.
 ///
-/// **Why matching is done on tokens and not through `normalise`.** The library's
-/// normaliser drops punctuation entirely, which is right for typed queries:
-/// "dont look back" should find "Don't Look Back". It is wrong for filenames,
-/// where punctuation *is* the word separator — `OK_Computer` would fold to
-/// `okcomputer` and stop containing either word. Here separators become spaces
-/// instead.
+/// Deciding whether a name *is* the record lives in `acquire/matching.dart`,
+/// shared with the Soulseek ranker, which asks the same questions of a folder
+/// rather than of a torrent filename. What stays here is everything specific to
+/// torrents: link kinds, seeders, and whole-discography bundles.
 library;
 
+import '../acquire/matching.dart';
 import 'qbit_models.dart';
+
+export '../acquire/matching.dart' show AudioFormat;
 
 /// A search hit with a score and a verdict.
 class RankedTorrent {
@@ -63,30 +64,6 @@ class RankedTorrent {
   final AudioFormat format;
 }
 
-/// Formats worth telling apart, best first.
-///
-/// Only three, because only three change the decision. A lossless rip is worth
-/// having over a lossy one; beyond that the difference between two lossy
-/// encodings is not worth ranking, and pretending to know a bitrate from a
-/// filename is how a 128k rip labelled "320" gets preferred.
-enum AudioFormat {
-  lossless(3, {'flac', 'alac', 'ape', 'wav', 'dsd', 'lossless'}),
-  lossy(1, {'mp3', 'aac', 'm4a', 'ogg', 'opus', 'vbr', 'v0', '320', '256'}),
-  unknown(0, {});
-
-  const AudioFormat(this.weight, this.tokens);
-
-  final int weight;
-  final Set<String> tokens;
-
-  static AudioFormat detect(Set<String> tokens) {
-    for (final format in [lossless, lossy]) {
-      if (format.tokens.any(tokens.contains)) return format;
-    }
-    return unknown;
-  }
-}
-
 /// Ranks [results] for a specific record, best first.
 List<RankedTorrent> rankTorrents(
   Iterable<QbitSearchResult> results, {
@@ -94,8 +71,8 @@ List<RankedTorrent> rankTorrents(
   required String album,
   int? year,
 }) {
-  final wantedArtist = _significantTokens(artist);
-  final wantedAlbum = _significantTokens(album);
+  final wantedArtist = significantTokens(artist);
+  final wantedAlbum = significantTokens(album);
 
   final ranked = <RankedTorrent>[
     for (final result in results)
@@ -153,16 +130,14 @@ RankedTorrent _rank(
   int? year,
   String rawAlbum,
 ) {
-  final tokens = torrentTokens(result.fileName);
+  final tokens = nameTokens(result.fileName);
   final format = AudioFormat.detect(tokens);
 
-  // Every significant album word has to be present. The artist needs only one,
-  // because filenames abbreviate performers far more often than titles — "RHCP"
-  // for Red Hot Chili Peppers — while the album name is the thing being named.
-  final albumMatches =
-      wantedAlbum.isNotEmpty && wantedAlbum.every(tokens.contains);
-  final artistMatches =
-      wantedArtist.isEmpty || wantedArtist.any(tokens.contains);
+  final named = namesRelease(
+    tokens,
+    wantedArtist: wantedArtist,
+    wantedAlbum: wantedAlbum,
+  );
 
   var score = 0.0;
 
@@ -171,7 +146,7 @@ RankedTorrent _rank(
   // scoring it linearly would let a hugely popular loose match outweigh
   // everything else about a result.
   if (result.hasSeeders) {
-    score += 10 * _log2(result.seeders + 1);
+    score += 10 * log2(result.seeders + 1);
   }
 
   score += format.weight * 12;
@@ -180,14 +155,8 @@ RankedTorrent _rank(
 
   // A record's own title outranks the penalty, so searching for a live album
   // is not sabotaged by the word "live" being in its name.
-  final albumTokens = _significantTokens(rawAlbum);
-  var unwanted = false;
-  for (final word in _unwantedWords) {
-    if (tokens.contains(word) && !albumTokens.contains(word)) {
-      score -= 40;
-      unwanted = true;
-    }
-  }
+  final unwanted = unwantedIn(tokens, album: rawAlbum);
+  score -= 40 * unwanted.length;
 
   // Whole-discography torrents match everything and are usually tens of
   // gigabytes. Not excluded — sometimes it is exactly what you want — but never
@@ -204,52 +173,7 @@ RankedTorrent _rank(
     // album, so it matches on tokens alone — and a well-seeded one outscored a
     // sparsely-seeded real rip until this was a gate rather than a subtraction.
     // It is still in the list; it is just never the automatic choice.
-    matchesRelease: albumMatches && artistMatches && !isBundle && !unwanted,
+    matchesRelease: named && !isBundle && unwanted.isEmpty,
     format: format,
   );
-}
-
-/// Splits a filename into lowercase words on anything that is not a letter or
-/// digit, which is what separates them in practice: dots, underscores, hyphens,
-/// brackets and spaces all appear as separators in the same filename.
-Set<String> torrentTokens(String input) => input
-    .toLowerCase()
-    .split(RegExp(r'[^a-z0-9]+'))
-    .where((t) => t.isNotEmpty)
-    .toSet();
-
-/// Words that carry no matching signal, dropped so their absence from a
-/// filename cannot fail a match.
-///
-/// `The Beatles` matching a file named `Beatles - Revolver` is the case this
-/// exists for, and it is extremely common.
-Set<String> _significantTokens(String input) =>
-    torrentTokens(input).difference(_stopWords);
-
-const _stopWords = {'the', 'a', 'an', 'and', 'of', 'in', 'on', 'at'};
-
-/// Things that mean "this is not the record you asked for".
-///
-/// Applied only when the album's own title does not contain the word, so a
-/// genuine live album or remix collection is unaffected.
-const _unwantedWords = {
-  'karaoke',
-  'tribute',
-  'covers',
-  'instrumental',
-  'instrumentals',
-  'sample',
-  'samples',
-  'ringtone',
-  'ringtones',
-};
-
-double _log2(int value) {
-  var result = 0.0;
-  var remaining = value.toDouble();
-  while (remaining > 1) {
-    remaining /= 2;
-    result += 1;
-  }
-  return result;
 }

@@ -55,3 +55,7 @@ app.*.map.json
 
 # Packaged output from tool/package.ps1
 /dist/
+
+# Local server details used for hand-testing against real servers. Holds an
+# slskd API key in plain text, which is a credential like any other.
+/slskd.local.json

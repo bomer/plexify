@@ -3,6 +3,7 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
+import '../http/bounded_client.dart';
 import 'qbit_models.dart';
 
 /// qBittorrent WebUI API v2.
@@ -35,7 +36,7 @@ class QbitClient {
     http.Client? httpClient,
     Duration requestTimeout = const Duration(seconds: 10),
   }) : baseUrl = _trim(baseUrl),
-       _http = _Bounded(httpClient ?? http.Client(), requestTimeout);
+       _http = BoundedClient(httpClient ?? http.Client(), requestTimeout);
 
   /// Scheme, host and port, with no trailing slash.
   final String baseUrl;
@@ -396,30 +397,4 @@ class QbitClient {
     }
     return trimmed;
   }
-}
-
-/// Bounds every request, including ones added later.
-///
-/// **The third HTTP client in this app, and the last one to get a timeout.** A
-/// qBittorrent that is simply not there — wrong address, not on the LAN, machine
-/// asleep — accepts nothing and says nothing, and `package:http` waits forever.
-/// The whole acquisition flow then hangs on its very first call with no error to
-/// show and nothing to time out, which is what "it just comes up Searching and
-/// stays there" looked like from the outside.
-///
-/// Wrapped rather than applied at each call site so the eight endpoints here and
-/// whatever is added next are covered by construction — the same reasoning as
-/// `HealthReportingClient`, and the reason that one has never had this problem.
-class _Bounded extends http.BaseClient {
-  _Bounded(this._inner, this._timeout);
-
-  final http.Client _inner;
-  final Duration _timeout;
-
-  @override
-  Future<http.StreamedResponse> send(http.BaseRequest request) =>
-      _inner.send(request).timeout(_timeout);
-
-  @override
-  void close() => _inner.close();
 }
