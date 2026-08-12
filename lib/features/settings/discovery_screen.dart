@@ -210,7 +210,11 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
               const _Row(label: 'Stations', value: 'none published')
             else
               for (final station in report.stations)
-                _Row(label: station.title, value: station.key),
+                _Row(
+                  label: station.title,
+                  value: '${station.verdict}   ${station.key}',
+                  emphasis: station.playable,
+                ),
 
             const SizedBox(height: 24),
             OutlinedButton.icon(
@@ -259,7 +263,8 @@ class _DiscoveryScreenState extends ConsumerState<DiscoveryScreen> {
       'Stations (${report.stations.length}):',
       if (report.stations.isEmpty) '  none',
       for (final station in report.stations)
-        '  "${station.title}"  type=${station.type}  key=${station.key}',
+        '  "${station.title}"  type=${station.type}  ${station.verdict}  '
+            'key=${station.key}',
     ];
     return lines.join('\n');
   }

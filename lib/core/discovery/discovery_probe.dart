@@ -55,13 +55,20 @@ class HistoryAttempt {
 
 /// One way of asking for sonic neighbours, and what came back.
 ///
-/// **The `_historyAttempts` pattern, for the same reason.** `/nearest` returned
-/// an empty container on a library whose Stations hub is full, so sonic
-/// analysis has plainly run and the request is wrong rather than the server.
-/// A single shaped guess cannot tell which part is wrong: the path, the seed's
-/// type, or a parameter. Asking several ways and reporting each is the only
-/// thing that separates them, and the first form that returns rows is the
-/// answer.
+/// **The `_historyAttempts` pattern, for the same reason.** A single shaped
+/// guess cannot say which part of a request is wrong: the path, the seed's
+/// type, or a parameter. Asking several ways and reporting each separates them,
+/// and the first form that returns rows is the answer.
+///
+/// Measured on James's server, 12 August 2026, and the answer was **none of
+/// them**. `/nearest` answers 200 with an empty container for a track, its
+/// album and its artist, with and without `type`; `/similar`, `/station/8` and
+/// `/sections/{id}/stations` all 404. An endpoint that exists and holds nothing
+/// is a data problem, not a request problem: sonic analysis is a Plex Pass
+/// feature run separately from the ordinary "Analyze", and this library has not
+/// had it.
+///
+/// **The inference that wasted three attempts is recorded in [StationRow].**
 class NearestAttempt {
   const NearestAttempt({
     required this.label,
@@ -96,21 +103,50 @@ class NearestAttempt {
   }
 }
 
-/// What the server publishes about its own sonic stations.
+/// A station this server publishes, and what its key actually returns.
 ///
-/// The rows of the `music.stations` hub, unparsed. Their `key` is the URI
-/// Plex's own client calls to play a station, and it is the only description of
-/// the sonic API that can be obtained without guessing.
+/// **Naming the key was not enough.** `/nearest` proved that an endpoint can
+/// exist, answer 200 and hold nothing at all, so a key is a lead until it has
+/// been fetched. These are the one part of the station API this server
+/// demonstrably has, and whether they can be played is the difference between a
+/// feature and another dead end.
+///
+/// Worth being clear about what they are *not*. "Library Radio", "Deep Cuts",
+/// "Time Travel" and "Random Album" are rule-based — everything, rarely played,
+/// by era, by album — and none of them needs a sonic fingerprint. This hub
+/// being full is therefore no evidence that sonic analysis has run, which is
+/// exactly the inference that sent the first three attempts at radio looking
+/// for a fault in the request.
 class StationRow {
   const StationRow({
     required this.title,
     required this.key,
     required this.type,
+    this.rows,
+    this.tracks,
+    this.error,
   });
 
   final String title;
   final String key;
   final String type;
+
+  /// What fetching [key] returned, or null if it was not fetched.
+  final int? rows;
+
+  /// Of those, rows declaring `type=track` — what could actually be played.
+  final int? tracks;
+
+  final String? error;
+
+  bool get playable => (tracks ?? 0) > 0;
+
+  String get verdict {
+    if (error != null) return 'failed: $error';
+    if (rows == null) return 'not fetched';
+    if (rows == 0) return 'empty';
+    return '$rows rows, $tracks tracks';
+  }
 }
 
 /// What this server actually offers for a fuller Home screen.
@@ -222,7 +258,7 @@ class DiscoveryProbe {
       oldestPlay: _at(plays.isEmpty ? null : plays.last.viewedAt),
       newestPlay: _at(plays.isEmpty ? null : plays.first.viewedAt),
       nearestAttempts: await _nearestAttempts(section),
-      stations: _stations(hubs),
+      stations: await _stations(hubs),
       nearestSeed: await _seedName(),
       months: [
         await _month(
@@ -281,16 +317,45 @@ class DiscoveryProbe {
   }
 
   /// The rows of the Stations hub, which name the endpoint Plex itself uses.
-  static List<StationRow> _stations(List<PlexHub> hubs) => [
-    for (final hub in hubs)
-      if (hub.kind == 'music.stations')
-        for (final row in hub.items)
+  /// Every station the hub names, each one fetched. See [StationRow].
+  Future<List<StationRow>> _stations(List<PlexHub> hubs) async {
+    final named = [
+      for (final hub in hubs)
+        if (hub.kind == 'music.stations')
+          for (final row in hub.items)
+            (
+              title: '${row['title']}',
+              key: '${row['key']}',
+              type: '${row['type']}',
+            ),
+    ];
+
+    final fetched = <StationRow>[];
+    for (final row in named) {
+      try {
+        final items = await _client.rawRows(row.key);
+        fetched.add(
           StationRow(
-            title: '${row['title']}',
-            key: '${row['key']}',
-            type: '${row['type']}',
+            title: row.title,
+            key: row.key,
+            type: row.type,
+            rows: items.length,
+            tracks: items.where((i) => i['type'] == 'track').length,
           ),
-  ];
+        );
+      } on Object catch (e) {
+        fetched.add(
+          StationRow(
+            title: row.title,
+            key: row.key,
+            type: row.type,
+            error: '$e',
+          ),
+        );
+      }
+    }
+    return fetched;
+  }
 
   Future<String?> _seedName() async {
     final seed = await _db.aTrackWorthProbing();
@@ -338,6 +403,12 @@ class DiscoveryProbe {
 
     final track = seed.ratingKey;
     final album = seed.albumRatingKey;
+    // **The seed type Plexamp actually offers.** It greys sonic radio out on a
+    // song and enables it on an artist, which says the model is per artist and
+    // not per track. Every attempt below it was seeded from a track because
+    // "similarity is measured per track" was my assumption, asserted in three
+    // doc comments and never once tested.
+    final artist = album == null ? null : await _artistOf(album);
 
     return [
       await attempt(
@@ -364,7 +435,31 @@ class DiscoveryProbe {
         'The section stations endpoint',
         '/library/sections/${section.key}/stations',
       ),
+
+      // Artist-seeded, which is the only form Plexamp offers. The station
+      // numbers mirror the section stations, whose keys end in 1, 2, 3 and 8.
+      if (artist != null) ...[
+        await attempt(
+          'Seeded from the artist',
+          '/library/metadata/$artist/nearest',
+        ),
+        await attempt(
+          'Artist as a station',
+          '/library/metadata/$artist/station/8',
+        ),
+        await attempt(
+          'Artist station 1',
+          '/library/metadata/$artist/station/1',
+        ),
+        await attempt('Artist similar', '/library/metadata/$artist/similar'),
+      ],
     ];
+  }
+
+  /// The artist a given album belongs to, for an artist-seeded attempt.
+  Future<String?> _artistOf(String albumRatingKey) async {
+    final rows = await _db.albumsByKeys([albumRatingKey]);
+    return rows.firstOrNull?.artistRatingKey;
   }
 
   Future<MonthSample> _month(
