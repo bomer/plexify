@@ -31,6 +31,81 @@ void main() {
 
   DateTime at(int day) => DateTime.utc(2026, 8, day);
 
+  /// Every branch's four front-of-tile fields, including the ones that are
+  /// allowed to be absent.
+  ///
+  /// **A tile with no picture is the ordinary case, not an edge case**, and it
+  /// was the one branch nothing covered. Reading a thumb off an artist that has
+  /// none asserted on a station that was never there, and Home drew the result
+  /// as a grey rectangle: Flutter's release error widget is a plain grey box,
+  /// so a crash in a tile looks exactly like a layout bug.
+  group('what a tile reads off any branch', () {
+    test('an artist without a picture has no thumb, and does not throw', () {
+      const item = ShelfItem.artist(
+        PlexArtist(ratingKey: 'a1', title: 'Harry Gregson-Williams'),
+        0,
+      );
+
+      expect(item.thumb, isNull);
+      expect(item.title, 'Harry Gregson-Williams');
+      expect(item.ratingKey, 'a1');
+    });
+
+    test('an album without a picture has no thumb, and does not throw', () {
+      const item = ShelfItem.album(
+        PlexAlbum(ratingKey: 'b1', title: 'Pink Moon', artist: 'Nick Drake'),
+        0,
+      );
+
+      expect(item.thumb, isNull);
+      expect(item.subtitle, 'Nick Drake');
+    });
+
+    test('a playlist without a picture has no thumb, and does not throw', () {
+      const item = ShelfItem.playlist(
+        PlexPlaylist(ratingKey: 'p1', title: 'Party 07', itemCount: 77),
+        0,
+      );
+
+      expect(item.thumb, isNull);
+      expect(item.subtitle, 'Playlist · 77 tracks');
+    });
+
+    test('a station without a picture has no thumb, and does not throw', () {
+      const item = ShelfItem.station(
+        PlexStation(
+          key: '/library/sections/3/stations/1',
+          title: 'Library Radio',
+        ),
+        0,
+      );
+
+      expect(item.thumb, isNull);
+      expect(item.title, 'Library Radio');
+      // Its key stands in for a rating key: a station has none, and nothing
+      // sorts or dedupes them.
+      expect(item.ratingKey, '/library/sections/3/stations/1');
+      expect(item.subtitle, 'Radio');
+    });
+
+    test('a picture is read off whichever branch is set', () {
+      expect(
+        const ShelfItem.artist(
+          PlexArtist(ratingKey: 'a1', title: 'A', thumb: '/art/a'),
+          0,
+        ).thumb,
+        '/art/a',
+      );
+      expect(
+        const ShelfItem.station(
+          PlexStation(key: '/k', title: 'S', thumb: '/art/s'),
+          0,
+        ).thumb,
+        '/art/s',
+      );
+    });
+  });
+
   /// The library rows exist either way; the second element is when this device
   /// *started* the thing, or null for something it never played.
   Future<void> seed({

@@ -77,8 +77,17 @@ class ShelfItem {
   String get title =>
       album?.title ?? playlist?.title ?? artist?.title ?? station!.title;
 
+  /// **Every link in this chain is `?.`, including the last one.**
+  ///
+  /// [title] and [ratingKey] can end on `station!` because those fields are
+  /// non-null on every model, so the branch that exists always short-circuits.
+  /// A thumb is nullable on all four, so an artist that simply has no picture
+  /// falls all the way through and asserts on a station that was never there.
+  /// Home renders that as a grey rectangle rather than an error, because
+  /// Flutter's release error widget is a plain grey box, so it reads as a
+  /// layout bug rather than a crash.
   String? get thumb =>
-      album?.thumb ?? playlist?.thumb ?? artist?.thumb ?? station!.thumb;
+      album?.thumb ?? playlist?.thumb ?? artist?.thumb ?? station?.thumb;
 
   /// The second line on a tile.
   ///
