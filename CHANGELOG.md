@@ -29,8 +29,8 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 - Artist radio. A **Radio** button on any artist, album and in the Now Playing header builds a
   queue from that artist plus the artists Plex considers similar, alternating between them
   rather than playing one discography after another. On a phone, long-pressing a track offers
-  the same. The tracks come from your own library, so a station starts instantly and works
-  offline.
+  the same, and on the desktop a right-click on any track does. The tracks come from your own
+  library, so a station starts instantly and works offline.
 - Playback keeps going when a queue ends, continuing with artists similar to the one that was
   playing. The next tracks are queued a few songs before the end, so it joins without a gap.
   There is a switch under Settings, Playback to turn it off.

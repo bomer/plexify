@@ -17,6 +17,7 @@ import 'cover_frame.dart';
 import '../player/playing_indicator.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
+import 'track_context_menu.dart';
 import 'track_rating_sheet.dart';
 
 /// An artist's discography, oldest first.
@@ -443,56 +444,61 @@ class _TrackList extends ConsumerWidget {
           itemBuilder: (context, i) {
             final track = tracks[i];
             final playing = isNowPlaying(ref, track.ratingKey);
-            return ListTile(
-              dense: true,
-              selected: playing,
-              leading: playing ? const PlayingIndicator() : null,
-              title: Text(
-                track.title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              subtitle: Text(
-                track.album,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-              ),
-              // Stars are desktop-only here for the same reason as the album
-              // screen: on a phone they crowd out the title and the album.
-              trailing: compact
-                  ? null
-                  : StarRating(
-                      rating: track.userRating,
-                      size: 15,
-                      onRate: (stars) async {
-                        final ok = await ref
-                            .read(ratingControllerProvider)
-                            ?.rateTrack(track, stars);
-                        if (ok == false && context.mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Could not save rating to Plex'),
-                            ),
-                          );
-                        }
-                      },
+            return withTrackMenu(
+              ref: ref,
+              track: track,
+              compact: compact,
+              child: ListTile(
+                dense: true,
+                selected: playing,
+                leading: playing ? const PlayingIndicator() : null,
+                title: Text(
+                  track.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  track.album,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                // Stars are desktop-only here for the same reason as the album
+                // screen: on a phone they crowd out the title and the album.
+                trailing: compact
+                    ? null
+                    : StarRating(
+                        rating: track.userRating,
+                        size: 15,
+                        onRate: (stars) async {
+                          final ok = await ref
+                              .read(ratingControllerProvider)
+                              ?.rateTrack(track, stars);
+                          if (ok == false && context.mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text('Could not save rating to Plex'),
+                              ),
+                            );
+                          }
+                        },
+                      ),
+                enabled: track.isPlayable,
+                // Queues the whole discography from here, so playing one track
+                // keeps going through the rest rather than stopping dead.
+                onTap: () => ref
+                    .read(playbackControllerProvider)
+                    ?.playTracks(
+                      tracks,
+                      startIndex: i,
+                      source: PlaybackSource(
+                        PlaybackSourceKind.artist,
+                        artistRatingKey,
+                      ),
                     ),
-              enabled: track.isPlayable,
-              // Queues the whole discography from here, so playing one track
-              // keeps going through the rest rather than stopping dead.
-              onTap: () => ref
-                  .read(playbackControllerProvider)
-                  ?.playTracks(
-                    tracks,
-                    startIndex: i,
-                    source: PlaybackSource(
-                      PlaybackSourceKind.artist,
-                      artistRatingKey,
-                    ),
-                  ),
-              onLongPress: compact
-                  ? () => showTrackRatingSheet(context, ref, track)
-                  : null,
+                onLongPress: compact
+                    ? () => showTrackRatingSheet(context, ref, track)
+                    : null,
+              ),
             );
           },
         ),

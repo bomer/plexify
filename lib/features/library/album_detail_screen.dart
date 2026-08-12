@@ -15,6 +15,7 @@ import 'cover_frame.dart';
 import 'detail_back.dart';
 import '../player/playing_indicator.dart';
 import 'star_rating.dart';
+import 'track_context_menu.dart';
 import 'track_rating_sheet.dart';
 import 'track_totals.dart';
 
@@ -71,87 +72,96 @@ class AlbumDetailScreen extends ConsumerWidget {
 
                     final playing = isNowPlaying(ref, track.ratingKey);
 
-                    return ListTile(
-                      // Selected rather than a hand-rolled colour, so the highlight
-                      // follows the theme and stays legible in both.
-                      selected: playing,
-                      // The marker replaces the track number rather than crowding in
-                      // beside it: in a numbered list the number is how you find your
-                      // place, and the one row you do not need it for is the one you
-                      // are listening to.
-                      leading: SizedBox(
-                        width: 28,
-                        child: playing
-                            ? const Align(
-                                alignment: Alignment.centerRight,
-                                child: PlayingIndicator(),
-                              )
+                    return withTrackMenu(
+                      ref: ref,
+                      track: track,
+                      compact: compact,
+                      child: ListTile(
+                        // Selected rather than a hand-rolled colour, so the highlight
+                        // follows the theme and stays legible in both.
+                        selected: playing,
+                        // The marker replaces the track number rather than crowding in
+                        // beside it: in a numbered list the number is how you find your
+                        // place, and the one row you do not need it for is the one you
+                        // are listening to.
+                        leading: SizedBox(
+                          width: 28,
+                          child: playing
+                              ? const Align(
+                                  alignment: Alignment.centerRight,
+                                  child: PlayingIndicator(),
+                                )
+                              : Text(
+                                  '${track.index}',
+                                  textAlign: TextAlign.end,
+                                  style: theme.textTheme.bodySmall?.copyWith(
+                                    color: theme.colorScheme.onSurfaceVariant,
+                                  ),
+                                ),
+                        ),
+                        title: Text(
+                          track.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: track.isPlayable
+                            ? null
                             : Text(
-                                '${track.index}',
-                                textAlign: TextAlign.end,
-                                style: theme.textTheme.bodySmall?.copyWith(
-                                  color: theme.colorScheme.onSurfaceVariant,
+                                'Unavailable',
+                                style: TextStyle(
+                                  color: theme.colorScheme.error,
                                 ),
                               ),
-                      ),
-                      title: Text(
-                        track.title,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      subtitle: track.isPlayable
-                          ? null
-                          : Text(
-                              'Unavailable',
-                              style: TextStyle(color: theme.colorScheme.error),
-                            ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          // Five stars per row eats most of a phone's width and pushes
-                          // the title — the thing being scanned for — into an ellipsis.
-                          // Long press opens the same rating instead.
-                          if (!compact)
-                            StarRating(
-                              rating: track.userRating,
-                              size: 15,
-                              onRate: (stars) async {
-                                final ok = await ref
-                                    .read(ratingControllerProvider)
-                                    ?.rateTrack(track, stars);
-                                if (ok == false && context.mounted) {
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text(
-                                        'Could not save rating to Plex',
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            // Five stars per row eats most of a phone's width and pushes
+                            // the title — the thing being scanned for — into an ellipsis.
+                            // Long press opens the same rating instead.
+                            if (!compact)
+                              StarRating(
+                                rating: track.userRating,
+                                size: 15,
+                                onRate: (stars) async {
+                                  final ok = await ref
+                                      .read(ratingControllerProvider)
+                                      ?.rateTrack(track, stars);
+                                  if (ok == false && context.mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                          'Could not save rating to Plex',
+                                        ),
                                       ),
-                                    ),
-                                  );
-                                }
-                              },
+                                    );
+                                  }
+                                },
+                              ),
+                            if (!compact) const SizedBox(width: 8),
+                            Text(
+                              formatClock(track.duration),
+                              style: theme.textTheme.bodySmall,
                             ),
-                          if (!compact) const SizedBox(width: 8),
-                          Text(
-                            formatClock(track.duration),
-                            style: theme.textTheme.bodySmall,
-                          ),
-                        ],
+                          ],
+                        ),
+                        enabled: track.isPlayable,
+                        onTap: () {
+                          final controller = ref.read(
+                            playbackControllerProvider,
+                          );
+                          controller?.playTracks(
+                            items,
+                            startIndex: index,
+                            source: PlaybackSource(
+                              PlaybackSourceKind.album,
+                              album.ratingKey,
+                            ),
+                          );
+                        },
+                        onLongPress: compact
+                            ? () => showTrackRatingSheet(context, ref, track)
+                            : null,
                       ),
-                      enabled: track.isPlayable,
-                      onTap: () {
-                        final controller = ref.read(playbackControllerProvider);
-                        controller?.playTracks(
-                          items,
-                          startIndex: index,
-                          source: PlaybackSource(
-                            PlaybackSourceKind.album,
-                            album.ratingKey,
-                          ),
-                        );
-                      },
-                      onLongPress: compact
-                          ? () => showTrackRatingSheet(context, ref, track)
-                          : null,
                     );
                   },
                 ),

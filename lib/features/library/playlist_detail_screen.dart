@@ -13,6 +13,7 @@ import 'cover_frame.dart';
 import 'detail_back.dart';
 import 'rating_controller.dart';
 import 'star_rating.dart';
+import 'track_context_menu.dart';
 import 'track_rating_sheet.dart';
 import 'track_totals.dart';
 
@@ -100,90 +101,97 @@ class PlaylistDetailScreen extends ConsumerWidget {
                       final track = items[index];
                       final playing = isNowPlaying(ref, track.ratingKey);
 
-                      return ListTile(
-                        selected: playing,
-                        // Position in the playlist, replaced by the marker on the row
-                        // that is playing — the same trade the album page makes. The
-                        // number is how you find your place in a list of a hundred
-                        // and forty, and the one row you do not need it for is the
-                        // one you are listening to.
-                        leading: SizedBox(
-                          width: 28,
-                          child: playing
-                              ? const Align(
-                                  alignment: Alignment.centerRight,
-                                  child: PlayingIndicator(),
-                                )
-                              : Text(
-                                  '${index + 1}',
-                                  textAlign: TextAlign.end,
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
+                      return withTrackMenu(
+                        ref: ref,
+                        track: track,
+                        compact: compact,
+                        child: ListTile(
+                          selected: playing,
+                          // Position in the playlist, replaced by the marker on the row
+                          // that is playing — the same trade the album page makes. The
+                          // number is how you find your place in a list of a hundred
+                          // and forty, and the one row you do not need it for is the
+                          // one you are listening to.
+                          leading: SizedBox(
+                            width: 28,
+                            child: playing
+                                ? const Align(
+                                    alignment: Alignment.centerRight,
+                                    child: PlayingIndicator(),
+                                  )
+                                : Text(
+                                    '${index + 1}',
+                                    textAlign: TextAlign.end,
+                                    style: theme.textTheme.bodySmall?.copyWith(
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
                                   ),
-                                ),
-                        ),
-                        title: Text(
-                          track.title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        // A playlist's rows come from everywhere, so unlike an album's
-                        // the artist and record are the useful part rather than
-                        // repetition of the header.
-                        subtitle: Text(
-                          [
-                            track.artist,
-                            track.album,
-                          ].where((s) => s.isNotEmpty).join(' — '),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            // Same rule as the album page: five stars per row eats
-                            // most of a phone's width and pushes the title into an
-                            // ellipsis, so a long press opens the same rating there.
-                            if (!compact)
-                              StarRating(
-                                rating: track.userRating,
-                                size: 15,
-                                onRate: (stars) async {
-                                  final ok = await ref
-                                      .read(ratingControllerProvider)
-                                      ?.rateTrack(track, stars);
-                                  if (ok == false && context.mounted) {
-                                    ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(
-                                        content: Text(
-                                          'Could not save rating to Plex',
+                          ),
+                          title: Text(
+                            track.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          // A playlist's rows come from everywhere, so unlike an album's
+                          // the artist and record are the useful part rather than
+                          // repetition of the header.
+                          subtitle: Text(
+                            [
+                              track.artist,
+                              track.album,
+                            ].where((s) => s.isNotEmpty).join(' — '),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          trailing: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              // Same rule as the album page: five stars per row eats
+                              // most of a phone's width and pushes the title into an
+                              // ellipsis, so a long press opens the same rating there.
+                              if (!compact)
+                                StarRating(
+                                  rating: track.userRating,
+                                  size: 15,
+                                  onRate: (stars) async {
+                                    final ok = await ref
+                                        .read(ratingControllerProvider)
+                                        ?.rateTrack(track, stars);
+                                    if (ok == false && context.mounted) {
+                                      ScaffoldMessenger.of(
+                                        context,
+                                      ).showSnackBar(
+                                        const SnackBar(
+                                          content: Text(
+                                            'Could not save rating to Plex',
+                                          ),
                                         ),
-                                      ),
-                                    );
-                                  }
-                                },
+                                      );
+                                    }
+                                  },
+                                ),
+                              if (!compact) const SizedBox(width: 8),
+                              Text(
+                                formatClock(track.duration),
+                                style: theme.textTheme.bodySmall,
                               ),
-                            if (!compact) const SizedBox(width: 8),
-                            Text(
-                              formatClock(track.duration),
-                              style: theme.textTheme.bodySmall,
-                            ),
-                          ],
+                            ],
+                          ),
+                          enabled: track.isPlayable,
+                          onTap: () => ref
+                              .read(playbackControllerProvider)
+                              ?.playTracks(
+                                items,
+                                startIndex: index,
+                                source: PlaybackSource(
+                                  PlaybackSourceKind.playlist,
+                                  playlist.ratingKey,
+                                ),
+                              ),
+                          onLongPress: compact
+                              ? () => showTrackRatingSheet(context, ref, track)
+                              : null,
                         ),
-                        enabled: track.isPlayable,
-                        onTap: () => ref
-                            .read(playbackControllerProvider)
-                            ?.playTracks(
-                              items,
-                              startIndex: index,
-                              source: PlaybackSource(
-                                PlaybackSourceKind.playlist,
-                                playlist.ratingKey,
-                              ),
-                            ),
-                        onLongPress: compact
-                            ? () => showTrackRatingSheet(context, ref, track)
-                            : null,
                       );
                     },
                   );
