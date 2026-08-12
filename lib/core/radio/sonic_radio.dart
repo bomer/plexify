@@ -1,7 +1,5 @@
 import 'dart:math';
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
-
 import '../plex/plex_models.dart';
 
 /// Builds a station from an artist and the artists Plex thinks resemble them.
@@ -80,29 +78,4 @@ class SonicRadio {
     }
     return picked;
   }
-}
-
-/// Which of [candidates] a station should queue, in the order given.
-///
-/// Kept from the track-seeded design because the rules did not change with the
-/// seed: something already in [exclude] would repeat, something unplayable
-/// would stall the queue rather than be skipped past, and [want] caps a refill
-/// so one station cannot queue an afternoon.
-@visibleForTesting
-List<PlexTrack> chooseRadioTracks({
-  required List<PlexTrack> candidates,
-  required Set<String> exclude,
-  required int want,
-}) {
-  final picked = <PlexTrack>[];
-  final seen = <String>{};
-
-  for (final track in candidates) {
-    if (picked.length >= want) break;
-    if (exclude.contains(track.ratingKey)) continue;
-    if (!seen.add(track.ratingKey)) continue;
-    if (!track.isPlayable) continue;
-    picked.add(track);
-  }
-  return picked;
 }

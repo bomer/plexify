@@ -127,6 +127,22 @@ class _AppShellState extends ConsumerState<AppShell> {
   NavigatorState? get _activeNavigator =>
       _navigatorKeys[ref.read(shellDestinationProvider)]?.currentState;
 
+  /// Opens a page inside the destination the user is on.
+  ///
+  /// **Now Playing cannot do this for itself, and the failure is invisible
+  /// until you look for it.** It is a sibling layer in this Stack rather than a
+  /// route, so there is no destination navigator anywhere above it and
+  /// `Navigator.of(context)` inside it resolves to the root one. A page pushed
+  /// there covers the sidebar and the mini player — the one thing the routing
+  /// exists to prevent — and it looks perfectly ordinary on the way in, because
+  /// the page it lands on is the page you asked for.
+  ///
+  /// Only the shell holds the navigator keys, so only the shell can do this,
+  /// which is the same reason it owns [_selectDestination].
+  void _openInActiveTab(WidgetBuilder builder) {
+    _activeNavigator?.push(MaterialPageRoute<void>(builder: builder));
+  }
+
   /// Handles a tap on a destination, whether or not it is the current one.
   ///
   /// **Tapping the destination you are already on pops that tab back to its
@@ -343,7 +359,7 @@ class _AppShellState extends ConsumerState<AppShell> {
             curve: Curves.easeOutCubic,
             child: IgnorePointer(
               ignoring: !expanded,
-              child: const NowPlayingScreen(),
+              child: NowPlayingScreen(openPage: _openInActiveTab),
             ),
           ),
         ],

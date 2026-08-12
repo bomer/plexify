@@ -341,6 +341,7 @@ class _Header extends ConsumerWidget {
                         context,
                         ref,
                         album.artistRatingKey,
+                        artistName: album.artist,
                       ),
                     ),
                   ],

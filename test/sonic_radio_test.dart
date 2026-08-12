@@ -203,26 +203,4 @@ void main() {
       );
     });
   });
-
-  group('chooseRadioTracks', () {
-    test('stops at want, so a refill cannot queue an afternoon', () {
-      final picked = chooseRadioTracks(
-        candidates: [for (var i = 0; i < 50; i++) track('$i')],
-        exclude: const {},
-        want: 4,
-      );
-
-      expect(picked, hasLength(4));
-    });
-
-    test('one response listing a track twice yields it once', () {
-      final picked = chooseRadioTracks(
-        candidates: [track('1'), track('1'), track('2')],
-        exclude: const {},
-        want: 10,
-      );
-
-      expect(picked.map((t) => t.ratingKey), ['1', '2']);
-    });
-  });
 }

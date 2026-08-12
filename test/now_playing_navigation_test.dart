@@ -11,6 +11,8 @@ import 'package:plexify/core/providers.dart';
 import 'package:plexify/core/settings/app_settings.dart';
 import 'package:plexify/features/library/album_detail_screen.dart';
 import 'package:plexify/features/library/library_screen.dart';
+import 'package:plexify/features/library/artist_detail_screen.dart';
+import 'package:plexify/features/player/mini_player.dart';
 import 'package:plexify/features/player/now_playing_screen.dart';
 import 'package:plexify/features/player/player_providers.dart';
 import 'package:plexify/shell/app_shell.dart';
@@ -35,7 +37,13 @@ void main() {
   late AppDatabase db;
   late PlexifyAudioHandler handler;
 
-  const album = PlexAlbum(ratingKey: 'b1', title: 'Kid A', artist: 'Radiohead');
+  const artist = PlexArtist(ratingKey: 'a1', title: 'Radiohead');
+  const album = PlexAlbum(
+    ratingKey: 'b1',
+    title: 'Kid A',
+    artist: 'Radiohead',
+    artistRatingKey: 'a1',
+  );
 
   /// Enough tracks that the detail list is taller than the viewport, which is
   /// what makes a scroll position exist to preserve.
@@ -66,8 +74,16 @@ void main() {
     // `AudioPlayer` initialisation waits on locks that never resolve inside
     // `testWidgets`' fake-async zone, so it has to be built in real async.
     await tester.runAsync(() async => handler = PlexifyAudioHandler());
+    // Carries what Now Playing needs to draw its links: the album key it
+    // resolves the artist through, and the names it renders.
     handler.mediaItem.add(
-      const MediaItem(id: 'https://tower/1', title: 'Idioteque'),
+      const MediaItem(
+        id: 'https://tower/1',
+        title: 'Idioteque',
+        artist: 'Radiohead',
+        album: 'Kid A',
+        extras: {'albumRatingKey': 'b1'},
+      ),
     );
 
     final container = ProviderContainer(
@@ -83,6 +99,11 @@ void main() {
         networkChangesProvider.overrideWithValue(const Stream<void>.empty()),
         albumsProvider.overrideWith((ref) => Stream.value([album])),
         tracksProvider.overrideWith((ref, key) => Stream.value(tracks)),
+        // Now Playing renders a name as a *link* only once the cache can turn
+        // it into a destination, so without these the thing under test is
+        // plain text.
+        albumByKeyProvider.overrideWith((ref, key) async => album),
+        artistByKeyProvider.overrideWith((ref, key) async => artist),
       ],
     );
     addTearDown(container.dispose);
@@ -153,6 +174,37 @@ void main() {
     // tells the two apart.
     expect(find.byType(NowPlayingScreen), findsOneWidget);
     expect(find.byType(AlbumDetailScreen, skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('following a link out of Now Playing keeps the mini player', (
+    tester,
+  ) async {
+    // **The invariant this whole shell exists for**, broken by a one-word
+    // choice and invisible until somebody looked at the right screen. Now
+    // Playing is a sibling layer in the Stack rather than a route, so no
+    // destination navigator sits above it and `Navigator.of(context)` inside it
+    // resolves to the *root* one. Following the artist link pushed a page over
+    // the sidebar and the mini player, and it looked entirely normal on the way
+    // in: the page was the page asked for, and only the chrome had gone.
+    final container = await pumpShell(tester);
+    await openAlbumAndScroll(tester, container);
+
+    container.read(nowPlayingExpandedProvider.notifier).state = true;
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Radiohead').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byType(ArtistDetailScreen),
+      findsOneWidget,
+      reason: 'the link should still go where it says',
+    );
+    expect(
+      find.byType(MiniPlayer),
+      findsOneWidget,
+      reason: 'a page pushed on the root navigator covers the whole shell',
+    );
   });
 
   testWidgets('dismissing it returns you exactly where you were', (

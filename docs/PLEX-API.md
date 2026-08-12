@@ -350,39 +350,57 @@ track's ratingKey. Plexamp works the same way from the other side: its "Top Albu
 is eleven *track* plays rolled up. There is no album-level play to find on either side of the
 API.
 
-### 3.8 Sonic neighbours, which is where radio comes from
+### 3.8 Similar artists, which is where radio comes from
 
 ```
-GET /library/metadata/{ratingKey}/nearest?limit=60
+GET /library/metadata/{artistRatingKey}/similar
 ```
 
-Returns the tracks Plex's sonic model considers closest to that one, nearest first. This is
-built during **library analysis**, which is a server setting (Settings, Library, Analyze) that
-is off by default and takes hours to days on a large library. Nothing here works until it has
-run.
+Returns the artists Plex considers similar. **This is the only sonic endpoint on this server
+that returns anything**, and finding that out took four attempts, so the measurements are
+worth writing down. On James's library, 12 August 2026, seeded from a real played track and
+its album and its artist:
 
-**Seed it with a track, never an album or an artist.** Similarity is measured per track, so
-asking about a container is a question with no defined answer: the server may reply with
-albums, with tracks, or with nothing. Radio from an album therefore picks one of its tracks
-and asks about that. `PlexClient.nearest` takes a track ratingKey and the type system is the
-only documentation of that anyone will read.
+| Request | Result |
+|---|---|
+| `/library/metadata/{track}/nearest` | 200, empty |
+| `/library/metadata/{track}/nearest?type=10` | 200, empty |
+| `/library/metadata/{album}/nearest` | 200, empty |
+| `/library/metadata/{artist}/nearest` | 200, empty |
+| `/library/metadata/{track}/similar` | 404 |
+| `/library/metadata/{track}/station/8` | 404 |
+| `/library/metadata/{artist}/station/{1,8}` | 404 |
+| `/library/sections/{id}/stations` | 404 |
+| `/library/sections/{id}/stations/{1,2,3,8}` | 404 |
+| **`/library/metadata/{artist}/similar`** | **5 rows** |
 
-**No `type` filter is sent.** It is the obvious parameter to reach for and it is exactly the
-shape this server silently ignores; see section 3.3 and section 3.7 for the two bugs that
-cost. The response is filtered on each row's own declared `type` instead, which cannot be got
-wrong the same way.
+**Radio is therefore per artist.** Plexamp agrees from the other side: it greys its own sonic
+radio out on a song and offers it on an artist. Everywhere Plexify offers radio it resolves to
+an artist first — an album through who made it, a track and Now Playing through their album.
 
-Two things about the response that shape the caller:
+Filtered on each row's declared `type` rather than by asking for one, for the reason section
+3.3 and section 3.7 both give: Plex drops parameters it does not implement rather than
+rejecting them, so a filter that did nothing would be invisible.
 
-- **The seed comes back among its own neighbours**, usually first. Starting a station from a
-  song wants that; refilling a running one does not.
-- **A missing endpoint and an unanalysed library look the same from here** — 404 or an empty
-  container. Both are ordinary states of a server rather than faults, so the client returns
-  empty rather than throwing and the UI says which is likely.
+**The tracks are not fetched from Plex.** The endpoint names artists; Plexify reads their
+tracks out of the local cache, which is one query against a fully synced library instead of
+six round trips, and means a station starts instantly and works offline.
 
-Whether the Stations hub (`music.stations`, section 3.6) can be *played* is a separate and
-still unmeasured question. Its rows are stations rather than albums or tracks, and starting
-one probably needs a server-side play queue, which this app does not create.
+#### Two traps this section exists to record
+
+**A full Stations hub does not mean sonic analysis has run.** `music.stations` (section 3.6)
+publishes "Library Radio", "Deep Cuts Radio", "Time Travel Radio" and "Random Album Radio" —
+everything, rarely played, by era, by album. All rule-based, none needing a fingerprint.
+Reading that hub as proof of analysis is what sent three rounds of work looking for a fault in
+the request rather than in the data.
+
+**The station keys those rows carry cannot be fetched.** They look like ordinary paths
+(`/library/sections/3/stations/1`) and every one of them 404s on a direct GET, so they are
+play-queue source URIs rather than endpoints. Playing Plex's own stations would need
+`POST /playQueues`, which this app does not do.
+
+Empty and 404 are both returned as an empty list rather than thrown. A server without the
+endpoint and a library with no similarity data are ordinary states, not faults.
 
 ---
 

@@ -63,7 +63,7 @@ void main() {
     await tester.pumpWidget(
       UncontrolledProviderScope(
         container: container,
-        child: const MaterialApp(home: NowPlayingScreen()),
+        child: MaterialApp(home: NowPlayingScreen(openPage: (_) {})),
       ),
     );
     await tester.pumpAndSettle();

@@ -6,7 +6,7 @@ import '../../core/audio/playback_handler.dart';
 import '../../core/providers.dart';
 import '../../shell/layout.dart';
 import '../library/artist_detail_screen.dart';
-import '../library/library_screen.dart' show openAlbum;
+import '../library/album_detail_screen.dart';
 import '../library/artwork.dart';
 import '../library/artwork_backdrop.dart';
 import '../radio/radio_action.dart';
@@ -20,7 +20,18 @@ import 'transport_buttons.dart';
 /// the screen underneath stays mounted and dismissing returns you to exactly
 /// the scroll position and view you left.
 class NowPlayingScreen extends ConsumerWidget {
-  const NowPlayingScreen({super.key});
+  const NowPlayingScreen({required this.openPage, super.key});
+
+  /// Pushes a page into the destination the user is on.
+  ///
+  /// **Supplied by the shell rather than done here, and that is load-bearing.**
+  /// This screen is a sibling layer in the shell's Stack, not a route, so no
+  /// destination navigator sits above it and `Navigator.of(context)` resolves
+  /// to the root one. Following the artist link therefore pushed a page over
+  /// the sidebar and the mini player, which is precisely what the routing was
+  /// restructured to make impossible. It looked fine on the way in: the page
+  /// was the right page, and only the chrome around it had gone.
+  final void Function(WidgetBuilder builder) openPage;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -60,7 +71,7 @@ class NowPlayingScreen extends ConsumerWidget {
                           children: [
                             _Artwork(item: item),
                             const SizedBox(height: 32),
-                            _TrackInfo(item: item),
+                            _TrackInfo(item: item, openPage: openPage),
                             const SizedBox(height: 24),
                             SeekControl(
                               handler: handler,
@@ -205,9 +216,10 @@ class _Artwork extends StatelessWidget {
 }
 
 class _TrackInfo extends StatelessWidget {
-  const _TrackInfo({required this.item});
+  const _TrackInfo({required this.item, required this.openPage});
 
   final MediaItem item;
+  final void Function(WidgetBuilder builder) openPage;
 
   @override
   Widget build(BuildContext context) {
@@ -223,7 +235,7 @@ class _TrackInfo extends StatelessWidget {
           style: theme.textTheme.titleLarge,
         ),
         const SizedBox(height: 6),
-        _Subtitle(item: item),
+        _Subtitle(item: item, openPage: openPage),
       ],
     );
   }
@@ -430,9 +442,12 @@ class _UpNext extends StatelessWidget {
 /// plain text when the cache does not have the album, because a link that
 /// opens an empty page is worse than no link.
 class _Subtitle extends ConsumerWidget {
-  const _Subtitle({required this.item});
+  const _Subtitle({required this.item, required this.openPage});
 
   final MediaItem item;
+
+  /// See [NowPlayingScreen.openPage]. Both links here go through it.
+  final void Function(WidgetBuilder builder) openPage;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -462,11 +477,7 @@ class _Subtitle extends ConsumerWidget {
               : InkWell(
                   onTap: () {
                     ref.read(nowPlayingExpandedProvider.notifier).state = false;
-                    Navigator.of(context, rootNavigator: false).push(
-                      MaterialPageRoute<void>(
-                        builder: (_) => ArtistDetailScreen(artist: artist),
-                      ),
-                    );
+                    openPage((_) => ArtistDetailScreen(artist: artist));
                   },
                   child: Text(name, style: linked),
                 ),
@@ -481,7 +492,7 @@ class _Subtitle extends ConsumerWidget {
                     // that is still up would land you on a page you cannot
                     // see.
                     ref.read(nowPlayingExpandedProvider.notifier).state = false;
-                    openAlbum(context, album);
+                    openPage((_) => AlbumDetailScreen(album: album));
                   },
                   child: Text(name, style: linked),
                 ),

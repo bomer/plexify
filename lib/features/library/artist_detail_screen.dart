@@ -112,8 +112,12 @@ class ArtistDetailScreen extends ConsumerWidget {
                       OutlinedButton.icon(
                         icon: const Icon(Icons.radio),
                         label: const Text('Radio'),
-                        onPressed: () =>
-                            startRadioForArtist(context, ref, artist.ratingKey),
+                        onPressed: () => startRadioForArtist(
+                          context,
+                          ref,
+                          artist.ratingKey,
+                          artistName: artist.title,
+                        ),
                       ),
                     ],
                   ),

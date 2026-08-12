@@ -59,6 +59,9 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Fixed
 
+- Following the artist or album link in the expanded player opened that page over the whole
+  window, hiding the sidebar and the player controls until you went back.
+
 - A "most played this month" row appears on Home. The one in 0.9.0 never did, on any server:
   it asked Plex for play history in a way that answers with an empty result rather than an
   error. Plex's own version of the row replaces it, so it works now for a different reason

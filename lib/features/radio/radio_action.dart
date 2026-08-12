@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/providers.dart';
+import '../player/player_providers.dart';
 import 'autoplay.dart';
 
 /// Why a station could not be started.
@@ -35,8 +36,9 @@ enum RadioFailure {
 Future<void> startRadioForArtist(
   BuildContext context,
   WidgetRef ref,
-  String? artistRatingKey,
-) async {
+  String? artistRatingKey, {
+  String? artistName,
+}) async {
   final start = ref.read(startRadioProvider);
   // Captured before the round trip: the widget that was tapped can be gone by
   // the time this answers, and a messenger is not a BuildContext.
@@ -46,7 +48,34 @@ Future<void> startRadioForArtist(
   if (artistRatingKey == null) return _say(messenger, RadioFailure.noSeed);
 
   final failure = await start(artistRatingKey);
-  if (failure != null) _say(messenger, failure);
+  if (failure != null) return _say(messenger, failure);
+
+  // **Success needs saying too, and that is not decoration.** Radio replaces
+  // the queue and starts playing, but every screen it can be pressed from
+  // stays exactly as it was — so on a page that fills the window the only
+  // evidence anything happened is a mini player at the bottom that was already
+  // there. Reported as the button appearing to do nothing on a full-screen
+  // artist page.
+  final expanded = ref.read(nowPlayingExpandedProvider);
+  messenger
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(
+          artistName == null
+              ? 'Playing radio'
+              : 'Playing radio based on $artistName',
+        ),
+        // Pointless when the player is already open over the top of this.
+        action: expanded
+            ? null
+            : SnackBarAction(
+                label: 'Open',
+                onPressed: () =>
+                    ref.read(nowPlayingExpandedProvider.notifier).state = true,
+              ),
+      ),
+    );
 }
 
 void _say(ScaffoldMessengerState messenger, RadioFailure failure) {
@@ -71,5 +100,10 @@ Future<void> startRadioForAlbum(
 
   final album = await ref.read(albumByKeyProvider(albumRatingKey).future);
   if (!context.mounted) return;
-  return startRadioForArtist(context, ref, album?.artistRatingKey);
+  return startRadioForArtist(
+    context,
+    ref,
+    album?.artistRatingKey,
+    artistName: album?.artist,
+  );
 }
