@@ -912,6 +912,21 @@ written down confidently in the file the next reader trusts, and the probe that 
 disproved it in thirty seconds already existed and had been run for other reasons. A
 conclusion recorded here is worth as much as the measurement behind it and no more.
 
+**De-duplicating the catalog fails in the direction you cannot see.** An album you own
+appearing in the list of albums you do not is noise anyone would report; a record you are
+missing silently never appearing is not, and that is the failure this matching exists to
+avoid. Prefer the MBID where Plex recorded one — it usually has not, since that depends on
+the agent and the file tags — and otherwise compare normalised artist and title with
+*edition* qualifiers removed. `Nevermind (Deluxe Edition)` is the same record as `Nevermind`;
+`Greatest Hits (Volume 1)` is **not** the same record as `(Volume 2)`. So only recognised
+edition words are stripped, never every bracket.
+
+**Seeder count alone must never queue a torrent.** Torrent search matches filenames, so the
+most popular hit for an album is routinely a different record sharing one word. A result is
+added without asking only when its filename actually names this artist and this album;
+otherwise the ranked list opens. One tap in the common case, and never one tap away from the
+wrong album.
+
 ---
 
 ## The music transcode endpoint
