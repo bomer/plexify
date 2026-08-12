@@ -136,12 +136,12 @@ class _DragHandle extends StatelessWidget {
             // the only screen that always knows exactly which song you mean,
             // and wanting more like *this one* is a thought you have while
             // listening to it rather than while looking at a list.
-            if (item.extras?['ratingKey'] case final String key)
+            if (item.extras?['albumRatingKey'] case final String key)
               Consumer(
                 builder: (context, ref, _) => IconButton(
                   icon: const Icon(Icons.radio),
-                  tooltip: 'Start radio from this song',
-                  onPressed: () => startRadioFromNowPlaying(context, ref, key),
+                  tooltip: 'Start radio from this artist',
+                  onPressed: () => startRadioForAlbum(context, ref, key),
                 ),
               )
             else

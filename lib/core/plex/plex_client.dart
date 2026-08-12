@@ -482,38 +482,12 @@ class PlexClient {
     return _listOf(container, 'Metadata').map(PlexTrack.fromJson).toList();
   }
 
-  /// Tracks that sound like [trackRatingKey], closest first.
-  ///
-  /// This is the sonic model Plex builds during library analysis, and the same
-  /// one behind the Stations hub. It usually returns the seed itself as the
-  /// first result, which the caller is left to keep or drop — starting a radio
-  /// *from a song* wants that song first, and continuing one when the queue
-  /// runs dry does not.
-  ///
-  /// **The seed must be a track, never an album.** Sonic similarity is measured
-  /// per track, and asking about an album is a question with no obvious answer:
-  /// Plex may reply with albums, or with tracks, or honour a `type` we did not
-  /// send. Callers wanting radio from an album pick one of its tracks and ask
-  /// about that, which is a question with exactly one meaning.
-  ///
-  /// **No `type` filter is sent, and the filtering happens here instead.** Plex
-  /// discards query parameters it does not implement rather than rejecting
-  /// them, so a `type` that this endpoint ignores would look identical to one
-  /// it honoured, and a `type` it half-honours has already cost this project
-  /// three bugs. Whatever comes back is filtered on the row's own declared
-  /// type, which cannot be got wrong the same way.
-  ///
-  /// Returns empty rather than throwing when the endpoint is missing or the
-  /// library has never been analysed, because both are ordinary states of a
-  /// server rather than faults: see [SonicRadio] for how that is surfaced.
   /// Any path on this server, unparsed, for [DiscoveryProbe].
   ///
   /// **The probe has to be able to ask questions the client does not know how
   /// to ask**, which is the whole point of having one: everything the typed
   /// methods do to make a response usable also destroys the evidence for why a
-  /// response was not usable. `/nearest` returning nothing on a library that
-  /// has definitely been analysed is exactly that situation, and it cannot be
-  /// diagnosed by a method that already assumes the path is right.
+  /// response was not usable.
   ///
   /// Throws rather than swallowing, because which paths fail and how is the
   /// finding.
@@ -525,18 +499,34 @@ class PlexClient {
     return _listOf(container, 'Metadata');
   }
 
-  Future<List<PlexTrack>> nearest(
-    String trackRatingKey, {
-    int limit = 50,
-  }) async {
+  /// Artists this server considers similar to [artistRatingKey].
+  ///
+  /// **The only sonic endpoint that answers.** Measured across eleven request
+  /// shapes on 12 August 2026: `/nearest` returns an empty 200 for a track, an
+  /// album and an artist alike; `/library/metadata/{key}/station/{n}` and
+  /// `/library/sections/{id}/stations/{n}` all 404 even though the Stations hub
+  /// publishes those exact keys. This one returned rows.
+  ///
+  /// **Which is why radio is per artist and not per track.** Plexamp greys its
+  /// own sonic radio out on a song and offers it on an artist, and that is the
+  /// same fact seen from the other side: the model this server holds relates
+  /// artists to artists, and nothing relates one track to another.
+  ///
+  /// Filtered on each row's declared type rather than by asking for one, for
+  /// the usual reason — Plex drops parameters it does not implement rather than
+  /// rejecting them, so a filter that did nothing would be invisible.
+  ///
+  /// Returns empty rather than throwing. A server without the endpoint and a
+  /// library with no similarity data are both ordinary states, and neither is
+  /// worth an exception thrown through a tap handler.
+  Future<List<PlexArtist>> similarArtists(String artistRatingKey) async {
     try {
       final container = await _getContainer(
-        '/library/metadata/$trackRatingKey/nearest',
-        query: {'limit': '$limit'},
+        '/library/metadata/$artistRatingKey/similar',
       );
       return [
         for (final row in _listOf(container, 'Metadata'))
-          if (row['type'] == 'track') PlexTrack.fromJson(row),
+          if (row['type'] == 'artist') PlexArtist.fromJson(row),
       ];
     } on PlexClientException {
       return const [];

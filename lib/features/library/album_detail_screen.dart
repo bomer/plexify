@@ -334,13 +334,14 @@ class _Header extends ConsumerWidget {
                     OutlinedButton.icon(
                       icon: const Icon(Icons.radio),
                       label: const Text('Radio'),
-                      onPressed: () async {
-                        final items = await ref.read(
-                          tracksProvider(album.ratingKey).future,
-                        );
-                        if (!context.mounted) return;
-                        await startRadioFromFirstOf(context, ref, items);
-                      },
+                      // Straight to the artist. Similarity on this server
+                      // relates artists to artists, so an album is only ever a
+                      // way of naming who made it.
+                      onPressed: () => startRadioForArtist(
+                        context,
+                        ref,
+                        album.artistRatingKey,
+                      ),
                     ),
                   ],
                 ),

@@ -7,6 +7,7 @@ import '../acquire/catalog_artwork.dart';
 import '../acquire/download_sheet.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
+import '../radio/radio_action.dart';
 import '../../shell/layout.dart';
 import '../player/playback_controller.dart';
 import 'album_detail_screen.dart';
@@ -97,12 +98,23 @@ class ArtistDetailScreen extends ConsumerWidget {
                       const SizedBox(width: 12),
                       _ArtistStars(artist: artist),
                       const Spacer(),
-                      if (items.isNotEmpty)
+                      if (items.isNotEmpty) ...[
                         FilledButton.icon(
                           icon: const Icon(Icons.play_arrow),
                           label: const Text('Play'),
                           onPressed: () => _playEverything(ref, items),
                         ),
+                        const SizedBox(width: 8),
+                      ],
+                      // Offered even with no albums cached, and that is not an
+                      // oversight: a station is mostly *other* artists, so it
+                      // is worth pressing on a page that has little of its own.
+                      OutlinedButton.icon(
+                        icon: const Icon(Icons.radio),
+                        label: const Text('Radio'),
+                        onPressed: () =>
+                            startRadioForArtist(context, ref, artist.ratingKey),
+                      ),
                     ],
                   ),
                 ),

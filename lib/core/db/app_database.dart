@@ -375,6 +375,14 @@ class AppDatabase extends _$AppDatabase {
   ///
   /// Ordered album-chronologically then by disc and track, so it reads as a
   /// discography rather than an arbitrary pile.
+  /// Every track by an artist, once.
+  ///
+  /// A station wants a snapshot rather than a subscription: it reads six
+  /// artists to build one queue and has no interest in being told later that
+  /// one of them gained a track.
+  Future<List<Track>> tracksForArtist(String artistRatingKey) =>
+      watchTracksForArtist(artistRatingKey).first;
+
   Stream<List<Track>> watchTracksForArtist(String artistRatingKey) {
     final query =
         select(tracks).join([

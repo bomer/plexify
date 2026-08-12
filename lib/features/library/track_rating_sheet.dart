@@ -51,10 +51,14 @@ Future<void> showTrackRatingSheet(
               contentPadding: EdgeInsets.zero,
               leading: const Icon(Icons.radio),
               title: const Text('Start radio'),
-              subtitle: const Text('Music that sounds like this'),
+              subtitle: Text(
+                track.artist.isEmpty
+                    ? 'Music like this artist'
+                    : 'Music like ${track.artist}',
+              ),
               onTap: () async {
                 Navigator.of(sheetContext).pop();
-                await startRadioFrom(context, ref, track);
+                await startRadioForAlbum(context, ref, track.albumRatingKey);
               },
             ),
             const Divider(height: 24),

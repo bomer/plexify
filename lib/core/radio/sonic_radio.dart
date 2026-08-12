@@ -1,93 +1,93 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
-import '../plex/plex_client.dart';
 import '../plex/plex_models.dart';
 
-/// Picks what to play next from Plex's sonic model.
+/// Builds a station from an artist and the artists Plex thinks resemble them.
 ///
-/// Two jobs that look like one. **Starting a station** turns a song into a
-/// queue, and **continuing one** refills that queue before it runs out. Both
-/// come from the same endpoint and differ only in whether the seed itself is
-/// wanted, which is why they are one class.
+/// **Per artist, not per track, and that is the server's decision rather than a
+/// preference.** This library holds no track-to-track similarity —
+/// `/library/metadata/{key}/nearest` answers 200 with an empty container for a
+/// track, its album and its artist alike — but
+/// `/library/metadata/{artist}/similar` returns neighbours. Plexamp shows the
+/// same shape from the other side: its sonic radio is greyed out on a song and
+/// offered on an artist.
 ///
-/// **Deliberately holds nothing.** The obvious design gives a station a memory
-/// of what it has played, so it does not circle: sonic similarity is close to
-/// symmetric, the nearest track to A is usually B and the nearest to B is
-/// usually A, and without a memory that is the entire station. But the queue
-/// already remembers every track it was given and survives everything this
-/// object would not — a reconnect, a new server address, a provider rebuild.
-/// Passing the queue in as the exclusion set is the same memory without a
-/// second copy of it that can disagree.
+/// **The tracks come from the local cache, not from Plex.** A station draws a
+/// couple of dozen tracks from half a dozen artists, which is six round trips
+/// to assemble from the server against one query on a library that is already
+/// fully synced. It also means a station starts instantly and works offline.
 ///
-/// The client is passed per call for the same reason. Holding one would tie a
-/// running station to the connection it started on, and stations run for hours.
+/// Holds nothing itself. The queue already remembers every track it was given,
+/// so passing that in as the exclusion set is the same memory without a second
+/// copy that can disagree.
 class SonicRadio {
-  const SonicRadio({this.batch = 20});
+  const SonicRadio({this.batch = 24});
 
-  /// How many tracks one refill adds.
+  /// How many tracks one station or one refill adds.
   ///
   /// Enough to be an hour or so of listening, so refills are rare and a failed
-  /// one is not immediately audible; small enough that what gets queued was
-  /// chosen against something played recently rather than an hour ago.
+  /// one is not immediately audible.
   final int batch;
 
-  /// A station built from [seed], with the seed itself first.
+  /// Interleaves [byArtist] into a station.
   ///
-  /// First because "start radio from this song" that opens with a different
-  /// song has misread the request.
-  Future<List<PlexTrack>> start(PlexClient client, PlexTrack seed) async {
-    final rest = await _fetch(client, seed.ratingKey, {seed.ratingKey});
-    return [seed, ...rest];
-  }
-
-  /// More music like [seedRatingKey], excluding everything in [exclude].
+  /// [byArtist] holds one list of tracks per artist, and **the first entry must
+  /// be the seed artist**: a station built from "more like this" that opens
+  /// with somebody else has answered a different question.
   ///
-  /// [seedRatingKey] should be the *last* track in the queue rather than the
-  /// one that started it. Reseeding on where the queue has reached is what
-  /// makes a station drift: an hour in it plays music like the music it found,
-  /// not like where it began.
+  /// Round-robin rather than concatenation, so it alternates between artists
+  /// instead of playing each discography in turn. Concatenating would be a
+  /// station in name only — forty minutes of the seed, then forty of whoever
+  /// happened to come second.
   ///
-  /// Empty is a real answer and means the station has run out — a small library,
-  /// or a seed whose neighbourhood has already been played. Callers should let
-  /// playback end rather than trying again with something else.
-  Future<List<PlexTrack>> extend(
-    PlexClient client, {
-    required String seedRatingKey,
-    required Set<String> exclude,
-  }) => _fetch(client, seedRatingKey, exclude);
+  /// Shuffled *within* each artist, so two stations from one seed are not the
+  /// same two dozen tracks in the same order. Deterministic when given a seeded
+  /// [random], which is what makes it testable.
+  List<PlexTrack> build({
+    required List<List<PlexTrack>> byArtist,
+    Set<String> exclude = const {},
+    Random? random,
+  }) {
+    final rng = random ?? Random();
+    final pools = [
+      for (final tracks in byArtist)
+        [
+          for (final track in tracks)
+            if (track.isPlayable && !exclude.contains(track.ratingKey)) track,
+        ]..shuffle(rng),
+    ];
 
-  Future<List<PlexTrack>> _fetch(
-    PlexClient client,
-    String seedRatingKey,
-    Set<String> exclude,
-  ) async {
-    // Asked for wider than needed because the filtering below is lossy, and a
-    // seed's own neighbourhood is exactly where the overlap with what has
-    // already been played is worst. A refill that returned four tracks would be
-    // followed by another one almost immediately.
-    final candidates = await client.nearest(seedRatingKey, limit: batch * 3);
+    final picked = <PlexTrack>[];
+    final seen = <String>{};
+    var cursor = 0;
 
-    return chooseRadioTracks(
-      candidates: candidates,
-      exclude: exclude,
-      want: batch,
-    );
+    // Ends when a full pass adds nothing, which is the only condition that
+    // cannot spin: the cursor only ever advances and the pools never grow.
+    while (picked.length < batch) {
+      var addedSomething = false;
+      for (final pool in pools) {
+        if (picked.length >= batch) break;
+        if (cursor >= pool.length) continue;
+        if (seen.add(pool[cursor].ratingKey)) {
+          picked.add(pool[cursor]);
+          addedSomething = true;
+        }
+      }
+      if (!addedSomething) break;
+      cursor++;
+    }
+    return picked;
   }
 }
 
-/// Which of [candidates] a station should actually queue.
+/// Which of [candidates] a station should queue, in the order given.
 ///
-/// Separated from the fetch because it is the part with rules in it, and rules
-/// are worth testing without a server. Plex's order is closest-first and is
-/// preserved as given: the ranking is the whole value of the endpoint, and
-/// nothing here knows better than the model does.
-///
-/// Three exclusions, each with a visible symptom if dropped. A track already in
-/// [exclude] would make the station circle between two songs, or replay the
-/// album that was playing a moment ago. A track with no playable part would sit
-/// in the queue as a gap that stalls it, since the engine is handed the whole
-/// list up front and does not skip. And [want] caps a refill, so one station
-/// cannot queue two hundred tracks nobody will reach.
+/// Kept from the track-seeded design because the rules did not change with the
+/// seed: something already in [exclude] would repeat, something unplayable
+/// would stall the queue rather than be skipped past, and [want] caps a refill
+/// so one station cannot queue an afternoon.
 @visibleForTesting
 List<PlexTrack> chooseRadioTracks({
   required List<PlexTrack> candidates,
@@ -95,8 +95,6 @@ List<PlexTrack> chooseRadioTracks({
   required int want,
 }) {
   final picked = <PlexTrack>[];
-  // Guards against one response listing the same track twice, which [exclude]
-  // cannot catch because it is the caller's set and this does not add to it.
   final seen = <String>{};
 
   for (final track in candidates) {

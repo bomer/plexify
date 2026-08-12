@@ -20,8 +20,12 @@ import 'support/fake_just_audio.dart';
 /// exactly the kind of thing a later layout change reinstates without anyone
 /// noticing the button went with it. Now Playing is also the only screen that
 /// always knows which song is meant, which makes it the entry point that has to
-/// survive: the album button covers a record, the track sheet is phone-only,
+/// survive: the artist page needs navigating to, the track sheet is phone-only,
 /// and this one is neither.
+///
+/// Seeded through the *album* key rather than the track's own, because
+/// similarity on this server relates artists to artists and an album is how a
+/// MediaItem names who made it.
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -71,7 +75,7 @@ void main() {
       const MediaItem(
         id: 'https://tower/1',
         title: 'Idioteque',
-        extras: {'ratingKey': 't1'},
+        extras: {'albumRatingKey': 'b1'},
       ),
     );
 
@@ -94,7 +98,7 @@ void main() {
       const MediaItem(
         id: 'https://tower/1',
         title: 'Idioteque',
-        extras: {'ratingKey': 't1'},
+        extras: {'albumRatingKey': 'b1'},
       ),
     );
 
@@ -119,8 +123,9 @@ void main() {
     tester,
   ) async {
     // A restored session can publish an item the queue built before extras
-    // were carried. The button has nothing to seed from, and the header still
-    // has to balance rather than shifting the handle off centre.
+    // were carried. Radio needs the album to find the artist behind it, so with
+    // no album key there is nothing to seed from, and the header still has to
+    // balance rather than shifting the handle off centre.
     await pumpNowPlaying(
       tester,
       const MediaItem(id: 'https://tower/1', title: 'Idioteque'),
