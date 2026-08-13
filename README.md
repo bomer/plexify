@@ -75,6 +75,8 @@ streams, and that might make its own issues. We'll find out.
 
 - A "not in your library" tier under search and a missing albums grid on every artist page,
   both from MusicBrainz.
+- Artists you own nothing by appear in that tier too. Open one and you get their discography,
+  with anything you already have marked rather than offered.
 - One click hands off to qBittorrent or to Soulseek, whichever you pick, and the library
   refreshes itself when the download lands. Soulseek needs
   [slskd](https://github.com/slskd/slskd) running somewhere; see

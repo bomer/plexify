@@ -45,6 +45,24 @@ class CatalogService {
     return fresh;
   }
 
+  /// Artists whose name matches a free-text query.
+  ///
+  /// **Candidates, not an answer.** This is the search box's lower tier, where
+  /// the user picks from a list with MusicBrainz's own disambiguation visible,
+  /// which is a completely different job from [resolveArtist] silently choosing
+  /// one. That difference is why no score filtering happens here: see
+  /// [_confidentScore] for why the other path is strict and this one must not
+  /// be.
+  ///
+  /// Deliberately not cached to disk. The store holds releases, so an artist
+  /// list would need a third shape in the schema, and the expensive half is the
+  /// discography, which *is* cached the moment one of these is tapped.
+  Future<List<CatalogArtist>> artistsMatching(String query) {
+    final cleaned = query.trim();
+    if (cleaned.length < 3) return Future.value(const []);
+    return _client.searchArtists(cleaned, limit: 10);
+  }
+
   /// Everything an artist has released.
   ///
   /// [libraryName] is the name as the library spells it, which is the only
@@ -53,22 +71,31 @@ class CatalogService {
   Future<Discography> discographyFor(String libraryName) async {
     final resolved = await resolveArtist(libraryName);
     if (resolved == null) return const Discography.unknownArtist();
+    return discographyForMbid(resolved.mbid, name: resolved.name);
+  }
 
-    final key = CatalogStore.artistKey(resolved.mbid);
+  /// Everything an artist has released, when their id is already known.
+  ///
+  /// The catalog artist screen arrives here with an mbid in hand, so resolution
+  /// is skipped entirely rather than round-tripping a name back into the id it
+  /// came from. Shares the caching with [discographyFor], which is the whole
+  /// reason this is a separate method rather than a second copy.
+  Future<Discography> discographyForMbid(String mbid, {String? name}) async {
+    final key = CatalogStore.artistKey(mbid);
     final cached = await _store.answerFor(key);
     if (cached != null && cached.fresh) {
       return Discography(
-        artistMbid: resolved.mbid,
-        artistName: resolved.name,
+        artistMbid: mbid,
+        artistName: name,
         releases: cached.releases,
       );
     }
 
-    final fresh = await _client.releaseGroupsForArtist(resolved.mbid);
+    final fresh = await _client.releaseGroupsForArtist(mbid);
     if (fresh.isEmpty && cached != null) {
       return Discography(
-        artistMbid: resolved.mbid,
-        artistName: resolved.name,
+        artistMbid: mbid,
+        artistName: name,
         releases: cached.releases,
       );
     }
@@ -77,11 +104,7 @@ class CatalogService {
     }
 
     await _store.saveAnswer(key, fresh);
-    return Discography(
-      artistMbid: resolved.mbid,
-      artistName: resolved.name,
-      releases: fresh,
-    );
+    return Discography(artistMbid: mbid, artistName: name, releases: fresh);
   }
 
   /// Turns a library artist name into a MusicBrainz id, or null.

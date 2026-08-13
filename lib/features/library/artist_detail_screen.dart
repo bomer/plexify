@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/playback_source.dart';
 
-import '../../core/catalog/catalog_models.dart';
-import '../acquire/catalog_artwork.dart';
-import '../acquire/download_sheet.dart';
+import '../acquire/catalog_release_card.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
 import '../radio/radio_action.dart';
@@ -302,7 +300,7 @@ class _MissingAlbums extends ConsumerWidget {
             ),
             itemCount: data.releases.length,
             itemBuilder: (context, i) =>
-                _MissingCard(release: data.releases[i]),
+                CatalogReleaseCard(release: data.releases[i]),
           ),
         ),
       ],
@@ -322,86 +320,6 @@ class _MissingAlbums extends ConsumerWidget {
   }
 }
 
-/// One missing record, with the button that queues it.
-class _MissingCard extends ConsumerWidget {
-  const _MissingCard({required this.release});
-
-  final CatalogRelease release;
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-
-    return InkWell(
-      borderRadius: BorderRadius.circular(8),
-      // Long press opens the full list of search hits, tap queues the obvious
-      // one. Both go through the same search; the difference is only whether a
-      // confident result is added without asking. See `acquire`.
-      onTap: () => acquire(context, ref, release),
-      onLongPress: () => showAcquireSheet(context, ref, release),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  // Dimmed, so a grid of records you own and a grid of records
-                  // you do not are distinguishable at a glance rather than by
-                  // reading the heading above them.
-                  child: Opacity(
-                    opacity: 0.55,
-                    child: CatalogArtwork(mbid: release.mbid),
-                  ),
-                ),
-                Align(
-                  alignment: Alignment.bottomRight,
-                  child: Padding(
-                    padding: const EdgeInsets.all(6),
-                    child: Material(
-                      color: theme.colorScheme.primaryContainer,
-                      shape: const CircleBorder(),
-                      child: InkWell(
-                        customBorder: const CircleBorder(),
-                        onTap: () => acquire(context, ref, release),
-                        child: Padding(
-                          padding: const EdgeInsets.all(8),
-                          child: Icon(
-                            Icons.download,
-                            size: 18,
-                            color: theme.colorScheme.onPrimaryContainer,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            release.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium,
-          ),
-          Text(
-            [
-              if (release.year != null) '${release.year}',
-              if (release.kind == ReleaseKind.ep) 'EP',
-            ].join(' · '),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
 
 /// All of an artist's tracks, in discography order.
 class _TrackList extends ConsumerWidget {

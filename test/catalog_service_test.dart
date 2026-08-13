@@ -251,4 +251,94 @@ void main() {
     // drown in it.
     expect(again.releases.where((r) => r.isPrimaryWork), hasLength(1));
   });
+
+  group('artists you own nothing by', () {
+    test('candidates are offered without the strict resolve threshold', () async {
+      // **Two different jobs, deliberately two different bars.**
+      // `resolveArtist` demands 90 because it picks silently and a wrong pick
+      // attributes a whole discography to the wrong person. Here the user is
+      // choosing from a list with disambiguation visible, so applying that bar
+      // would hide almost every real answer.
+      final fake = build(
+        (_) => {
+          'artists': [
+            {
+              'id': 'a1',
+              'name': 'Boards of Canada',
+              'score': 62,
+              'disambiguation': 'Scottish electronic duo',
+            },
+          ],
+        },
+      );
+
+      // A partial name, so the exact-match rule in `resolveArtist` cannot fire
+      // and the score is the only thing left to judge on. Typing a band's name
+      // in full is the lucky case, not the one to design for.
+      final found = await fake.service.artistsMatching('boards');
+
+      expect(found, hasLength(1));
+      expect(found.single.disambiguation, 'Scottish electronic duo');
+      // The same candidate resolves to nobody through the strict path, which is
+      // exactly the difference being pinned.
+      expect(await fake.service.resolveArtist('boards'), isNull);
+    });
+
+    test('a query too short to mean anything is not sent', () async {
+      final fake = build((_) => {'artists': <Object>[]});
+
+      expect(await fake.service.artistsMatching('bo'), isEmpty);
+      // MusicBrainz is paced at one request a second and shared with the album
+      // tier, so a two-letter query would spend that budget on nothing.
+      expect(fake.calls, isEmpty);
+    });
+
+    test('a known id skips resolution entirely', () async {
+      final fake = build(
+        (_) => {
+          'release-group-count': 1,
+          'release-groups': [releaseGroup('mb-1', 'Geogaddi')],
+        },
+      );
+
+      final discography = await fake.service.discographyForMbid(
+        'a1',
+        name: 'Boards of Canada',
+      );
+
+      expect(discography.releases, hasLength(1));
+      expect(discography.artistMbid, 'a1');
+      // One call, not two. Coming from the search tier we already hold the id,
+      // and round-tripping it back through a name lookup would spend a paced
+      // request to learn something already known.
+      expect(fake.calls, hasLength(1));
+      expect(fake.calls.single.path, isNot(endsWith('/artist')));
+    });
+
+    test('the id path and the name path share one cache', () async {
+      final fake = build(
+        (uri) => uri.path.endsWith('/artist')
+            ? {
+                'artists': [
+                  {'id': 'artist-1', 'name': 'Radiohead', 'score': 100},
+                ],
+              }
+            : {
+                'release-group-count': 1,
+                'release-groups': [releaseGroup('mb-1', 'OK Computer')],
+              },
+      );
+
+      await fake.service.discographyFor('Radiohead');
+      final callsAfterName = fake.calls.length;
+
+      // Same artist, reached the other way. If these did not share
+      // CatalogStore.artistKey, opening the artist from search would refetch a
+      // discography already on disk.
+      final byId = await fake.service.discographyForMbid('artist-1');
+
+      expect(byId.releases, hasLength(1));
+      expect(fake.calls, hasLength(callsAfterName));
+    });
+  });
 }

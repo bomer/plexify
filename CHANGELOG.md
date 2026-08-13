@@ -26,6 +26,17 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Added
 
+- **Artists you own nothing by now turn up in search**, under "Not in your library" and above
+  the records. Tapping one opens their discography, so finding a band you have never had is
+  the same gesture as finding one you already own, and every album is one tap from a
+  download. Anything you already have is marked rather than offered, which matters more than
+  it sounds: an artist reaches that page precisely because their name did not match your
+  library, and Plex spelling them differently is exactly how you come to own some of their
+  records anyway.
+
+  Albums and EPs only, like the missing-albums grid on an artist you do own. Compilations,
+  live records and singles are still findable through search, where they already were.
+
 - **Soulseek as a second place to download from**, alongside qBittorrent. Availability there
   is far higher for anything that is not current and popular, because people share what is
   already in their music folder rather than having to seed a whole record. Choose which one

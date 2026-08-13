@@ -25,6 +25,7 @@ import 'catalog/catalog_store.dart';
 import 'catalog/musicbrainz_client.dart';
 import 'db/app_database.dart';
 import 'db/mappers.dart';
+import 'db/normalise.dart';
 import 'db/shelf_item.dart';
 import 'discovery/discovery.dart';
 import 'qbit/qbit_client.dart';
@@ -1429,6 +1430,58 @@ final catalogSearchProvider = FutureProvider.autoDispose
       // Primary works only. A search for an artist otherwise returns forty
       // compilations before the record anybody meant.
       return owned.missingFrom(releases.where((r) => r.isPrimaryWork));
+    });
+
+/// Artists matching a search who are not in the library at all.
+///
+/// **The way in to a record by somebody you own nothing by.** Without this the
+/// catalog tier can only offer individual albums, so finding a band means
+/// recognising one of their records by name; there is no "show me everything
+/// they made".
+///
+/// Costs one paced MusicBrainz request beyond the album search, which is
+/// affordable for exactly the reason the two-tier design exists: this sits
+/// below results that are already on screen, and being slow here can never make
+/// the library feel slow.
+final catalogArtistSearchProvider = FutureProvider.autoDispose
+    .family<List<CatalogArtist>, String>((ref, query) async {
+      if (!ref.watch(catalogEnabledProvider)) return const [];
+      if (query.trim().length < 3) return const [];
+
+      final found = await ref.watch(catalogServiceProvider).artistsMatching(
+        query,
+      );
+      if (found.isEmpty) return const [];
+
+      // Anyone already in the library belongs to the tier above, and listing
+      // them twice invites downloading records that are already there.
+      // Normalised because the library spells performers however the file tags
+      // did and MusicBrainz spells them canonically.
+      final mine = {
+        for (final artist in await ref.watch(databaseProvider).watchArtists().first)
+          normalise(artist.title),
+      };
+
+      final seen = <String>{};
+      return [
+        for (final artist in found)
+          if (artist.name.isNotEmpty &&
+              !mine.contains(normalise(artist.name)) &&
+              seen.add(artist.mbid))
+            artist,
+      ];
+    });
+
+/// One unowned artist's records.
+///
+/// Keyed on the mbid alone, unlike [missingAlbumsProvider], because there is no
+/// library artist to diff against and nothing here needs a name to ask about.
+final catalogDiscographyProvider = FutureProvider.autoDispose
+    .family<Discography, String>((ref, mbid) async {
+      if (!ref.watch(catalogEnabledProvider)) {
+        return const Discography.unknownArtist();
+      }
+      return ref.watch(catalogServiceProvider).discographyForMbid(mbid);
     });
 
 /// What an artist released that the library does not have.

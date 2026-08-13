@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/playback_source.dart';
 import '../../core/catalog/catalog_models.dart';
 import '../../core/providers.dart';
+import '../acquire/catalog_artist_screen.dart';
 import '../acquire/catalog_artwork.dart';
 import '../acquire/download_sheet.dart';
 import '../../shell/layout.dart';
@@ -138,8 +139,14 @@ class _CatalogTier extends ConsumerWidget {
     final theme = Theme.of(context);
     if (!ref.watch(catalogEnabledProvider)) return const SizedBox.shrink();
 
-    final releases = ref.watch(catalogSearchProvider(query)).valueOrNull;
-    if (releases == null || releases.isEmpty) return const SizedBox.shrink();
+    final releases =
+        ref.watch(catalogSearchProvider(query)).valueOrNull ??
+        const <CatalogRelease>[];
+    final artists =
+        ref.watch(catalogArtistSearchProvider(query)).valueOrNull ??
+        const <CatalogArtist>[];
+
+    if (releases.isEmpty && artists.isEmpty) return const SizedBox.shrink();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -159,6 +166,40 @@ class _CatalogTier extends ConsumerWidget {
             ],
           ),
         ),
+
+        // **Above the records, because tapping one of these opens something
+        // while tapping a record commits to a download.** The thing that
+        // navigates should not be buried under a list that acts.
+        //
+        // This is the only route to an artist the library has never heard of.
+        // Without it, finding a band you own nothing by means recognising one
+        // of their albums by name in the list below.
+        for (final artist in artists)
+          ListTile(
+            leading: CircleAvatar(
+              backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              child: Icon(
+                Icons.person_outline,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            title: Text(artist.name, maxLines: 1),
+            subtitle: Text(
+              // MusicBrainz's own note, and it earns its place: "Genesis" and
+              // "Nirvana" each match several real artists, and without this
+              // the list is the same name three times.
+              artist.disambiguation ?? 'Artist',
+              maxLines: 1,
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            // Resolves the per-tab navigator, which is what invariant 7 wants
+            // and what the local artist rows above already do.
+            onTap: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => CatalogArtistScreen(artist: artist),
+              ),
+            ),
+          ),
         for (final release in releases)
           ListTile(
             leading: ClipRRect(
