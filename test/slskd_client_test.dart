@@ -61,16 +61,21 @@ void main() {
         ),
       );
 
-      // The one that matters. The key is correct and the caller's address is
-      // outside the CIDR list configured against it, which is invisible from
-      // the machine the key was tested on.
+      // The one that matters, and it has two causes that must both be named.
+      //
+      // A readonly key is the nastier one: keys configured in slskd.yml
+      // default to it, and it searches perfectly while failing only on the
+      // download, so it presents an hour later as an unrelated bug. The other
+      // is a cidr that does not cover this device, which is invisible from the
+      // machine the key was tested on.
       final forbidden = server(status: 403);
       await expectLater(
         build(forbidden.client).version(),
         throwsA(
           isA<SlskdException>()
               .having((e) => e.forbidden, 'forbidden', isTrue)
-              .having((e) => e.message, 'message', contains('CIDR')),
+              .having((e) => e.message, 'names the role', contains('readwrite'))
+              .having((e) => e.message, 'names the network', contains('cidr')),
         ),
       );
     });

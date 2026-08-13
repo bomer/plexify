@@ -249,21 +249,34 @@ class SlskdClient {
     }
 
     if (response.statusCode == 401) {
+      // Names the *shape*, not just the file. api_keys is a map of named
+      // entries, so a key pasted in as a bare string leaves the map empty and
+      // slskd is answering perfectly correctly: it has no keys at all.
       throw const SlskdException(
-        'slskd rejected the API key (401). Check it matches an entry under '
-        'web.authentication.api_keys in slskd.yml.',
+        'slskd rejected the API key (401). It must be a named entry under '
+        'web.authentication.api_keys in slskd.yml, not a bare value:\n\n'
+        '  api_keys:\n'
+        '    plexify:\n'
+        '      key: <your key>\n'
+        '      role: readwrite\n\n'
+        'Restart slskd afterwards, since authentication is not reloaded on '
+        'the fly.',
         statusCode: 401,
         unauthorized: true,
       );
     }
     if (response.statusCode == 403) {
-      // Named rather than lumped in with 401, because the key is usually
-      // right and the fix is somewhere else entirely.
+      // Named rather than lumped in with 401, because the key is right and the
+      // fix is somewhere else entirely. Two somewhere elses, in fact, and the
+      // role one is nastier: **a readonly key searches perfectly and only
+      // fails on the download**, so it presents an hour later as a completely
+      // different bug. Keys configured in YAML default to readonly.
       throw const SlskdException(
-        'slskd accepted the API key but refused this address (403). API keys '
-        'can be restricted to a list of CIDRs, and the default only covers '
-        'the local network. Behind a reverse proxy slskd may also see the '
-        "proxy's address rather than this device's.",
+        'slskd accepted the API key but refused the request (403). Either the '
+        'key is readonly, which is the default for keys in slskd.yml and is '
+        'enough to search but not to download, so it needs role: readwrite. '
+        'Or its cidr does not cover this device: behind a reverse proxy slskd '
+        "sees the proxy's address rather than this one's.",
         statusCode: 403,
         forbidden: true,
       );

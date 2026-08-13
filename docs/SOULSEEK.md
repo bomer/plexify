@@ -30,7 +30,30 @@ X-API-Key: <key>
 ```
 
 Keys live in `slskd.yml` under `web.authentication.api_keys`, generated with
-`openssl rand -base64 48`.
+`openssl rand -base64 48`. **It is a map of named entries, not a string**, and it needs
+`role: readwrite`:
+
+```yaml
+web:
+  authentication:
+    api_keys:
+      plexify:
+        key: <16 to 255 characters>
+        role: readwrite
+        cidr: 0.0.0.0/0,::/0
+```
+
+Two things about this cost an evening the first time. A key pasted in as a bare value leaves
+the map empty, so slskd answers 401 while looking configured, and authentication is not
+reloaded on the fly, so a correct edit keeps answering 401 until slskd restarts.
+
+The separate singular `apiKey` is a different mechanism, the "primary" key, normally set with
+`--api-key` or `SLSKD_API_KEY`, and it takes a tuple like
+`role=readwrite;cidr=0.0.0.0/0,::/0;<key>` rather than a bare value.
+
+**Keys configured in YAML default to `readonly`**, which is the nastier half. A readonly key
+searches perfectly and fails only on `POST /transfers/downloads`, so it presents an hour later
+as a completely different bug.
 
 This is the one place slskd is *simpler* than qBittorrent, and materially so. There is no
 session to establish, no cookie to hold, no CSRF check comparing `Referer` against `Host`,

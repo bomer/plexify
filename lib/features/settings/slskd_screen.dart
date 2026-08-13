@@ -158,9 +158,10 @@ class _SlskdScreenState extends ConsumerState<SlskdScreen> {
             decoration: InputDecoration(
               labelText: 'API key',
               helperText:
-                  'From web.authentication.api_keys in slskd.yml. Generate '
-                  'one with: openssl rand -base64 48',
-              helperMaxLines: 3,
+                  'A named entry under web.authentication.api_keys in '
+                  'slskd.yml, with role: readwrite. Restart slskd after '
+                  'adding it.',
+              helperMaxLines: 4,
               border: const OutlineInputBorder(),
               suffixIcon: IconButton(
                 icon: Icon(
@@ -233,10 +234,23 @@ class _SlskdScreenState extends ConsumerState<SlskdScreen> {
           Text('If it will not connect', style: theme.textTheme.titleSmall),
           const SizedBox(height: 8),
           Text(
-            'A 401 means the key is wrong or missing. A 403 means the key is '
-            'right and your address is not: keys can be restricted to a list '
-            'of networks, and behind a reverse proxy slskd may see the '
-            "proxy's address rather than this device's.",
+            'A 401 usually means the key is not registered rather than '
+            'mistyped. api_keys is a map of named entries, so a key pasted in '
+            'as a bare value leaves it empty and slskd genuinely has no keys:\n\n'
+            '  web:\n'
+            '    authentication:\n'
+            '      api_keys:\n'
+            '        plexify:\n'
+            '          key: <your key>\n'
+            '          role: readwrite\n\n'
+            'Authentication is not reloaded on the fly, so restart slskd '
+            'afterwards.\n\n'
+            'A 403 means the key is right and something else is not. Keys in '
+            'slskd.yml default to readonly, which is enough to search and not '
+            'enough to download, so it presents as searching working and '
+            'downloading failing. Otherwise the key\'s cidr does not cover '
+            'this device, and behind a reverse proxy slskd sees the proxy\'s '
+            'address rather than this one\'s.',
             style: theme.textTheme.bodySmall?.copyWith(
               color: theme.colorScheme.onSurfaceVariant,
             ),
