@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:http/http.dart' as http;
+import 'package:uuid/uuid.dart';
 
 import '../http/bounded_client.dart';
 import 'slskd_models.dart';
@@ -96,12 +97,24 @@ class SlskdClient {
 
   /// Starts a search and returns its id.
   ///
-  /// The id is chosen here rather than read back, because slskd accepts one and
-  /// that removes a round trip's worth of ambiguity about which search is
-  /// which when two are running.
+  /// **The id must be a GUID.** slskd parses it into a `Nullable<Guid>` and
+  /// rejects anything else with a 400 naming a .NET type, which is the first
+  /// thing this client got wrong against a real server:
+  ///
+  /// ```
+  /// The JSON value could not be converted to System.Nullable`1[System.Guid].
+  /// Path: $.id
+  /// ```
+  ///
+  /// Nothing in the API documentation says so, and an id is an id right up
+  /// until it is not.
+  ///
+  /// The server's own id is preferred over the one sent, on the principle that
+  /// the thing being polled should be named by whoever owns it. Ours is the
+  /// fallback for a server that answers with no body.
   Future<String> startSearch(String text) async {
-    final id = _newId();
-    await _post('/searches', body: {
+    final id = _uuid.v4();
+    final body = await _post('/searches', body: {
       'id': id,
       'searchText': text,
       'searchTimeout': searchTimeoutMs,
@@ -110,6 +123,11 @@ class SlskdClient {
       'minimumResponseFileCount': 1,
       'filterResponses': true,
     });
+
+    if (body is Map<String, dynamic>) {
+      final returned = body['id'];
+      if (returned is String && returned.isNotEmpty) return returned;
+    }
     return id;
   }
 
@@ -316,17 +334,7 @@ class SlskdClient {
     }
   }
 
-  /// A search id, unique enough for the purpose.
-  ///
-  /// Only has to be distinct among the handful of searches this app has in
-  /// flight at once, so the clock plus a counter is plenty and avoids a
-  /// dependency for the sake of sixteen bytes.
-  static String _newId() {
-    _counter = (_counter + 1) % 100000;
-    return 'plexify-${DateTime.now().microsecondsSinceEpoch}-$_counter';
-  }
-
-  static int _counter = 0;
+  static const _uuid = Uuid();
 
   /// Normalises the configured address.
   ///

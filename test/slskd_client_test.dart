@@ -144,6 +144,69 @@ void main() {
       );
     }
 
+    test('the search id is a GUID, because slskd parses it as one', () async {
+      // Measured, not assumed. The first live search against James's server
+      // answered 400 with a .NET type name:
+      //
+      //   The JSON value could not be converted to
+      //   System.Nullable`1[System.Guid]. Path: $.id
+      //
+      // Nothing in the API documentation says the id has to be a GUID, and the
+      // fake server here was happy to accept `plexify-1755043200123-7`, which
+      // is exactly why this assertion is on the shape rather than on the call
+      // succeeding.
+      final fake = searching();
+      await build(fake.client).search('anything', pollInterval: Duration.zero);
+
+      final started = fake.requests.firstWhere(
+        (r) => r.method == 'POST' && r.url.path.endsWith('/searches'),
+      );
+      final id = (jsonDecode((started as http.Request).body) as Map)['id'];
+
+      expect(
+        id,
+        matches(
+          RegExp(
+            r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+          ),
+        ),
+        reason: 'slskd rejects anything that is not a GUID with a 400',
+      );
+    });
+
+    test("the server's own id is what gets polled", () async {
+      // Ours is only a fallback. The thing being polled should be named by
+      // whoever owns it, in case slskd ever decides to allocate its own.
+      final requests = <http.BaseRequest>[];
+      final client = MockClient((request) async {
+        requests.add(request);
+        if (request.method == 'POST' && request.url.path.endsWith('/searches')) {
+          return http.Response(
+            jsonEncode({'id': '11111111-2222-3333-4444-555555555555'}),
+            200,
+          );
+        }
+        if (request.url.path.endsWith('/responses')) {
+          return http.Response('[]', 200);
+        }
+        return http.Response(
+          jsonEncode({'id': 'x', 'state': 'Completed, TimedOut'}),
+          200,
+        );
+      });
+
+      await build(client).search('anything', pollInterval: Duration.zero);
+
+      expect(
+        requests.any(
+          (r) =>
+              r.method == 'GET' &&
+              r.url.path.contains('11111111-2222-3333-4444-555555555555'),
+        ),
+        isTrue,
+      );
+    });
+
     test('a timed-out search is a success, not a failure', () async {
       // The ordinary ending. A Soulseek search has no natural end, so slskd
       // stops waiting and keeps what arrived.

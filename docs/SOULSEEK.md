@@ -86,6 +86,20 @@ Base path is `/api/v0`. Default ports are 5030 for HTTP and 5031 for HTTPS.
 | `POST /transfers/downloads/{username}` | Queue files. Body is `[{filename, size}]` |
 | `GET /transfers/downloads` | Everything arriving, grouped by user then directory |
 
+### The search id has to be a GUID
+
+Measured, not documented. `POST /searches` takes an `id`, and slskd parses it into a
+`Nullable<Guid>`. Anything else is a 400 naming a .NET type:
+
+```
+The JSON value could not be converted to System.Nullable`1[System.Guid].
+Path: $.id | LineNumber: 0 | BytePositionInLine: 32
+```
+
+An id is an id right up until it is not, and this was the first thing the client got wrong
+against a real server. `SlskdClient.startSearch` sends a v4 UUID and then prefers whatever id
+comes back in the response body over the one it sent.
+
 ### Searches must be deleted
 
 Completed searches persist on the server until removed, exactly as qBittorrent's do. Leaking
