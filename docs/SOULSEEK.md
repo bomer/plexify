@@ -72,6 +72,17 @@ This is the one worth naming in an error message: the key works perfectly from t
 was tested on and fails from the phone, or works everywhere until a reverse proxy starts
 presenting its own address to slskd instead of the client's.
 
+## What has actually been measured
+
+Confirmed against a real slskd on 13 August 2026: a search returns responses in the shape
+these models parse, the directory grouping finds real albums inside them, the ranking picks
+one, and the enqueue is accepted. Everything below is therefore measured rather than read out
+of the documentation, except where it says otherwise.
+
+Still unconfirmed at that point: whether a *completed* folder triggers the Plex rescan, which
+needs both a transfer to finish and slskd's downloads directory to actually reach the watch
+folder. `GET /transfers/downloads` behind the Downloads screen is on the same footing.
+
 ## Endpoints, as this app uses them
 
 Base path is `/api/v0`. Default ports are 5030 for HTTP and 5031 for HTTPS.

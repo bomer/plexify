@@ -1066,6 +1066,13 @@ cellular, which is the expensive direction to be wrong in.
 All confirmed against James's server, on the dates given. Anything not listed here is still
 under [Still wanting live confirmation](CompletedTasks.md#still-wanting-live-confirmation).
 
+- **Soulseek downloads work end to end** (#51), 13 Aug. That confirms the whole chain the
+  fixture tests could only assume: a search returns responses in the shape the models parse,
+  the directory grouping finds real albums inside them, the ranking picks one, and the enqueue
+  is accepted. Two things had to be measured to get there and neither is documented anywhere:
+  the API key must be a *named entry* under `web.authentication.api_keys` with
+  `role: readwrite`, and the search `id` must be a **GUID**, which slskd rejects with a 400
+  naming a .NET type.
 - Push sync delivers a newly added album **instantly**.
 - Ratings set in Plex arrive by poll, not push, and need the refresh button to appear at once.
 - **Artist ratings sync both ways** (#49), 6 Aug, after the v7 cursor rewind.
