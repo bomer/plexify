@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/catalog/catalog_matcher.dart';
 import '../../core/catalog/catalog_models.dart';
+import '../../core/catalog/listenbrainz_client.dart';
 import '../../core/providers.dart';
 import 'catalog_release_card.dart';
 
@@ -61,6 +62,19 @@ class CatalogArtistScreen extends ConsumerWidget {
             );
           }
 
+          // One request for the whole page, keyed on exactly what is on it.
+          final popularity =
+              ref
+                  .watch(popularityProvider(popularityKey(releases)))
+                  .valueOrNull ??
+              const <String, ReleasePopularity>{};
+
+          // The biggest listen count here, which every bar is drawn against.
+          final peak = popularity.values.fold(
+            0,
+            (best, p) => p.listens > best ? p.listens : best,
+          );
+
           return CustomScrollView(
             slivers: [
               SliverToBoxAdapter(
@@ -87,6 +101,8 @@ class CatalogArtistScreen extends ConsumerWidget {
                   itemCount: releases.length,
                   itemBuilder: (context, i) => CatalogReleaseCard(
                     release: releases[i],
+                    popularity: popularity[releases[i].mbid],
+                    peakListens: peak,
                     // **Not decoration.** This artist got here by *not*
                     // matching a library name, and Plex spelling them
                     // differently is exactly how you come to own some of their

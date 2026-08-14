@@ -26,6 +26,16 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ### Added
 
+- **Which records are the hits.** A discography page now marks how much each album is
+  listened to, from ListenBrainz, so a fifteen-album back catalogue tells you where to start
+  rather than leaving you to guess. The bar on each card is relative to that artist's own
+  biggest record, because fifty thousand plays means something completely different for an
+  obscure producer than for Radiohead, and the absolute figure sits beside it.
+
+  The order stays chronological, so an artist's arc over time still reads as one; the hits are
+  marked in place rather than sorted to the top. Shows on both an artist you own and one you
+  do not.
+
 - **Artists you own nothing by now turn up in search**, under "Not in your library" and above
   the records. Tapping one opens their discography, so finding a band you have never had is
   the same gesture as finding one you already own, and every album is one tap from a
@@ -66,6 +76,16 @@ Two things do not belong here, and leaving them out is what keeps it readable:
   There is a switch under Settings, Playback to turn it off.
 
 ### Changed
+
+- **Asking for an album no longer makes you wait for it.** Tapping Get puts it on a queue and
+  says so straight away; the searches, which take fifteen to twenty-five seconds each because
+  they wait on other people's clients, run one at a time in the background. Queue as many as
+  you like and go and do something else.
+
+  The Downloads screen is now where you watch all of it, including anything that went wrong.
+  A failure shows what the server actually said, with a Retry beside it, instead of a red
+  message that has gone by the time you look up. That matters most on a phone, where a
+  dropped request was previously a flash you could neither read nor act on.
 
 - "Jump back in" follows you between devices and survives a reinstall. It reads the server's
   own play history as well as this device's, so a new phone has a useful shelf on first login

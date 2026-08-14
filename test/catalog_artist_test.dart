@@ -7,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:plexify/core/catalog/catalog_models.dart';
+import 'package:plexify/core/catalog/listenbrainz_client.dart';
 import 'package:plexify/core/catalog/musicbrainz_client.dart';
 import 'package:plexify/core/db/app_database.dart';
 import 'package:plexify/core/plex/plex_models.dart';
@@ -83,6 +84,14 @@ void main() {
         databaseProvider.overrideWithValue(db),
         settingsStoreProvider.overrideWithValue(settings),
         catalogEnabledProvider.overrideWithValue(true),
+        // The discography asks ListenBrainz how much each record is played.
+        // Nothing here is about popularity, but the real client would reach the
+        // network, which a widget test refuses outright.
+        listenBrainzClientProvider.overrideWithValue(
+          ListenBrainzClient(
+            httpClient: MockClient((_) async => http.Response('[]', 200)),
+          ),
+        ),
         musicBrainzClientProvider.overrideWithValue(
           MusicBrainzClient(
             httpClient: MockClient(

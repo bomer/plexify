@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/catalog/catalog_models.dart';
+import '../../core/catalog/listenbrainz_client.dart';
 import 'catalog_artwork.dart';
 import 'download_sheet.dart';
 
@@ -21,10 +22,30 @@ class CatalogReleaseCard extends ConsumerWidget {
   const CatalogReleaseCard({
     required this.release,
     this.owned = false,
+    this.popularity,
+    this.peakListens,
     super.key,
   });
 
   final CatalogRelease release;
+
+  /// How much this record is listened to, when ListenBrainz knew.
+  final ReleasePopularity? popularity;
+
+  /// The listen count of the **most-listened record in the same discography**.
+  ///
+  /// **The bar is relative to this, and that is the whole design.** Fifty
+  /// thousand listens is a monstrous hit for an obscure producer and a rounding
+  /// error for Radiohead, so a globally scaled bar would draw every page for a
+  /// small artist as uniformly empty and every page for a large one as
+  /// uniformly full, which answers a question nobody asked. What is wanted is
+  /// "which of *these* are the ones people love", and that is only ever
+  /// relative to the row it is in.
+  ///
+  /// The absolute figure is still printed, because it is the thing that says
+  /// whether an artist is heard by thousands or by dozens, which the bar
+  /// deliberately hides.
+  final int? peakListens;
 
   /// Whether the library already holds this record.
   ///
@@ -103,17 +124,55 @@ class CatalogReleaseCard extends ConsumerWidget {
               if (release.year != null) '${release.year}',
               if (release.kind == ReleaseKind.ep) 'EP',
               if (owned) 'in your library',
+              if (popularity?.isKnown ?? false)
+                '${_short(popularity!.listens)} plays',
             ].join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: theme.textTheme.bodySmall?.copyWith(
               color: owned
                   ? theme.colorScheme.primary
                   : theme.colorScheme.onSurfaceVariant,
             ),
           ),
+          if (_share case final share?) ...[
+            const SizedBox(height: 4),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: share,
+                minHeight: 3,
+                backgroundColor: theme.colorScheme.surfaceContainerHighest,
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
+}
+
+/// This record's listens as a fraction of the biggest in its own discography,
+/// or null when there is nothing to compare against.
+///
+/// Null rather than zero when the peak is zero or missing: a row of empty bars
+/// says "nobody listens to any of this", which is a claim, whereas no bars at
+/// all correctly says nothing. Dividing by a zero peak is the obvious way to
+/// get that backwards.
+extension on CatalogReleaseCard {
+  double? get _share {
+    final listens = popularity?.listens;
+    final peak = peakListens;
+    if (listens == null || peak == null || peak <= 0) return null;
+    return (listens / peak).clamp(0.0, 1.0);
+  }
+}
+
+/// Listen counts as something readable at the size of a card subtitle.
+String _short(int value) {
+  if (value >= 1000000) return '${(value / 1000000).toStringAsFixed(1)}M';
+  if (value >= 1000) return '${(value / 1000).toStringAsFixed(1)}k';
+  return '$value';
 }
 
 /// Sits where the download button would be, so the two states read the same way

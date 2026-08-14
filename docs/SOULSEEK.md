@@ -111,12 +111,30 @@ An id is an id right up until it is not, and this was the first thing the client
 against a real server. `SlskdClient.startSearch` sends a v4 UUID and then prefers whatever id
 comes back in the response body over the one it sent.
 
-### Searches must be deleted
+### Searches are deliberately *not* deleted
 
-Completed searches persist on the server until removed, exactly as qBittorrent's do. Leaking
-one per attempt accumulates state on a machine the user runs and did not ask to have filled
-up, so `SlskdClient.search` deletes in a `finally` and a test asserts that it still does so
-when polling throws.
+`QbitClient.search` deletes its own and is right to: qBittorrent caps how many it keeps, so
+leaking them stops searching working after a few dozen attempts.
+
+slskd has no such cap, and its search history is **useful**. It is where you go when this app
+has not done what you wanted, and downloading from it by hand is a working fallback. Deleting
+it was qBittorrent's reasoning applied without checking that it transferred. The two clients
+mirror each other closely enough that this difference would otherwise read as an oversight.
+
+### A search is not finished just because it has not started
+
+States run **`Requested` → `InProgress` → `Completed, …`**, and the first poll lands within
+milliseconds of the POST, while the state is still `Requested`.
+
+`SlskdSearch.isComplete` was written as `!state.contains('inprogress')`, which answers *yes* to
+`Requested`. The client read an empty response list about fifty milliseconds in and reported
+that nobody had the record, while slskd carried on and filled the search in perfectly. It
+presented as downloads failing at random, because occasionally the state had already flipped
+by the time the poll arrived, and as a search sitting complete in slskd's own web UI that
+downloaded fine by hand.
+
+**Ask positively.** A negative check answers "finished" to every state it has never heard of;
+a positive one answers "not yet", and the worst that costs is polling until the deadline.
 
 ### `Completed, TimedOut` is success
 

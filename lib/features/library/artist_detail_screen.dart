@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/audio/playback_source.dart';
 
+import '../../core/catalog/listenbrainz_client.dart';
 import '../acquire/catalog_release_card.dart';
 import '../../core/plex/plex_models.dart';
 import '../../core/providers.dart';
@@ -233,6 +234,19 @@ class _MissingAlbums extends ConsumerWidget {
       );
     }
 
+    // One request for the whole grid, keyed on exactly what is in it. Missing
+    // albums are the ones you might want, so which of them people actually
+    // listen to is the useful thing to know about them.
+    final popularity =
+        ref
+            .watch(popularityProvider(popularityKey(data.releases)))
+            .valueOrNull ??
+        const <String, ReleasePopularity>{};
+    final peak = popularity.values.fold(
+      0,
+      (best, p) => p.listens > best ? p.listens : best,
+    );
+
     if (data.releases.isEmpty) {
       return SliverToBoxAdapter(
         child: Padding(
@@ -299,8 +313,11 @@ class _MissingAlbums extends ConsumerWidget {
               mainAxisSpacing: 16,
             ),
             itemCount: data.releases.length,
-            itemBuilder: (context, i) =>
-                CatalogReleaseCard(release: data.releases[i]),
+            itemBuilder: (context, i) => CatalogReleaseCard(
+              release: data.releases[i],
+              popularity: popularity[data.releases[i].mbid],
+              peakListens: peak,
+            ),
           ),
         ),
       ],

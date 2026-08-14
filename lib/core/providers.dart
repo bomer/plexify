@@ -22,6 +22,7 @@ import 'audio/timeline_reporter.dart';
 import 'catalog/catalog_matcher.dart';
 import 'catalog/catalog_models.dart';
 import 'catalog/catalog_service.dart';
+import 'catalog/listenbrainz_client.dart';
 import 'catalog/catalog_store.dart';
 import 'catalog/musicbrainz_client.dart';
 import 'db/app_database.dart';
@@ -1411,6 +1412,44 @@ final ownedIndexProvider = StreamProvider.autoDispose<OwnedIndex>((ref) async* {
     ]);
   }
 });
+
+/// ListenBrainz, which knows what people actually play.
+final listenBrainzClientProvider = Provider<ListenBrainzClient>((ref) {
+  final client = ListenBrainzClient();
+  ref.onDispose(client.close);
+  return client;
+});
+
+/// How much each of a set of records is listened to.
+///
+/// Keyed on the whole set so a discography is one request rather than one per
+/// card. `autoDispose` and unpersisted: a batched request per page visit is
+/// cheap, and a drift table for a number that moves this slowly is not worth a
+/// schema bump.
+///
+/// **The key is a joined string, and it has to be.** The obvious shape is a
+/// record holding the list of ids, and it silently never terminates: records
+/// compare their fields with `==`, and `List.==` is *identity*, so a fresh list
+/// built during `build` is a new family key on every rebuild. That is a new
+/// provider, a new request, and another rebuild, forever. It presents as a page
+/// that never settles and a request every frame at somebody else's service.
+/// A `String` compares by value, so the same set is the same key.
+///
+/// **Never surfaces an error.** A failure is an empty map, which renders as the
+/// page did before this existed. Popularity must not be able to break a
+/// discography.
+final popularityProvider = FutureProvider.autoDispose
+    .family<Map<String, ReleasePopularity>, String>((ref, joinedMbids) async {
+      if (!ref.watch(catalogEnabledProvider)) return const {};
+      final mbids = joinedMbids.split(',').where((s) => s.isNotEmpty).toList();
+      if (mbids.isEmpty) return const {};
+      return ref.watch(listenBrainzClientProvider).popularityFor(mbids);
+    });
+
+/// The family key for a set of releases. One place, so no call site invents a
+/// key shape that compares by identity. See [popularityProvider].
+String popularityKey(Iterable<CatalogRelease> releases) =>
+    releases.map((r) => r.mbid).join(',');
 
 /// Records matching a search, minus the ones already in the library.
 ///
