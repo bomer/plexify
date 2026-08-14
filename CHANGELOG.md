@@ -24,6 +24,8 @@ Two things do not belong here, and leaving them out is what keeps it readable:
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-08-13
+
 ### Added
 
 - **Which records are the hits.** A discography page now marks how much each album is

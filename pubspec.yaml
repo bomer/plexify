@@ -20,7 +20,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # the About screen shows. test/version_test.dart fails if they drift apart.
 # Not 1.0 yet: the catalog tier of search, sonic radio and acquisition are
 # still unbuilt, and calling this 1.0 would make the version say otherwise.
-version: 0.9.0+1
+version: 0.9.1+2
 
 environment:
   sdk: ^3.12.2

@@ -60,9 +60,10 @@ class PlexIdentity {
   ///
   /// Must match `version:` in pubspec.yaml, which is where the Android
   /// versionName and the Windows file version come from. There is no way to
-  /// read that from Dart without a plugin, so `test/version_test.dart` asserts
-  /// the two agree instead.
-  static const version = '0.9.0';
+  /// read that from Dart without a plugin, so `test/packaging_test.dart`
+  /// asserts the two agree instead: bumping one and forgetting the other ships
+  /// a build that tells Plex the wrong version of itself.
+  static const version = '0.9.1';
 
   static PlexIdentity? _cached;
 
