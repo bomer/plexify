@@ -144,6 +144,76 @@ void main() {
       );
     }
 
+    test('a search is not finished just because it has not started', () async {
+      // **The bug that made downloads fail intermittently, in one test.**
+      //
+      // slskd's states run Requested -> InProgress -> Completed, TimedOut, and
+      // the first poll lands within milliseconds of the POST, while the state
+      // is still Requested. Asking "is it complete" as `!contains(inprogress)`
+      // answers *yes* to Requested, so the client read an empty response list
+      // about 50ms in and reported nothing found, while slskd carried on and
+      // filled the search in perfectly. That is why the search was sitting
+      // complete in the web UI and downloaded fine by hand.
+      //
+      // The fake this file already had began at InProgress, so it never
+      // modelled the moment the bug happens. Sixteen passing tests and a
+      // client that could not finish a search.
+      var polls = 0;
+      final client = MockClient((request) async {
+        final path = request.url.path;
+
+        if (path.endsWith('/responses')) {
+          // Empty until the search has actually run, which is the honest
+          // behaviour: there is nothing to return yet.
+          return http.Response(
+            polls >= 3
+                ? jsonEncode([
+                    {
+                      'username': 'peer',
+                      'hasFreeUploadSlot': true,
+                      'files': [
+                        {
+                          'filename': r'@@m\Radiohead\Kid A\01.flac',
+                          'size': 1,
+                          'extension': 'flac',
+                        },
+                      ],
+                    },
+                  ])
+                : '[]',
+            200,
+          );
+        }
+
+        if (request.method == 'GET' && path.contains('/searches/')) {
+          polls++;
+          return http.Response(
+            jsonEncode({
+              'id': 'x',
+              'state': switch (polls) {
+                1 => 'Requested',
+                2 => 'InProgress',
+                _ => 'Completed, TimedOut',
+              },
+            }),
+            200,
+          );
+        }
+        return http.Response('{}', 200);
+      });
+
+      final responses = await build(
+        client,
+      ).search('radiohead kid a', pollInterval: Duration.zero);
+
+      expect(
+        responses,
+        hasLength(1),
+        reason: 'gave up before the search had begun',
+      );
+      expect(polls, greaterThanOrEqualTo(3));
+    });
+
     test('the search id is a GUID, because slskd parses it as one', () async {
       // Measured, not assumed. The first live search against James's server
       // answered 400 with a .NET type name:
@@ -220,28 +290,50 @@ void main() {
       expect(responses.single.files.single.suffix, 'flac');
     });
 
-    test('the search is always deleted, including when polling throws', () async {
+    test('the search is left on the server, unlike qBittorrent', () async {
+      final fake = searching();
+
+      await build(fake.client).search('anything', pollInterval: Duration.zero);
+
+      // **The opposite of what this asserted at first.** qBittorrent caps how
+      // many searches it keeps, so leaking them breaks searching after a few
+      // dozen. slskd has no cap, and its search history is where you go when
+      // this app has not done what you wanted: downloading from it by hand is
+      // a working fallback, and deleting it takes that away.
+      expect(fake.requests.where((r) => r.method == 'DELETE'), isEmpty);
+    });
+
+    test('a failure on the way is reported rather than swallowed', () async {
       final fake = searching(throwOnState: true);
 
       await expectLater(
         build(fake.client).search('anything', pollInterval: Duration.zero),
         throwsA(isA<SlskdException>()),
       );
-
-      // Completed searches persist on the server until removed, so leaking one
-      // per attempt fills up a machine the user runs.
-      expect(
-        fake.requests.where((r) => r.method == 'DELETE'),
-        isNotEmpty,
-        reason: 'a failed search must still be cleaned up',
-      );
     });
 
-    test('a search that never finishes gives up and keeps what arrived', () async {
+    test('a search that never finishes keeps what arrived anyway', () async {
+      // A peer that answered is a peer that answered, whether or not slskd ever
+      // got round to declaring the search over. Returning nothing here would
+      // throw away a perfectly good result because of a state string.
       var polls = 0;
       final fake = MockClient((request) async {
         if (request.url.path.endsWith('/responses')) {
-          return http.Response('[]', 200);
+          return http.Response(
+            jsonEncode([
+              {
+                'username': 'slow-peer',
+                'files': [
+                  {
+                    'filename': r'@@m\Radiohead\Kid A\01.flac',
+                    'size': 1,
+                    'extension': 'flac',
+                  },
+                ],
+              },
+            ]),
+            200,
+          );
         }
         if (request.method == 'GET' && request.url.path.contains('/searches/')) {
           polls++;
@@ -259,7 +351,7 @@ void main() {
         pollInterval: Duration.zero,
       );
 
-      expect(responses, isEmpty);
+      expect(responses, hasLength(1));
       expect(polls, greaterThan(0), reason: 'it should have polled at all');
     });
   });

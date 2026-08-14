@@ -184,13 +184,27 @@ class SlskdSearch {
   final int responseCount;
   final int fileCount;
 
-  /// A search is done when it stops being in progress, however it ended.
+  /// A search is done when slskd says `Completed`, however it ended.
   ///
   /// `Completed, TimedOut` is the *normal* ending, not a failure: a Soulseek
   /// search has no natural end, so slskd stops waiting after its timeout and
   /// keeps whatever arrived. Treating that as an error would discard every
   /// successful search.
-  bool get isComplete => !state.toLowerCase().contains('inprogress');
+  ///
+  /// **Asked positively, and that is the whole point.** This was once
+  /// `!contains('inprogress')`, which is subtly and expensively wrong: the
+  /// states run `Requested` → `InProgress` → `Completed, …`, and the first poll
+  /// lands within milliseconds of the POST while the state is still
+  /// `Requested`. That does not contain `inprogress`, so it read as finished
+  /// before the search had begun, the client fetched an empty response list and
+  /// reported that nobody had the record, while slskd carried on and filled the
+  /// search in perfectly. It presented as downloads failing at random, because
+  /// occasionally the state had already flipped by the time the poll arrived.
+  ///
+  /// A negative check answers "yes" to every state it has never heard of. A
+  /// positive one answers "not yet", which is the safe way round: the worst it
+  /// costs is polling until the deadline.
+  bool get isComplete => state.toLowerCase().contains('completed');
 
   factory SlskdSearch.fromJson(Map<String, dynamic> json) => SlskdSearch(
     id: _str(json['id']) ?? '',

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../core/acquire/acquire_queue.dart';
 import '../../core/acquire/download_source.dart';
 import '../../core/providers.dart';
 import '../settings/download_source_screen.dart';
@@ -45,6 +46,9 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
     final monitor = ref.watch(downloadMonitorProvider);
     final downloads = ref.watch(downloadsProvider);
     final kind = ref.watch(downloadSourceKindProvider);
+    final requests =
+        ref.watch(acquireRequestsProvider).valueOrNull ??
+        const <AcquireRequest>[];
 
     return Scaffold(
       appBar: AppBar(
@@ -77,9 +81,17 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                         ),
                       ),
                     ),
+                  // **Above the transfers, because this is the part that is
+                  // still being worked out.** A request here has not reached
+                  // the server yet, so it appears nowhere else at all, and a
+                  // failure here is the one thing on this screen that needs
+                  // something doing about it.
+                  for (final request in requests) _RequestTile(request: request),
+
                   ...switch (downloads.valueOrNull) {
                     null => [const _Waiting()],
-                    final list when list.isEmpty => [const _Nothing()],
+                    final list when list.isEmpty =>
+                      requests.isEmpty ? [const _Nothing()] : const <Widget>[],
                     final list => [
                       for (final job in list) _JobTile(job: job),
                     ],
@@ -99,6 +111,78 @@ class _DownloadsScreenState extends ConsumerState<DownloadsScreen> {
                 ],
               ),
             ),
+    );
+  }
+}
+
+/// One album this app is still trying to find, before any server has it.
+///
+/// **Where a failure becomes readable.** These used to be snackbars, which on a
+/// phone over 5G is a red flash that has gone by the time you look up, cannot
+/// be re-read and cannot be acted on. Here the server's own words sit next to a
+/// Retry button, which is the right answer for the failure that actually
+/// happens: a request that timed out on a flaky mobile link.
+class _RequestTile extends ConsumerWidget {
+  const _RequestTile({required this.request});
+
+  final AcquireRequest request;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final failed = request.stage == AcquireStage.failed;
+    final missing = request.stage == AcquireStage.notFound;
+
+    return ListTile(
+      leading: switch (request.stage) {
+        AcquireStage.searching => const SizedBox(
+          width: 24,
+          height: 24,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+        AcquireStage.waiting => const Icon(Icons.schedule),
+        AcquireStage.handedOver => Icon(
+          Icons.playlist_add_check,
+          color: theme.colorScheme.primary,
+        ),
+        AcquireStage.notFound => const Icon(Icons.search_off),
+        AcquireStage.failed => Icon(
+          Icons.error_outline,
+          color: theme.colorScheme.error,
+        ),
+      },
+      title: Text(
+        '${request.release.artist} · ${request.release.title}',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: theme.textTheme.bodyMedium,
+      ),
+      subtitle: Text(
+        switch (request.stage) {
+          AcquireStage.waiting => 'Waiting its turn',
+          AcquireStage.searching => 'Searching',
+          AcquireStage.handedOver =>
+            request.detail == null
+                ? 'Handed to the download server'
+                : 'Queued ${request.detail}',
+          // The server's own words, which is the whole point of keeping them.
+          AcquireStage.notFound || AcquireStage.failed =>
+            request.detail ?? 'Did not work',
+        },
+        style: failed
+            ? theme.textTheme.bodySmall?.copyWith(
+                color: theme.colorScheme.error,
+              )
+            : theme.textTheme.bodySmall,
+      ),
+      isThreeLine: failed || missing,
+      trailing: failed || missing
+          ? TextButton(
+              onPressed: () =>
+                  ref.read(acquireQueueProvider).retry(request.id),
+              child: const Text('Retry'),
+            )
+          : null,
     );
   }
 }

@@ -6,6 +6,7 @@ import '../../core/acquire/download_source.dart';
 import '../../core/catalog/catalog_models.dart';
 import '../../core/providers.dart';
 import '../settings/download_source_screen.dart';
+import 'downloads_screen.dart';
 
 export '../../core/acquire/download_source.dart' show formatBytes;
 
@@ -27,64 +28,38 @@ export '../../core/acquire/download_source.dart' show formatBytes;
 ///
 /// Everything here reads [AcquireCandidate] and nothing here knows which server
 /// produced it. That is the point: this screen was written once.
-Future<void> acquire(
-  BuildContext context,
-  WidgetRef ref,
-  CatalogRelease release,
-) async {
-  final controller = await ref.read(downloadSourceProvider.future);
-  if (!context.mounted) return;
-  if (controller == null) {
-    _notConfigured(context, ref);
-    return;
-  }
+void acquire(BuildContext context, WidgetRef ref, CatalogRelease release) {
+  final kind = ref.read(downloadSourceKindProvider);
+  final added = ref.read(acquireQueueProvider).add(release);
 
-  final outcome = await _whileSearching(
-    context,
-    release,
-    controller.kind,
-    () => controller.queueBest(release),
-  );
-  if (!context.mounted) return;
-
-  if (outcome.error != null) {
-    _report(context, outcome.error!, isError: true);
-    if (outcome.candidates.isNotEmpty) {
-      await showAcquireSheet(context, ref, release, prefetched: outcome);
-    }
-    return;
-  }
-
-  if (outcome.candidates.isEmpty) {
-    // Said out loud. A search that finds nothing is an ordinary outcome — the
-    // plugins have nothing, or the album is obscure — and silence after a
-    // twenty-second wait is indistinguishable from the app having given up.
-    _report(
-      context,
-      'No downloads found for ${release.artist} — ${release.title}',
-    );
-    return;
-  }
-
-  final queued = outcome.queued;
-  if (queued == null) {
-    // Found things, none of them confidently this record. Deliberately not a
-    // "best guess" — showing the list is the honest answer and costs one tap.
-    await showAcquireSheet(context, ref, release, prefetched: outcome);
-    return;
-  }
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text('Queued ${queued.title}'),
-      duration: const Duration(seconds: 6),
-      action: SnackBarAction(
-        label: 'Change',
-        onPressed: () =>
-            unawaitedSheet(context, ref, release, prefetched: outcome),
+  // **One message, and the previous one is dismissed first.**
+  //
+  // This used to search inline and hold a progress banner for the fifteen to
+  // twenty-five seconds a Soulseek search takes. Snackbars queue, so asking for
+  // three albums left six of them playing out one after another long after
+  // their searches had finished, and you would sit watching "Searching, up to
+  // 30 seconds" for something that finished a minute ago. Replacing rather than
+  // enqueueing is what makes tapping four albums in a row read sensibly.
+  ScaffoldMessenger.of(context)
+    ..hideCurrentSnackBar()
+    ..showSnackBar(
+      SnackBar(
+        content: Text(
+          added
+              // Named rather than "added to queue", because after four taps the
+              // useful question is which ones you already asked for.
+              ? 'Looking for ${release.title} on ${kind.label}'
+              : '${release.title} is already on the list',
+        ),
+        duration: const Duration(seconds: 4),
+        action: SnackBarAction(
+          label: 'Downloads',
+          onPressed: () => Navigator.of(context).push(
+            MaterialPageRoute<void>(builder: (_) => const DownloadsScreen()),
+          ),
+        ),
       ),
-    ),
-  );
+    );
 }
 
 /// Fire-and-forget wrapper so a `SnackBarAction` can open the sheet.

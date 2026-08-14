@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 
 import '../features/acquire/acquire_controller.dart';
 import '../features/acquire/slskd_acquire_controller.dart';
+import 'acquire/acquire_queue.dart';
 import 'acquire/download_monitor.dart';
 import 'acquire/download_source.dart';
 import 'slskd/slskd_client.dart';
@@ -1655,6 +1656,36 @@ final downloadSourceProvider = FutureProvider<DownloadSource?>((ref) async {
       final client = await ref.watch(slskdClientProvider.future);
       return client == null ? null : SlskdAcquireController(client);
   }
+});
+
+/// Albums asked for, searched one at a time in the background.
+///
+/// Session-lived for the same reason [downloadMonitorProvider] is, and watched
+/// by [AppShell] for the same reason: it has no UI of its own, and without a
+/// listener it would be built and torn down with whichever screen happened to
+/// ask, taking the queue with it.
+///
+/// Reads the source lazily through a callback rather than capturing one, so
+/// switching between qBittorrent and Soulseek in Settings takes effect on the
+/// next search rather than needing the queue rebuilt underneath it.
+final acquireQueueProvider = Provider<AcquireQueue>((ref) {
+  final queue = AcquireQueue(
+    source: () => ref.read(downloadSourceProvider.future),
+  );
+  ref.onDispose(queue.close);
+  return queue;
+});
+
+/// The queue, live. Seeded so opening Downloads shows it immediately rather
+/// than waiting for the next change.
+final acquireRequestsProvider = StreamProvider<List<AcquireRequest>>((ref) {
+  final queue = ref.watch(acquireQueueProvider);
+  return queue.stream.transform(
+    StreamTransformer.fromBind((stream) async* {
+      yield queue.requests;
+      yield* stream;
+    }),
+  );
 });
 
 /// Watches what is arriving and asks Plex to rescan when something lands.

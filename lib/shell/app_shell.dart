@@ -215,6 +215,10 @@ class _AppShellState extends ConsumerState<AppShell> {
     // *and* the catalog switch is on — so a phone with the feature off never
     // constructs it and never makes a request.
     ref.watch(downloadMonitorProvider);
+    // Same again. The queue searches one album at a time in the background, so
+    // it has to outlive the screen the request was made from: tapping Get on an
+    // artist page and navigating away must not abandon the search.
+    ref.watch(acquireQueueProvider);
     // The scheduler is kept alive here for a second reason: signing out has to
     // be able to *stop* it before wiping the cache, and reading a provider that
     // is not yet alive would construct one — which starts a sync at the exact

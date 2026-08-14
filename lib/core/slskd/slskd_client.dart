@@ -148,8 +148,6 @@ class SlskdClient {
     ];
   }
 
-  Future<void> deleteSearch(String id) => _delete('/searches/$id');
-
   /// Runs a search to completion, or until [timeout].
   ///
   /// Bounded on this side as well as the server's, because a server that stops
@@ -157,9 +155,13 @@ class SlskdClient {
   /// arrived by then is returned: partial results from the peers who answered
   /// beat an error caused by the ones who did not.
   ///
-  /// **Always deletes the search.** Completed searches persist on the server
-  /// until removed, so leaking them accumulates state on a machine the user
-  /// runs and did not ask to have filled up.
+  /// **The search is deliberately left on the server.** `QbitClient.search`
+  /// deletes its own, and is right to: qBittorrent caps how many it will keep,
+  /// so leaking them stops searching working after a few dozen attempts. slskd
+  /// has no such cap, and its search history is *useful* — it is where you go
+  /// when this app has not done what you wanted, and downloading from it by
+  /// hand is a working fallback. Deleting it was qBittorrent's reasoning
+  /// applied without checking that it transferred.
   Future<List<SlskdResponse>> search(
     String text, {
     Duration timeout = const Duration(seconds: 25),
@@ -168,22 +170,16 @@ class SlskdClient {
     final id = await startSearch(text);
     final deadline = DateTime.now().add(timeout);
 
-    try {
-      while (DateTime.now().isBefore(deadline)) {
-        final state = await searchState(id);
-        if (state.isComplete) break;
-        await Future<void>.delayed(pollInterval);
-      }
-      return await searchResponses(id);
-    } finally {
-      // Best effort. A search that produced results is still a success even if
-      // tidying it away fails.
-      try {
-        await deleteSearch(id);
-      } on Object {
-        // Already gone, most likely.
-      }
+    while (DateTime.now().isBefore(deadline)) {
+      final state = await searchState(id);
+      if (state.isComplete) break;
+      await Future<void>.delayed(pollInterval);
     }
+
+    // Read whatever exists, whether the search finished or the deadline did.
+    // A search still running at the deadline has usually collected most of what
+    // it is going to, so partial results beat none.
+    return searchResponses(id);
   }
 
   /// Queues [files] from one peer.
@@ -235,10 +231,6 @@ class SlskdClient {
       ),
     ),
   );
-
-  Future<void> _delete(String path) async {
-    await _send(() => _http.delete(_uri(path), headers: _headers()));
-  }
 
   Uri _uri(String path) => Uri.parse('$baseUrl$_api$path');
 
